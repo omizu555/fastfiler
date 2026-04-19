@@ -17,6 +17,7 @@ import {
   movePath,
 } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
+import { openPrompt } from "./PromptDialog";
 import {
   setPanePath,
   setPaneSelection,
@@ -171,7 +172,21 @@ export default function FileList(props: Props) {
     const sel = pane().selection;
     if (sel.length !== 1) return;
     const oldName = sel[0];
-    const newName = window.prompt("新しい名前", oldName);
+    const existing = new Set(visible().map((e) => e.name));
+    existing.delete(oldName);
+    const newName = await openPrompt({
+      title: "名前の変更",
+      label: oldName,
+      initial: oldName,
+      confirmLabel: "変更",
+      validate: (v) => {
+        const t = v.trim();
+        if (!t) return "名前を入力してください";
+        if (/[\\/:*?"<>|]/.test(t)) return "使用できない文字が含まれています";
+        if (existing.has(t)) return "同名の項目が既に存在します";
+        return null;
+      },
+    });
     if (newName && newName !== oldName) {
       try {
         await renamePath(joinPath(pane().path, oldName), joinPath(pane().path, newName));
@@ -181,10 +196,29 @@ export default function FileList(props: Props) {
   };
 
   const doNewFolder = async () => {
-    const name = window.prompt("新規フォルダ名", "新しいフォルダ");
+    const existing = new Set(visible().map((e) => e.name));
+    let initial = "新しいフォルダー";
+    if (existing.has(initial)) {
+      let i = 2;
+      while (existing.has(`${initial} (${i})`)) i++;
+      initial = `${initial} (${i})`;
+    }
+    const name = await openPrompt({
+      title: "新しいフォルダー",
+      label: "フォルダー名",
+      initial,
+      confirmLabel: "作成",
+      validate: (v) => {
+        const t = v.trim();
+        if (!t) return "名前を入力してください";
+        if (/[\\/:*?"<>|]/.test(t)) return "使用できない文字が含まれています";
+        if (existing.has(t)) return "同名の項目が既に存在します";
+        return null;
+      },
+    });
     if (!name) return;
     try {
-      await createDir(joinPath(pane().path, name));
+      await createDir(joinPath(pane().path, name.trim()));
       refetch();
     } catch (e) { alert(`作成失敗: ${e}`); }
   };

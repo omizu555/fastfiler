@@ -581,3 +581,16 @@ button.primary:hover { filter: brightness(1.1); }
 .plugin-row { display: flex; align-items: flex-start; gap: 8px; }
 .plugin-toggle { display: flex; align-items: center; padding-top: 2px; }
 .plugin-info { flex: 1; min-width: 0; }
+
+/* PromptDialog */
+.prompt-modal { min-width: 360px; max-width: 460px; }
+.prompt-modal .modal-body { gap: 8px; }
+.prompt-label { font-size: 12px; color: var(--muted); }
+.prompt-input {
+  width: 100%; box-sizing: border-box;
+  padding: 8px 10px; font-size: 14px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  color: var(--fg); outline: none;
+}
+.prompt-input:focus { border-color: var(--accent); }
+.prompt-error { color: #e06c75; font-size: 12px; }

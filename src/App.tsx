@@ -6,6 +6,7 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import ToastContainer from "./components/ToastContainer";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
+import PromptDialog from "./components/PromptDialog";
 import {
   state,
   setInitialPath,
@@ -123,6 +124,13 @@ export default function App() {
       }
     };
     window.addEventListener("keydown", onKey);
+    // ブラウザ既定の右クリックメニューを抑止 (テキスト入力要素では許可)
+    const onCtx = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onCtx);
   });
 
   const showTabs = createMemo(() => state.workspace.panelDock?.tabs.slot !== "hidden");
@@ -164,6 +172,7 @@ export default function App() {
         <DockArea slot="bottom" />
       </div>
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
+      <PromptDialog />
       <ToastContainer />
     </div>
   );
