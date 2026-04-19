@@ -20,8 +20,10 @@ export default function VerticalTabs() {
   const panelStyle = createMemo(() => {
     const s = slot();
     const sz = state.workspace.panelDock?.tabs.size ?? 240;
-    if (s === "top" || s === "bottom") return { height: sz + "px", width: "100%" };
-    return { width: sz + "px", height: "100%" };
+    // 同 slot 内で複数パネルが共存する可能性があるため、主軸方向 (積み重ね) のサイズは flex で分配し、
+    // 交差軸 (slot の厚み) のみ size 指定する
+    if (s === "top" || s === "bottom") return { height: sz + "px", width: "auto", flex: "1 1 0" };
+    return { width: sz + "px", height: "auto", flex: "1 1 0" };
   });
 
   const findLeaf = (n: any): string | null => {
