@@ -185,6 +185,9 @@ export function persist() {
 // 起動時、移行された panelDock を即座に保存しておく
 if (loaded) persist();
 
+// デバッグ用: ブラウザ Console から state を確認可能にする
+if (typeof window !== "undefined") (window as any).__ff = { state, persist };
+
 export function setInitialPath(path: string) {
   if (!loaded) {
     const id = state.tabs[0].id;
