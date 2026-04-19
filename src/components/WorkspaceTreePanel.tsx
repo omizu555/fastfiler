@@ -58,6 +58,28 @@ function joinPath(base: string, name: string): string {
   return base + "\\" + name;
 }
 
+const UNC_LS_KEY = "fastfiler.uncShares";
+
+function loadUncShares(): Set<string> {
+  try {
+    const raw = localStorage.getItem(UNC_LS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.filter((x): x is string => typeof x === "string" && x.startsWith("\\\\")));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveUncShares(s: Set<string>) {
+  try {
+    localStorage.setItem(UNC_LS_KEY, JSON.stringify(Array.from(s)));
+  } catch {
+    // ignore
+  }
+}
+
 interface NodeProps {
   path: string;
   label: string;
@@ -65,6 +87,7 @@ interface NodeProps {
   depth: number;
   expanded: () => Set<string>;
   toggle: (p: string) => void;
+  onContextMenu?: (e: MouseEvent) => void;
 }
 
 function TreeNode(props: NodeProps) {
@@ -105,6 +128,13 @@ function TreeNode(props: NodeProps) {
         classList={{ current: isCurrent() }}
         style={{ "padding-left": `${props.depth * 14}px` }}
         onClick={onClick}
+        onContextMenu={(e) => {
+          if (props.onContextMenu) {
+            e.preventDefault();
+            e.stopPropagation();
+            props.onContextMenu(e);
+          }
+        }}
         title={props.title ?? props.path}
       >
         <span
@@ -143,6 +173,8 @@ export default function WorkspaceTreePanel() {
     try { return await listDrives(); } catch { return []; }
   });
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
+  // 開いた UNC 共有 (\\server\share) を蓄積。サーバ別にツリー先頭にグルーピング表示
+  const [uncShares, setUncShares] = createSignal<Set<string>>(loadUncShares());
 
   const toggle = (path: string) => {
     setExpanded((old) => {
@@ -168,12 +200,23 @@ export default function WorkspaceTreePanel() {
         const rest = norm.slice(2);
         const parts = rest.split("\\").filter(Boolean);
         if (parts.length < 2) return next; // \\server だけでは share 未確定
-        let acc = `\\\\${parts[0]}\\${parts[1]}`;
-        next.add(normalize(acc));
+        const server = `\\\\${parts[0]}`;
+        const share = `\\\\${parts[0]}\\${parts[1]}`;
+        next.add(normalize(server));
+        next.add(normalize(share));
+        let acc = share;
         for (let i = 2; i < parts.length; i++) {
           acc = acc + "\\" + parts[i];
           next.add(normalize(acc));
         }
+        // share をツリーに登録 (記憶)
+        setUncShares((old) => {
+          if (old.has(share)) return old;
+          const ns = new Set(old);
+          ns.add(share);
+          saveUncShares(ns);
+          return ns;
+        });
         return next;
       }
       const parts = norm.split("\\").filter(Boolean);
@@ -185,6 +228,32 @@ export default function WorkspaceTreePanel() {
       return next;
     });
   });
+
+  // UNC を server -> shares[] にグルーピング
+  const uncServers = createMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const sh of uncShares()) {
+      // sh = \\server\share
+      const m = sh.match(/^\\\\([^\\]+)\\([^\\]+)$/);
+      if (!m) continue;
+      const server = `\\\\${m[1]}`;
+      if (!map.has(server)) map.set(server, []);
+      map.get(server)!.push(sh);
+    }
+    return Array.from(map.entries())
+      .map(([server, shares]) => ({ server, shares: shares.sort() }))
+      .sort((a, b) => a.server.localeCompare(b.server));
+  });
+
+  const removeShare = (share: string) => {
+    setUncShares((old) => {
+      if (!old.has(share)) return old;
+      const ns = new Set(old);
+      ns.delete(share);
+      saveUncShares(ns);
+      return ns;
+    });
+  };
 
   const width = createMemo(() => state.workspace.treeWidth);
 
@@ -236,6 +305,44 @@ export default function WorkspaceTreePanel() {
                 toggle={toggle}
               />
             )}
+          </For>
+          <For each={uncServers()}>
+            {(srv) => {
+              const isOpen = () => expanded().has(normalize(srv.server));
+              return (
+                <>
+                  <div
+                    class="tree-row"
+                    style={{ "padding-left": "0px" }}
+                    onClick={() => toggle(srv.server)}
+                    title={srv.server}
+                  >
+                    <span
+                      class="tree-toggle"
+                      onClick={(e) => { e.stopPropagation(); toggle(srv.server); }}
+                    >{isOpen() ? "▾" : "▸"}</span>
+                    <span class="tree-label">🖥️ {srv.server}</span>
+                  </div>
+                  <Show when={isOpen()}>
+                    <For each={srv.shares}>
+                      {(sh) => (
+                        <TreeNode
+                          path={sh}
+                          label={`🌐 ${sh}`}
+                          title={`${sh} (記憶された共有 - 右クリックで削除)`}
+                          depth={1}
+                          expanded={expanded}
+                          toggle={toggle}
+                          onContextMenu={() => {
+                            if (confirm(`ツリーから ${sh} を削除しますか?`)) removeShare(sh);
+                          }}
+                        />
+                      )}
+                    </For>
+                  </Show>
+                </>
+              );
+            }}
           </For>
         </Show>
       </div>

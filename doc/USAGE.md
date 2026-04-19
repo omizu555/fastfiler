@@ -557,6 +557,13 @@ UI を構成するパネル位置を切り替えられます。
 - 親フォルダ移動 (Backspace): `\\server\share\sub` → `\\server\share` → ドライブ一覧、と段階的に遡ります。
 - ツリーの祖先自動展開: UNC ルートを起点に展開ロジックが動きます。
 
+### ツリーへの UNC 共有の自動登録
+UNC パスを開くと、対応する `\\server\share` がワークスペースツリーの **🖥️ サーバノード** 配下に自動登録され、次回以降ワンクリックで再アクセスできます。
+
+- サーバ単位 (`\\Himed`) でグルーピング → 配下に複数共有 (`\\Himed\音楽`, `\\Himed\写真`...) が並びます。
+- 共有ノードを **右クリック** で「ツリーから削除」できます (実体は削除されません)。
+- 登録は `localStorage` に保存され、再起動後も保持されます。
+
 ### 実装メモ
 - Win32 API: `GetDriveTypeW`, `GetVolumeInformationW`, `WNetGetConnectionW`
 - Rust 側 `DriveInfo` に `kind: String`, `remote_path: Option<String>` を追加 (JSON では `kind` / `remotePath`)
