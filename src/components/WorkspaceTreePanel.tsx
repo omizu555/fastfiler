@@ -11,6 +11,7 @@ import {
 } from "../store";
 import type { DriveInfo, PaneNode } from "../types";
 import { driveDisplayLabel, driveIcon, driveTitle } from "../drive-util";
+import PanelHeader from "./PanelHeader";
 
 function leavesOf(n: PaneNode): string[] {
   if (n.kind === "leaf") return [n.paneId];
@@ -231,18 +232,29 @@ export default function WorkspaceTreePanel() {
     });
   };
 
+  const slot = createMemo(() => state.workspace.panelDock?.tree.slot ?? "left");
   const width = createMemo(() => state.workspace.treeWidth);
 
   // splitter ドラッグ
   let startX = 0;
+  let startY = 0;
   let startW = 0;
   const onSplitterDown = (e: PointerEvent) => {
     startX = e.clientX;
+    startY = e.clientY;
     startW = width();
+    const s = slot();
+    const horizontal = s === "top" || s === "bottom";
+    const onRight = s === "right";
+    const onBottom = s === "bottom";
     const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX;
-      // tabsRight の場合は逆方向だが、ツリーは常にメインの左側に配置
-      setWorkspaceTreeWidth(startW + dx);
+      if (horizontal) {
+        const dy = ev.clientY - startY;
+        setWorkspaceTreeWidth(onBottom ? startW - dy : startW + dy);
+      } else {
+        const dx = ev.clientX - startX;
+        setWorkspaceTreeWidth(onRight ? startW - dx : startW + dx);
+      }
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -253,10 +265,8 @@ export default function WorkspaceTreePanel() {
   };
 
   return (
-    <aside class="workspace-tree" style={{ width: width() + "px" }}>
-      <div class="workspace-tree-head">
-        <span>🌲 ツリー</span>
-        <span class="spacer" />
+    <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }}>
+      <PanelHeader panel="tree" title="🌲 ツリー" right={
         <select
           class="apply-select"
           title="クリック時の反映先"
@@ -267,7 +277,7 @@ export default function WorkspaceTreePanel() {
           <option value="red">🔴 連動Red</option>
           <option value="blue">🔵 連動Blue</option>
         </select>
-      </div>
+      } />
       <div class="workspace-tree-body">
         <Show when={!drives.loading} fallback={<div class="tree-loading">…</div>}>
           <For each={drives() ?? []}>
@@ -322,7 +332,9 @@ export default function WorkspaceTreePanel() {
           </For>
         </Show>
       </div>
-      <div class="workspace-tree-splitter" onPointerDown={onSplitterDown} title="ドラッグで幅変更" />
+      <div class="workspace-tree-splitter"
+        classList={{ horizontal: slot() === "top" || slot() === "bottom" }}
+        onPointerDown={onSplitterDown} title="ドラッグでサイズ変更" />
     </aside>
   );
 }

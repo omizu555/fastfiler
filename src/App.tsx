@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onMount } from "solid-js";
+import { Show, createMemo, createSignal, onMount, For } from "solid-js";
 import VerticalTabs from "./components/VerticalTabs";
 import PaneTree from "./components/PaneTree";
 import SettingsDialog from "./components/SettingsDialog";
@@ -6,6 +6,7 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import ToastContainer from "./components/ToastContainer";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
+import DockOverlay from "./components/DockOverlay";
 import {
   state,
   setInitialPath,
@@ -17,9 +18,47 @@ import {
   setActiveTabIndex,
   cycleWorkspaceLayout,
   toggleWorkspaceTree,
+  panelsInSlot,
+  setPanelSize,
 } from "./store";
 import { homeDir } from "./fs";
 import { matchKey } from "./hotkeys";
+import type { DockSlot, PanelId } from "./types";
+
+function PanelById(props: { id: PanelId }) {
+  return (
+    <Show when={props.id === "tabs"} fallback={<WorkspaceTreePanel />}>
+      <VerticalTabs />
+    </Show>
+  );
+}
+
+function DockArea(props: { slot: DockSlot }) {
+  const ids = createMemo(() => panelsInSlot(props.slot));
+  const horizontal = () => props.slot === "top" || props.slot === "bottom";
+  const totalSize = createMemo(() => {
+    const pd = state.workspace.panelDock;
+    if (!pd) return 240;
+    let max = 0;
+    for (const id of ids()) {
+      const s = pd[id].size;
+      if (s > max) max = s;
+    }
+    return max || 240;
+  });
+  return (
+    <Show when={ids().length > 0}>
+      <div
+        class={`dock-area dock-${props.slot}`}
+        style={horizontal()
+          ? { height: `${totalSize()}px` }
+          : { width: `${totalSize()}px` }}
+      >
+        <For each={ids()}>{(id) => <PanelById id={id} />}</For>
+      </div>
+    </Show>
+  );
+}
 
 export default function App() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -83,8 +122,7 @@ export default function App() {
     window.addEventListener("keydown", onKey);
   });
 
-  const showTabs = createMemo(() => state.workspace.layout !== "tabsHidden");
-  const tabsOnRight = createMemo(() => state.workspace.layout === "tabsRight");
+  const showTabs = createMemo(() => state.workspace.panelDock?.tabs.slot !== "hidden");
 
   return (
     <div class="app">
@@ -94,10 +132,8 @@ export default function App() {
         <span class="spacer" />
         <span class="muted">Ctrl+F:検索 ／ Ctrl+P:プレビュー ／ Ctrl+B:タブサイドバー ／ Ctrl+Shift+E:ツリー ／ Ctrl+,:設定</span>
         <button class="header-btn" classList={{ active: showTabs() }}
-          title="タブサイドバー切替 (Ctrl+B) / クリックで左→右→非表示" onClick={cycleWorkspaceLayout}>
-          {state.workspace.layout === "tabsRight" ? "📑→" : state.workspace.layout === "tabsHidden" ? "📑✕" : "📑"}
-        </button>
-        <button class="header-btn" classList={{ active: state.workspace.showTree }}
+          title="タブパネルを次の dock へ (Ctrl+B)" onClick={cycleWorkspaceLayout}>📑</button>
+        <button class="header-btn" classList={{ active: state.workspace.panelDock?.tree.slot !== "hidden" }}
           title="ツリーパネル切替 (Ctrl+Shift+E)" onClick={toggleWorkspaceTree}>🌲</button>
         <button class="header-btn" classList={{ active: state.showPreview }}
           title="プレビュー (Ctrl+P)" onClick={togglePreview}>👁</button>
@@ -105,28 +141,26 @@ export default function App() {
           title="プラグイン (Ctrl+Shift+P)" onClick={togglePluginPanel}>🧩</button>
         <button class="header-btn" title="設定 (Ctrl+,)" onClick={() => setSettingsOpen(true)}>⚙ 設定</button>
       </header>
-      <div class="app-body">
-        <Show when={showTabs() && !tabsOnRight()}>
-          <VerticalTabs />
-        </Show>
-        <Show when={state.workspace.showTree}>
-          <WorkspaceTreePanel />
-        </Show>
-        <main class="workspace">
-          <Show when={activeTab()} fallback={<div class="empty">タブなし</div>}>
-            <PaneTree node={activeTab()!.rootPane} tabId={activeTab()!.id} />
+      <div class="app-body dock-grid">
+        <DockArea slot="top" />
+        <div class="dock-middle">
+          <DockArea slot="left" />
+          <main class="workspace">
+            <Show when={activeTab()} fallback={<div class="empty">タブなし</div>}>
+              <PaneTree node={activeTab()!.rootPane} tabId={activeTab()!.id} />
+            </Show>
+          </main>
+          <Show when={state.showPreview && previewPaneId()}>
+            {(pid) => <PreviewPane paneId={pid()} />}
           </Show>
-        </main>
-        <Show when={state.showPreview && previewPaneId()}>
-          {(pid) => <PreviewPane paneId={pid()} />}
-        </Show>
-        <Show when={state.showPluginPanel}>
-          <PluginPanel />
-        </Show>
-        <Show when={showTabs() && tabsOnRight()}>
-          <VerticalTabs />
-        </Show>
+          <Show when={state.showPluginPanel}>
+            <PluginPanel />
+          </Show>
+          <DockArea slot="right" />
+        </div>
+        <DockArea slot="bottom" />
       </div>
+      <DockOverlay />
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       <ToastContainer />
     </div>

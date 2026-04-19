@@ -1,4 +1,4 @@
-import { For, createResource, createSignal } from "solid-js";
+import { For, createResource, createSignal, createMemo } from "solid-js";
 import {
   state,
   setActiveTab,
@@ -10,11 +10,13 @@ import {
 } from "../store";
 import { listDrives, homeDir } from "../fs";
 import { driveIcon, driveTitle } from "../drive-util";
+import PanelHeader from "./PanelHeader";
 
 export default function VerticalTabs() {
   const [drives] = createResource(() => listDrives());
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [overIdx, setOverIdx] = createSignal<number | null>(null);
+  const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
 
   const findLeaf = (n: any): string | null => {
     if (!n) return null;
@@ -42,13 +44,15 @@ export default function VerticalTabs() {
   };
 
   return (
-    <aside class="vtabs" style={{ width: state.workspace.tabsWidth + "px" }}>
-      <VTabsSplitter />
-      <div class="vtabs-head">
-        <strong>タブ</strong>
+    <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }}>
+      <VTabsSplitter slot={slot()} />
+      <PanelHeader panel="tabs" title="タブ" right={
         <button class="add" title="新規タブ" onClick={async () => {
           try { addTab(await homeDir()); } catch { addTab("C:\\"); }
-        }}>＋ 新規</button>
+        }}>＋</button>
+      } />
+      <div class="vtabs-head" style="display:none">
+        <strong>タブ</strong>
       </div>
 
       <div class="drives">
@@ -131,16 +135,24 @@ export default function VerticalTabs() {
   );
 }
 
-function VTabsSplitter() {
+function VTabsSplitter(props: { slot: string }) {
   const onDown = (e: PointerEvent) => {
     e.preventDefault();
     const startX = e.clientX;
+    const startY = e.clientY;
     const startW = state.workspace.tabsWidth;
-    const onRight = state.workspace.layout === "tabsRight";
+    const startH = state.workspace.tabsWidth; // size 共通フィールド
+    const horizontal = props.slot === "top" || props.slot === "bottom";
+    const onRight = props.slot === "right";
+    const onBottom = props.slot === "bottom";
     const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX;
-      // tabsRight の場合はマウスを左に動かしたら幅が増える
-      setWorkspaceTabsWidth(onRight ? startW - dx : startW + dx);
+      if (horizontal) {
+        const dy = ev.clientY - startY;
+        setWorkspaceTabsWidth(onBottom ? startH - dy : startH + dy);
+      } else {
+        const dx = ev.clientX - startX;
+        setWorkspaceTabsWidth(onRight ? startW - dx : startW + dx);
+      }
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -152,9 +164,14 @@ function VTabsSplitter() {
   return (
     <div
       class="vtabs-splitter"
-      classList={{ "on-right": state.workspace.layout === "tabsRight" }}
+      classList={{
+        "on-right": props.slot === "right",
+        "on-top": props.slot === "top",
+        "on-bottom": props.slot === "bottom",
+        "horizontal": props.slot === "top" || props.slot === "bottom",
+      }}
       onPointerDown={onDown}
-      title="ドラッグで幅変更"
+      title="ドラッグでサイズ変更"
     />
   );
 }

@@ -115,12 +115,30 @@ export interface Toast {
 
 export type WorkspaceLayout = "tabsLeft" | "tabsRight" | "tabsHidden";
 
+export type DockSlot = "left" | "right" | "top" | "bottom" | "float" | "hidden";
+
+export interface PanelDock {
+  slot: DockSlot;
+  order: number;
+  size: number;
+  lastDockSlot?: Exclude<DockSlot, "float" | "hidden">;
+  floatGeom?: { x: number; y: number; w: number; h: number };
+}
+
+export type PanelId = "tabs" | "tree";
+
+export interface PanelDockState {
+  tabs: PanelDock;
+  tree: PanelDock;
+}
+
 export interface WorkspaceState {
   layout: WorkspaceLayout;
   showTree: boolean;
   tabsWidth: number;
   treeWidth: number;
   treeApply: "active" | "red" | "blue";
+  panelDock?: PanelDockState;
 }
 
 export type HotkeyAction =

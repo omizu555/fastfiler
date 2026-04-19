@@ -22,7 +22,15 @@ const defaultWorkspace = (): WorkspaceState => ({
   tabsWidth: 240,
   treeWidth: 240,
   treeApply: "active",
+  panelDock: defaultPanelDock(),
 });
+
+function defaultPanelDock(): import("./types").PanelDockState {
+  return {
+    tabs: { slot: "left", order: 0, size: 240, lastDockSlot: "left" },
+    tree: { slot: "left", order: 1, size: 240, lastDockSlot: "left" },
+  };
+}
 
 let idSeq = 0;
 const nid = (p: string) => `${p}_${++idSeq}`;
@@ -93,7 +101,18 @@ function loadInitial(): AppState | null {
       else v.paneUi[pid] = { ...defaultPaneUi(), ...v.paneUi[pid] };
     }
     if (!v.workspace) v.workspace = defaultWorkspace();
-    else v.workspace = { ...defaultWorkspace(), ...v.workspace };
+    else {
+      v.workspace = { ...defaultWorkspace(), ...v.workspace };
+      // 旧設定 → panelDock マイグレーション
+      if (!v.workspace.panelDock) {
+        const pd = defaultPanelDock();
+        const layout = v.workspace.layout;
+        const tabsSlot = layout === "tabsHidden" ? "hidden" : (layout === "tabsRight" ? "right" : "left");
+        pd.tabs = { slot: tabsSlot, order: 0, size: v.workspace.tabsWidth ?? 240, lastDockSlot: tabsSlot === "hidden" ? "left" : tabsSlot };
+        pd.tree = { slot: v.workspace.showTree ? "left" : "hidden", order: 1, size: v.workspace.treeWidth ?? 240, lastDockSlot: "left" };
+        v.workspace.panelDock = pd;
+      }
+    }
     if (!v.theme) v.theme = "system";
     if (!v.plugins) v.plugins = { enabled: {} };
     if (!v.plugins.enabled) v.plugins.enabled = {};
@@ -564,35 +583,96 @@ export function setWorkspaceLayout(layout: WorkspaceState["layout"]) {
 }
 
 export function cycleWorkspaceLayout() {
-  const order: WorkspaceState["layout"][] = ["tabsLeft", "tabsRight", "tabsHidden"];
-  const cur = state.workspace.layout;
-  const idx = order.indexOf(cur);
-  setWorkspaceLayout(order[(idx + 1) % order.length]);
+  // tabs panel の slot を left → right → bottom → top → hidden → left で巡回
+  ensureDock();
+  const order: DockSlot[] = ["left", "right", "bottom", "top", "hidden"];
+  const cur = state.workspace.panelDock!.tabs.slot;
+  const idx = order.indexOf(cur as DockSlot);
+  const next = order[(idx + 1) % order.length];
+  setPanelSlot("tabs", next);
 }
 
 export function toggleWorkspaceTabs() {
-  const cur = state.workspace.layout;
-  setWorkspaceLayout(cur === "tabsHidden" ? "tabsLeft" : "tabsHidden");
+  togglePanelVisible("tabs");
 }
 
 export function toggleWorkspaceTree() {
-  setState("workspace", "showTree", (v) => !v);
-  persist();
+  togglePanelVisible("tree");
 }
 
 export function setWorkspaceTabsWidth(w: number) {
-  setState("workspace", "tabsWidth", Math.max(140, Math.min(600, Math.round(w))));
+  const v = Math.max(140, Math.min(600, Math.round(w)));
+  setState("workspace", "tabsWidth", v);
+  ensureDock();
+  setState("workspace", "panelDock", "tabs", "size", v);
   persist();
 }
 
 export function setWorkspaceTreeWidth(w: number) {
-  setState("workspace", "treeWidth", Math.max(140, Math.min(600, Math.round(w))));
+  const v = Math.max(140, Math.min(600, Math.round(w)));
+  setState("workspace", "treeWidth", v);
+  ensureDock();
+  setState("workspace", "panelDock", "tree", "size", v);
   persist();
 }
 
 export function setWorkspaceTreeApply(a: WorkspaceState["treeApply"]) {
   setState("workspace", "treeApply", a);
   persist();
+}
+
+// === Panel Dock (v3.0) ===
+import type { DockSlot, PanelId } from "./types";
+
+function ensureDock() {
+  if (!state.workspace.panelDock) {
+    setState("workspace", "panelDock", defaultPanelDock());
+  }
+}
+
+export function setPanelSlot(panel: PanelId, slot: DockSlot) {
+  ensureDock();
+  setState("workspace", "panelDock", panel, "slot", slot);
+  if (slot !== "float" && slot !== "hidden") {
+    setState("workspace", "panelDock", panel, "lastDockSlot", slot);
+  }
+  persist();
+}
+
+export function setPanelOrder(panel: PanelId, order: number) {
+  ensureDock();
+  setState("workspace", "panelDock", panel, "order", order);
+  persist();
+}
+
+export function setPanelSize(panel: PanelId, size: number) {
+  ensureDock();
+  setState("workspace", "panelDock", panel, "size", Math.max(120, Math.min(800, Math.round(size))));
+  persist();
+}
+
+export function setPanelFloatGeom(panel: PanelId, geom: { x: number; y: number; w: number; h: number }) {
+  ensureDock();
+  setState("workspace", "panelDock", panel, "floatGeom", geom);
+  persist();
+}
+
+export function togglePanelVisible(panel: PanelId) {
+  ensureDock();
+  const cur = state.workspace.panelDock![panel];
+  if (cur.slot === "hidden") setPanelSlot(panel, cur.lastDockSlot ?? "left");
+  else setPanelSlot(panel, "hidden");
+}
+
+/** 指定 slot に属するパネル ID を order 昇順で返す */
+export function panelsInSlot(slot: DockSlot): PanelId[] {
+  const pd = state.workspace.panelDock;
+  if (!pd) return [];
+  const list: { id: PanelId; order: number }[] = [];
+  if (pd.tabs.slot === slot) list.push({ id: "tabs", order: pd.tabs.order });
+  if (pd.tree.slot === slot) list.push({ id: "tree", order: pd.tree.order });
+  list.sort((a, b) => a.order - b.order);
+  return list.map((x) => x.id);
 }
 
 // === v1.5: pane name ===
