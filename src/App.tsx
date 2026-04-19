@@ -35,25 +35,9 @@ function PanelById(props: { id: PanelId }) {
 
 function DockArea(props: { slot: DockSlot }) {
   const ids = createMemo(() => panelsInSlot(props.slot));
-  const horizontal = () => props.slot === "top" || props.slot === "bottom";
-  const totalSize = createMemo(() => {
-    const pd = state.workspace.panelDock;
-    if (!pd) return 240;
-    let max = 0;
-    for (const id of ids()) {
-      const s = pd[id].size;
-      if (s > max) max = s;
-    }
-    return max || 240;
-  });
   return (
     <Show when={ids().length > 0}>
-      <div
-        class={`dock-area dock-${props.slot}`}
-        style={horizontal()
-          ? { height: `${totalSize()}px` }
-          : { width: `${totalSize()}px` }}
-      >
+      <div class={`dock-area dock-${props.slot}`}>
         <For each={ids()}>{(id) => <PanelById id={id} />}</For>
       </div>
     </Show>

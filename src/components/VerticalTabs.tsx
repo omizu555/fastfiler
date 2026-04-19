@@ -17,6 +17,12 @@ export default function VerticalTabs() {
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [overIdx, setOverIdx] = createSignal<number | null>(null);
   const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
+  const panelStyle = createMemo(() => {
+    const s = slot();
+    const sz = state.workspace.panelDock?.tabs.size ?? 240;
+    if (s === "top" || s === "bottom") return { height: sz + "px", width: "100%" };
+    return { width: sz + "px", height: "100%" };
+  });
 
   const findLeaf = (n: any): string | null => {
     if (!n) return null;
@@ -44,7 +50,7 @@ export default function VerticalTabs() {
   };
 
   return (
-    <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }}>
+    <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()}>
       <VTabsSplitter slot={slot()} />
       <PanelHeader panel="tabs" title="タブ" right={
         <button class="add" title="新規タブ" onClick={async () => {

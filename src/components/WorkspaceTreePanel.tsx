@@ -234,6 +234,12 @@ export default function WorkspaceTreePanel() {
 
   const slot = createMemo(() => state.workspace.panelDock?.tree.slot ?? "left");
   const width = createMemo(() => state.workspace.treeWidth);
+  const panelStyle = createMemo(() => {
+    const s = slot();
+    const sz = state.workspace.panelDock?.tree.size ?? width();
+    if (s === "top" || s === "bottom") return { height: sz + "px", width: "100%" };
+    return { width: sz + "px", height: "100%" };
+  });
 
   // splitter ドラッグ
   let startX = 0;
@@ -265,7 +271,7 @@ export default function WorkspaceTreePanel() {
   };
 
   return (
-    <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }}>
+    <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()}>
       <PanelHeader panel="tree" title="🌲 ツリー" right={
         <select
           class="apply-select"

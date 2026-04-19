@@ -10,10 +10,9 @@ import {
   setSearchBackend,
   setEverythingPort,
   setEverythingScope,
-  setWorkspaceLayout,
-  toggleWorkspaceTree,
   setWorkspaceTabsWidth,
   setWorkspaceTreeWidth,
+  setPanelSlot,
   setTheme,
 } from "../store";
 import { everythingPing, pluginsDirPath, revealInExplorer } from "../fs";
@@ -183,31 +182,37 @@ export default function SettingsDialog(props: Props) {
               <hr />
               <h3 class="settings-subhead">ワークスペース配置</h3>
               <div class="setting-row">
-                <label for="cfg-layout">タブサイドバー位置</label>
+                <label for="cfg-tabs-slot">タブパネル位置</label>
                 <select
-                  id="cfg-layout"
-                  value={state.workspace.layout}
-                  onChange={(e) => setWorkspaceLayout(e.currentTarget.value as never)}
+                  id="cfg-tabs-slot"
+                  value={state.workspace.panelDock?.tabs.slot ?? "left"}
+                  onChange={(e) => setPanelSlot("tabs", e.currentTarget.value as never)}
                 >
-                  <option value="tabsLeft">左 (既定)</option>
-                  <option value="tabsRight">右</option>
-                  <option value="tabsHidden">非表示</option>
+                  <option value="left">左</option>
+                  <option value="right">右</option>
+                  <option value="top">上</option>
+                  <option value="bottom">下</option>
+                  <option value="hidden">非表示</option>
                 </select>
                 <small class="muted">Ctrl+B で循環切替</small>
               </div>
               <div class="setting-row">
-                <label>ツリーパネル</label>
-                <label class="inline">
-                  <input
-                    type="checkbox"
-                    checked={state.workspace.showTree}
-                    onChange={() => toggleWorkspaceTree()}
-                  />
-                  表示する (Ctrl+Shift+E)
-                </label>
+                <label for="cfg-tree-slot">ツリーパネル位置</label>
+                <select
+                  id="cfg-tree-slot"
+                  value={state.workspace.panelDock?.tree.slot ?? "hidden"}
+                  onChange={(e) => setPanelSlot("tree", e.currentTarget.value as never)}
+                >
+                  <option value="left">左</option>
+                  <option value="right">右</option>
+                  <option value="top">上</option>
+                  <option value="bottom">下</option>
+                  <option value="hidden">非表示</option>
+                </select>
+                <small class="muted">Ctrl+Shift+E で表示/非表示</small>
               </div>
               <div class="setting-row">
-                <label for="cfg-tabsw">タブサイドバー幅</label>
+                <label for="cfg-tabsw">タブパネルサイズ</label>
                 <input
                   id="cfg-tabsw"
                   type="number"
@@ -218,7 +223,7 @@ export default function SettingsDialog(props: Props) {
                 /> px
               </div>
               <div class="setting-row">
-                <label for="cfg-treew">ツリーパネル幅</label>
+                <label for="cfg-treew">ツリーパネルサイズ</label>
                 <input
                   id="cfg-treew"
                   type="number"
@@ -227,7 +232,7 @@ export default function SettingsDialog(props: Props) {
                   value={state.workspace.treeWidth}
                   onChange={(e) => setWorkspaceTreeWidth(parseInt(e.currentTarget.value || "240", 10))}
                 /> px
-                <small class="muted">パネル右端をドラッグでも変更可</small>
+                <small class="muted">パネル端をドラッグでも変更可</small>
               </div>
             </Show>
 
