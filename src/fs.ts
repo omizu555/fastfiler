@@ -222,35 +222,7 @@ export async function pluginInvoke(pluginId: string, capability: string, args: R
   return await invoke("plugin_invoke", { pluginId, capability, args });
 }
 
-export function joinPath(base: string, name: string): string {
-  if (base.endsWith("\\") || base.endsWith("/")) return base + name;
-  return base + "\\" + name;
-}
-
-export const DRIVES_PATH = "::drives";
-
-export function isDrivesPath(p: string): boolean {
-  return p === DRIVES_PATH;
-}
-
-export function parentPath(path: string): string {
-  if (path === DRIVES_PATH) return DRIVES_PATH;
-  const norm = path.replace(/\//g, "\\");
-  // ドライブ root → ドライブ一覧へ
-  if (/^[A-Za-z]:\\?$/.test(norm)) return DRIVES_PATH;
-  // UNC: \\server\share[\sub...]
-  if (norm.startsWith("\\\\")) {
-    const rest = norm.slice(2);
-    const trimmed = rest.endsWith("\\") ? rest.slice(0, -1) : rest;
-    const parts = trimmed.split("\\").filter(Boolean);
-    if (parts.length <= 2) return DRIVES_PATH; // \\server\share の親 → ドライブ一覧
-    return "\\\\" + parts.slice(0, parts.length - 1).join("\\");
-  }
-  const trimmed = norm.endsWith("\\") ? norm.slice(0, -1) : norm;
-  const idx = trimmed.lastIndexOf("\\");
-  if (idx <= 2) return trimmed.substring(0, 3);
-  return trimmed.substring(0, idx);
-}
+export { DRIVES_PATH, isDrivesPath, joinPath, parentPath } from "./path-util";
 
 export function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;

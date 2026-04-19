@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { listDirs } from "../fs";
+import { ancestorChain, joinPath, normalizePath, splitPath } from "../path-util";
 import { setFocusedPane, setPanePath, setPaneView, state } from "../store";
 
 interface Props {
@@ -10,31 +11,23 @@ export default function TreeView(props: Props) {
   const pane = () => state.panes[props.paneId];
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
 
-  // ルート: 現在パスのドライブ、または pane.path 自体（UNC等）
-  const rootPath = createMemo(() => {
-    const p = pane().path.replace(/\//g, "\\");
-    const m = p.match(/^([A-Za-z]:)/);
-    return m ? m[1] + "\\" : p;
-  });
+  // ルート: 現在パスの root (ドライブ または UNC \\srv\sh)
+  const rootPath = createMemo(() => splitPath(pane().path)?.root ?? pane().path);
 
   // pane.path に到達するまでの祖先パスを自動展開
   createEffect(() => {
-    const cur = pane().path.replace(/\//g, "\\");
+    const chain = ancestorChain(pane().path);
+    if (chain.length === 0) return;
     setExpanded((old) => {
       const next = new Set(old);
-      const parts = cur.split("\\").filter(Boolean);
-      let acc = "";
-      for (let i = 0; i < parts.length; i++) {
-        acc = i === 0 ? parts[0] + "\\" : acc.endsWith("\\") ? acc + parts[i] : acc + "\\" + parts[i];
-        next.add(normalize(acc));
-      }
+      for (const p of chain) next.add(normalizePath(p));
       return next;
     });
   });
 
   const toggle = (path: string) => {
     setExpanded((old) => {
-      const k = normalize(path);
+      const k = normalizePath(path);
       const next = new Set(old);
       if (next.has(k)) next.delete(k);
       else next.add(k);
@@ -66,10 +59,6 @@ export default function TreeView(props: Props) {
   );
 }
 
-function normalize(p: string): string {
-  return p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
-}
-
 interface NodeProps {
   path: string;
   label: string;
@@ -80,8 +69,8 @@ interface NodeProps {
 }
 
 function TreeNode(props: NodeProps) {
-  const isOpen = () => props.expanded().has(normalize(props.path));
-  const isCurrent = () => normalize(state.panes[props.paneId].path) === normalize(props.path);
+  const isOpen = () => props.expanded().has(normalizePath(props.path));
+  const isCurrent = () => normalizePath(state.panes[props.paneId].path) === normalizePath(props.path);
 
   // expanded のときのみ子ディレクトリを取得
   const [children] = createResource(
@@ -132,9 +121,4 @@ function TreeNode(props: NodeProps) {
       </Show>
     </div>
   );
-}
-
-function joinPath(base: string, name: string): string {
-  if (base.endsWith("\\") || base.endsWith("/")) return base + name;
-  return base + "\\" + name;
 }

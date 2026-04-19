@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { listDirs, listDrives } from "../fs";
+import { ancestorChain, joinPath, normalizePath, uncServerOf } from "../path-util";
 import {
   focusedLeafPaneId,
   setPanePath,
@@ -11,10 +12,6 @@ import {
 import type { DriveInfo, PaneNode } from "../types";
 import { driveDisplayLabel, driveIcon, driveTitle } from "../drive-util";
 
-function activeLeafPaneId(): string | null {
-  return focusedLeafPaneId();
-}
-
 function leavesOf(n: PaneNode): string[] {
   if (n.kind === "leaf") return [n.paneId];
   return [...leavesOf(n.a), ...leavesOf(n.b)];
@@ -23,7 +20,7 @@ function leavesOf(n: PaneNode): string[] {
 function applyPathToTargets(path: string) {
   const apply = state.workspace.treeApply;
   if (apply === "active") {
-    const pid = activeLeafPaneId();
+    const pid = focusedLeafPaneId();
     if (pid) setPanePath(pid, path);
     return;
   }
@@ -41,21 +38,12 @@ function applyPathToTargets(path: string) {
   }
   if (applied === 0) {
     // 該当ペインが無ければアクティブを連動グループに登録した上で反映
-    const pid = activeLeafPaneId();
+    const pid = focusedLeafPaneId();
     if (pid) {
       setPaneLinkGroup(pid, targetGroup);
       setPanePath(pid, path);
     }
   }
-}
-
-function normalize(p: string): string {
-  return p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
-}
-
-function joinPath(base: string, name: string): string {
-  if (base.endsWith("\\") || base.endsWith("/")) return base + name;
-  return base + "\\" + name;
 }
 
 const UNC_LS_KEY = "fastfiler.uncShares";
@@ -91,11 +79,11 @@ interface NodeProps {
 }
 
 function TreeNode(props: NodeProps) {
-  const isOpen = () => props.expanded().has(normalize(props.path));
+  const isOpen = () => props.expanded().has(normalizePath(props.path));
   const isCurrent = () => {
-    const pid = activeLeafPaneId();
+    const pid = focusedLeafPaneId();
     if (!pid) return false;
-    return normalize(state.panes[pid].path) === normalize(props.path);
+    return normalizePath(state.panes[pid].path) === normalizePath(props.path);
   };
 
   const [children] = createResource(
@@ -178,7 +166,7 @@ export default function WorkspaceTreePanel() {
 
   const toggle = (path: string) => {
     setExpanded((old) => {
-      const k = normalize(path);
+      const k = normalizePath(path);
       const next = new Set(old);
       if (next.has(k)) next.delete(k);
       else next.add(k);
@@ -186,47 +174,35 @@ export default function WorkspaceTreePanel() {
     });
   };
 
-  // アクティブペインの path を購読 → 祖先パスを自動展開
+  // フォーカスペインの path を購読 → 祖先パスを自動展開、UNC 共有を登録
   createEffect(() => {
-    const pid = activeLeafPaneId();
+    const pid = focusedLeafPaneId();
     if (!pid) return;
     const cur = state.panes[pid]?.path ?? "";
     if (!cur || cur.startsWith("::")) return;
-    const norm = cur.replace(/\//g, "\\");
+    const chain = ancestorChain(cur);
+    if (chain.length === 0) return;
+
     setExpanded((old) => {
       const next = new Set(old);
-      // UNC: \\server\share\... の場合は \\server\share を 1 ノード扱い
-      if (norm.startsWith("\\\\")) {
-        const rest = norm.slice(2);
-        const parts = rest.split("\\").filter(Boolean);
-        if (parts.length < 2) return next; // \\server だけでは share 未確定
-        const server = `\\\\${parts[0]}`;
-        const share = `\\\\${parts[0]}\\${parts[1]}`;
-        next.add(normalize(server));
-        next.add(normalize(share));
-        let acc = share;
-        for (let i = 2; i < parts.length; i++) {
-          acc = acc + "\\" + parts[i];
-          next.add(normalize(acc));
-        }
-        // share をツリーに登録 (記憶)
-        setUncShares((old) => {
-          if (old.has(share)) return old;
-          const ns = new Set(old);
-          ns.add(share);
-          saveUncShares(ns);
-          return ns;
-        });
-        return next;
-      }
-      const parts = norm.split("\\").filter(Boolean);
-      let acc = "";
-      for (let i = 0; i < parts.length; i++) {
-        acc = i === 0 ? parts[0] + "\\" : (acc.endsWith("\\") ? acc + parts[i] : acc + "\\" + parts[i]);
-        next.add(normalize(acc));
-      }
+      // UNC ならサーバノードも展開対象に
+      const server = uncServerOf(chain[0]);
+      if (server) next.add(normalizePath(server));
+      for (const p of chain) next.add(normalizePath(p));
       return next;
     });
+
+    // UNC ルート (\\server\share) を共有リストに記憶
+    const root = chain[0];
+    if (uncServerOf(root)) {
+      setUncShares((old) => {
+        if (old.has(root)) return old;
+        const ns = new Set(old);
+        ns.add(root);
+        saveUncShares(ns);
+        return ns;
+      });
+    }
   });
 
   // UNC を server -> shares[] にグルーピング
@@ -308,7 +284,7 @@ export default function WorkspaceTreePanel() {
           </For>
           <For each={uncServers()}>
             {(srv) => {
-              const isOpen = () => expanded().has(normalize(srv.server));
+              const isOpen = () => expanded().has(normalizePath(srv.server));
               return (
                 <>
                   <div

@@ -4,8 +4,6 @@ import {
   watchDir,
   unwatchDir,
   listenFsChange,
-  joinPath,
-  parentPath,
   formatSize,
   formatDate,
   openWithShell,
@@ -18,6 +16,7 @@ import {
   copyPath,
   movePath,
 } from "../fs";
+import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import {
   setPanePath,
   setPaneSelection,
@@ -422,47 +421,7 @@ export default function FileList(props: Props) {
   const [editingPath, setEditingPath] = createSignal(false);
   const [crumbDropIdx, setCrumbDropIdx] = createSignal<number | null>(null);
 
-  const breadcrumbs = createMemo(() => {
-    const p = pane().path.replace(/\//g, "\\");
-    const parts: { label: string; path: string }[] = [];
-    // UNC: \\server\share\...
-    if (p.startsWith("\\\\")) {
-      const rest = p.slice(2);
-      const segs = rest.split("\\").filter(Boolean);
-      if (segs.length >= 2) {
-        const root = `\\\\${segs[0]}\\${segs[1]}`;
-        parts.push({ label: root, path: root });
-        let cur = root;
-        for (let i = 2; i < segs.length; i++) {
-          cur = cur + "\\" + segs[i];
-          parts.push({ label: segs[i], path: cur });
-        }
-      } else if (segs.length === 1) {
-        parts.push({ label: `\\\\${segs[0]}`, path: `\\\\${segs[0]}` });
-      } else {
-        parts.push({ label: p, path: p });
-      }
-      return parts;
-    }
-    // ドライブルート
-    const m = p.match(/^([A-Za-z]:)\\?(.*)$/);
-    if (m) {
-      const drive = m[1];
-      parts.push({ label: drive, path: drive + "\\" });
-      const rest = m[2];
-      if (rest) {
-        const segs = rest.split("\\").filter(Boolean);
-        let cur = drive + "\\";
-        for (const s of segs) {
-          cur = cur.endsWith("\\") ? cur + s : cur + "\\" + s;
-          parts.push({ label: s, path: cur });
-        }
-      }
-    } else {
-      parts.push({ label: p, path: p });
-    }
-    return parts;
-  });
+  const breadcrumbs = createMemo(() => breadcrumbsOf(pane().path));
 
   const onCrumbDragOver = (ev: DragEvent, idx: number) => {
     if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
