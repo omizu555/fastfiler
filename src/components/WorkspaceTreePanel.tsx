@@ -338,7 +338,11 @@ export default function WorkspaceTreePanel() {
         </Show>
       </div>
       <div class="workspace-tree-splitter"
-        classList={{ horizontal: slot() === "top" || slot() === "bottom" }}
+        classList={{
+          horizontal: slot() === "top" || slot() === "bottom",
+          "on-right": slot() === "right",
+          "on-bottom": slot() === "bottom",
+        }}
         onPointerDown={onSplitterDown} title="ドラッグでサイズ変更" />
     </aside>
   );

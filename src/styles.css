@@ -279,12 +279,14 @@ button.primary:hover { filter: brightness(1.1); }
 }
 .workspace-tree-splitter {
   position: absolute; top: 0; right: 0; bottom: 0; width: 5px;
-  cursor: col-resize; background: transparent;
+  cursor: col-resize; background: transparent; z-index: 5;
 }
+.workspace-tree-splitter.on-right { right: auto; left: 0; }
 .workspace-tree-splitter.horizontal {
   top: auto; bottom: 0; left: 0; right: 0; width: auto; height: 5px;
   cursor: row-resize;
 }
+.workspace-tree-splitter.horizontal.on-bottom { bottom: auto; top: 0; }
 .workspace-tree-splitter:hover { background: var(--accent, #3a7bd5); opacity: 0.5; }
 
 /* タブが右側のときは VerticalTabs に左ボーダーを付ける */
@@ -495,7 +497,7 @@ button.primary:hover { filter: brightness(1.1); }
   top: auto; left: 0; right: 0; width: auto; height: 5px;
   cursor: row-resize; bottom: 0;
 }
-.vtabs-splitter.horizontal.on-top { bottom: auto; top: 0; }
+.vtabs-splitter.horizontal.on-bottom { bottom: auto; top: 0; }
 .vtabs-splitter:hover { background: var(--accent, #3a7bd5); opacity: 0.5; }
 
 /* === v1.5: Light テーマ === */

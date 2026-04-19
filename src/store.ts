@@ -605,7 +605,7 @@ export function toggleWorkspaceTree() {
 }
 
 export function setWorkspaceTabsWidth(w: number) {
-  const v = Math.max(140, Math.min(600, Math.round(w)));
+  const v = Math.max(120, Math.min(1200, Math.round(w)));
   setState("workspace", "tabsWidth", v);
   ensureDock();
   setState("workspace", "panelDock", "tabs", "size", v);
@@ -613,7 +613,7 @@ export function setWorkspaceTabsWidth(w: number) {
 }
 
 export function setWorkspaceTreeWidth(w: number) {
-  const v = Math.max(140, Math.min(600, Math.round(w)));
+  const v = Math.max(120, Math.min(1200, Math.round(w)));
   setState("workspace", "treeWidth", v);
   ensureDock();
   setState("workspace", "panelDock", "tree", "size", v);
