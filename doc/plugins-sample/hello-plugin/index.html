@@ -4,51 +4,114 @@
     <meta charset="utf-8" />
     <title>Hello Plugin</title>
     <style>
-      body { font-family: system-ui, sans-serif; padding: 12px; color: #222; }
+      body { font-family: system-ui, sans-serif; padding: 12px; color: #222; background: #fff; }
       h1 { font-size: 14px; margin: 0 0 8px; }
-      button { padding: 4px 8px; margin: 0 4px 4px 0; }
-      pre { background: #f5f5f5; padding: 6px; font-size: 11px; max-height: 220px; overflow: auto; }
-      input { width: 90%; padding: 3px; }
+      h2 { font-size: 12px; margin: 12px 0 4px; color: #666; }
+      button { padding: 4px 8px; margin: 0 4px 4px 0; cursor: pointer; }
+      pre { background: #f5f5f5; padding: 6px; font-size: 11px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+      input { width: 90%; padding: 3px; box-sizing: border-box; }
+      .row { margin-top: 6px; }
+      .muted { color: #888; font-size: 11px; }
     </style>
   </head>
   <body>
-    <h1>👋 Hello Plugin</h1>
-    <p>FastFiler 公開 API の動作確認用サンプル。</p>
-    <div>
-      <input id="path" placeholder="例: C:\\Windows" />
-    </div>
-    <div style="margin-top:6px;">
-      <button id="ls">fs.read.dir</button>
-      <button id="cat">fs.read.text</button>
+    <h1>👋 Hello Plugin (SDK 版)</h1>
+    <p class="muted">FastFiler 公開 API の動作確認用サンプル (SDK / イベント / ストレージ)。</p>
+
+    <h2>パス操作</h2>
+    <input id="path" placeholder="例: C:\Windows" />
+    <div class="row">
+      <button id="ls">fs.readDir</button>
+      <button id="cat">fs.readText</button>
+      <button id="stat">fs.stat</button>
       <button id="open">shell.open</button>
     </div>
+
+    <h2>書込みデモ</h2>
+    <div class="row">
+      <button id="write">fs.writeText (アクティブペインに hello-plugin.txt)</button>
+    </div>
+
+    <h2>ペイン</h2>
+    <div class="row">
+      <button id="active">pane.getActive</button>
+      <button id="goC">pane.setPath C:\</button>
+    </div>
+
+    <h2>ストレージ (KV)</h2>
+    <div class="row">
+      <input id="kv" placeholder="保存する値" />
+      <button id="save">storage.set</button>
+      <button id="load">storage.get</button>
+    </div>
+
+    <h2>イベントログ (アプリから受信)</h2>
+    <pre id="events">(待機中)</pre>
+
+    <h2>結果</h2>
     <pre id="out">(結果)</pre>
+
+    <script src="../sdk.js"></script>
     <script>
-      let nextId = 1;
-      const pending = new Map();
-      window.addEventListener("message", (ev) => {
-        const d = ev.data;
-        if (!d || d.__ff !== "result") return;
-        const cb = pending.get(d.id);
-        if (cb) { pending.delete(d.id); cb(d); }
-      });
-      function invoke(capability, args) {
-        return new Promise((resolve) => {
-          const id = nextId++;
-          pending.set(id, resolve);
-          parent.postMessage({ __ff: "invoke", id, capability, args }, "*");
-        });
-      }
       const out = document.getElementById("out");
+      const events = document.getElementById("events");
       const path = document.getElementById("path");
-      async function run(cap) {
-        out.textContent = "...";
-        const r = await invoke(cap, { path: path.value });
-        out.textContent = JSON.stringify(r, null, 2);
+      const kv = document.getElementById("kv");
+
+      window.onerror = (msg, src, ln, col, err) => {
+        out.textContent = "JS ERROR: " + msg + " @" + ln + ":" + col + "\n" + (err && err.stack || "");
+      };
+      if (typeof ff === "undefined") {
+        out.textContent = "FATAL: SDK (ff) is not loaded. ../sdk.js が読めていません。";
+        throw new Error("ff missing");
       }
-      document.getElementById("ls").onclick = () => run("fs.read.dir");
-      document.getElementById("cat").onclick = () => run("fs.read.text");
-      document.getElementById("open").onclick = () => run("shell.open");
+
+      function show(label, v) {
+        out.textContent = label + "\n" + (typeof v === "string" ? v : JSON.stringify(v, null, 2));
+      }
+      function safe(label, p) {
+        return p.then(v => show(label + " OK", v))
+                .catch(e => show(label + " ERR", String(e && e.message || e)));
+      }
+
+      document.getElementById("ls").onclick    = () => safe("fs.readDir(" + path.value + ")", ff.fs.readDir(path.value));
+      document.getElementById("cat").onclick   = () => safe("fs.readText(" + path.value + ")", ff.fs.readText(path.value));
+      document.getElementById("stat").onclick  = () => safe("fs.stat(" + path.value + ")", ff.fs.stat(path.value));
+      document.getElementById("open").onclick  = () => safe("shell.open(" + path.value + ")", ff.shell.open(path.value));
+      document.getElementById("write").onclick = async () => {
+        // 書き込み先はアクティブペイン直下
+        const a = await ff.pane.getActive();
+        if (!a || !a.path) { show("write ERR", "no active pane"); return; }
+        const sep = a.path.endsWith("\\") ? "" : "\\";
+        const target = a.path + sep + "hello-plugin.txt";
+        await safe("fs.writeText(" + target + ")", ff.fs.writeText(target, "Hello from FastFiler plugin!\n" + new Date().toISOString()));
+        ff.notify("hello-plugin.txt を書き込みました: " + target, "info");
+      };
+      document.getElementById("active").onclick = () => safe("pane.getActive", ff.pane.getActive());
+      document.getElementById("goC").onclick    = () => safe("pane.setPath C:\\", ff.pane.setPath("C:\\"));
+      document.getElementById("save").onclick   = () => safe("storage.set memo=" + kv.value, ff.storage.set("memo", kv.value));
+      document.getElementById("load").onclick   = async () => {
+        try {
+          const v = await ff.storage.get("memo");
+          kv.value = v == null ? "" : String(v);
+          show("storage.get memo", v);
+        } catch (e) { show("storage.get ERR", String(e && e.message || e)); }
+      };
+
+      // 起動時にストレージから前回値を復元 + path をアクティブペインで初期化
+      ff.storage.get("memo").then(v => { if (v != null) kv.value = String(v); }).catch(()=>{});
+      ff.pane.getActive().then(a => { if (a && a.path && !path.value) path.value = a.path; }).catch(()=>{});
+
+      // イベント購読
+      const log = [];
+      function pushEvent(tag, payload) {
+        log.unshift(`[${new Date().toLocaleTimeString()}] ${tag}: ${JSON.stringify(payload)}`);
+        if (log.length > 20) log.pop();
+        events.textContent = log.join("\n");
+      }
+      ff.on("pane.changed",            (p) => { pushEvent("pane.changed", p); if (p && p.path) path.value = p.path; });
+      ff.on("pane.selection.changed",  (p) => pushEvent("pane.selection.changed", p));
+      ff.on("plugin.activated",        (p) => pushEvent("plugin.activated", p));
     </script>
   </body>
 </html>

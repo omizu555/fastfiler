@@ -92,6 +92,23 @@ export interface PluginInfo {
 
 export type ThemeMode = "system" | "dark" | "light";
 
+// v2.0: プラグインが登録可能なコンテキストメニュー項目
+export interface PluginContextMenuItem {
+  pluginId: string;
+  id: string;        // プラグイン内で一意
+  label: string;
+  icon?: string;
+  when?: "file" | "dir" | "any"; // 既定 "any"
+  extensions?: string[]; // 拡張子フィルタ (小文字、ドットなし)
+}
+
+// v2.0: トースト通知 (一過性)
+export interface Toast {
+  id: number;
+  message: string;
+  level: "info" | "warn" | "error";
+}
+
 export type WorkspaceLayout = "tabsLeft" | "tabsRight" | "tabsHidden";
 
 export interface WorkspaceState {

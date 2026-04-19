@@ -107,22 +107,130 @@ pub fn plugin_invoke(
             "capability '{capability}' not granted to plugin '{plugin_id}'"
         )));
     }
+    let arg_str = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let arg_bool = |k: &str, d: bool| args.get(k).and_then(|v| v.as_bool()).unwrap_or(d);
     match capability.as_str() {
+        // ---- read ----
         "fs.read.dir" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let v = crate::fs_service::list_dir(path.to_string())?;
+            let v = crate::fs_service::list_dir(arg_str("path"))?;
             Ok(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
         }
         "fs.read.text" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let v = crate::preview::read_text_preview(path.to_string(), Some(64 * 1024))?;
+            let v = crate::preview::read_text_preview(arg_str("path"), Some(64 * 1024))?;
             Ok(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
         }
-        "shell.open" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            crate::shell::open_with_shell(path.to_string())?;
+        "fs.stat" => {
+            let v = crate::fs_service::stat_path(arg_str("path"))?;
+            Ok(serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+        // ---- write / mutating ----
+        "fs.write.text" => {
+            let path = arg_str("path");
+            let content = arg_str("content");
+            std::fs::write(&path, content.as_bytes())
+                .map_err(|e| AppError::Other(format!("write failed: {e}")))?;
             Ok(serde_json::Value::Null)
+        }
+        "fs.mkdir" => {
+            let path = arg_str("path");
+            let recursive = arg_bool("recursive", true);
+            if recursive {
+                std::fs::create_dir_all(&path)
+            } else {
+                std::fs::create_dir(&path)
+            }
+            .map_err(|e| AppError::Other(format!("mkdir failed: {e}")))?;
+            Ok(serde_json::Value::Null)
+        }
+        "fs.rename" => {
+            crate::file_ops::rename_path(arg_str("from"), arg_str("to"))?;
+            Ok(serde_json::Value::Null)
+        }
+        "fs.copy" => {
+            crate::file_ops::copy_path(arg_str("from"), arg_str("to"))?;
+            Ok(serde_json::Value::Null)
+        }
+        "fs.move" => {
+            crate::file_ops::move_path(arg_str("from"), arg_str("to"))?;
+            Ok(serde_json::Value::Null)
+        }
+        "fs.delete" => {
+            let paths: Vec<String> = args
+                .get("paths")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+            let permanent = arg_bool("permanent", false);
+            if permanent {
+                for p in &paths {
+                    crate::file_ops::delete_path(p.clone(), true)?;
+                }
+            } else {
+                crate::file_ops::delete_to_trash(paths)?;
+            }
+            Ok(serde_json::Value::Null)
+        }
+        // ---- shell ----
+        "shell.open" => {
+            crate::shell::open_with_shell(arg_str("path"))?;
+            Ok(serde_json::Value::Null)
+        }
+        // ---- storage (per-plugin KV in plugins/<id>/storage.json) ----
+        "storage.get" => {
+            let key = arg_str("key");
+            let st = read_plugin_storage(&dir, &plugin_id)?;
+            Ok(st.get(&key).cloned().unwrap_or(serde_json::Value::Null))
+        }
+        "storage.set" => {
+            let key = arg_str("key");
+            let value = args.get("value").cloned().unwrap_or(serde_json::Value::Null);
+            let mut st = read_plugin_storage(&dir, &plugin_id)?;
+            if value.is_null() {
+                st.remove(&key);
+            } else {
+                st.insert(key, value);
+            }
+            write_plugin_storage(&dir, &plugin_id, &st)?;
+            Ok(serde_json::Value::Null)
+        }
+        // ---- pane / ui (フロント側で処理。capability チェックだけ通す) ----
+        "ui.notify" | "pane.getActive" | "pane.setPath" | "ui.contextMenu.register" => {
+            Err(AppError::Other(format!(
+                "capability '{capability}' is handled by frontend host (do not call via plugin_invoke)"
+            )))
         }
         _ => Err(AppError::Other(format!("unknown capability: {capability}"))),
     }
+}
+
+// ---- storage helpers ----
+fn storage_path(dir: &std::path::Path, plugin_id: &str) -> PathBuf {
+    dir.join(plugin_id).join("storage.json")
+}
+
+fn read_plugin_storage(
+    dir: &std::path::Path,
+    plugin_id: &str,
+) -> AppResult<serde_json::Map<String, serde_json::Value>> {
+    let p = storage_path(dir, plugin_id);
+    if !p.exists() {
+        return Ok(serde_json::Map::new());
+    }
+    let raw = std::fs::read_to_string(&p)
+        .map_err(|e| AppError::Other(format!("storage read: {e}")))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| AppError::Other(format!("storage parse: {e}")))?;
+    Ok(v.as_object().cloned().unwrap_or_default())
+}
+
+fn write_plugin_storage(
+    dir: &std::path::Path,
+    plugin_id: &str,
+    st: &serde_json::Map<String, serde_json::Value>,
+) -> AppResult<()> {
+    let p = storage_path(dir, plugin_id);
+    let raw = serde_json::to_string_pretty(&serde_json::Value::Object(st.clone()))
+        .map_err(|e| AppError::Other(format!("storage serialize: {e}")))?;
+    std::fs::write(&p, raw).map_err(|e| AppError::Other(format!("storage write: {e}")))?;
+    Ok(())
 }

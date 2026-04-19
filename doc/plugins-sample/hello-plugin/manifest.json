@@ -1,8 +1,20 @@
 {
   "id": "hello-plugin",
   "name": "Hello Plugin",
-  "version": "0.1.0",
-  "description": "FastFiler のサンプルプラグイン。capability テスト用。",
+  "version": "0.2.0",
+  "description": "FastFiler のサンプルプラグイン。capability/イベント/ストレージのデモ。",
   "entry": "index.html",
-  "capabilities": ["fs.read.dir", "fs.read.text", "shell.open"]
+  "capabilities": [
+    "fs.read.dir",
+    "fs.read.text",
+    "fs.write.text",
+    "fs.stat",
+    "shell.open",
+    "ui.notify",
+    "pane.getActive",
+    "pane.setPath",
+    "storage.get",
+    "storage.set"
+  ]
 }
+

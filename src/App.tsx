@@ -4,6 +4,7 @@ import PaneTree from "./components/PaneTree";
 import SettingsDialog from "./components/SettingsDialog";
 import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
+import ToastContainer from "./components/ToastContainer";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
 import {
   state,
@@ -127,6 +128,7 @@ export default function App() {
         </Show>
       </div>
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
+      <ToastContainer />
     </div>
   );
 }

@@ -1,0 +1,13 @@
+{
+  "id": "context-menu-demo",
+  "name": "Context Menu Demo",
+  "version": "0.1.0",
+  "description": "右クリックメニューに項目を追加するデモ。",
+  "entry": "index.html",
+  "capabilities": [
+    "ui.notify",
+    "ui.contextMenu.register",
+    "fs.read.dir",
+    "fs.read.text"
+  ]
+}

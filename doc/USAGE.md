@@ -262,18 +262,90 @@ npm run tauri:build
 
 ---
 
-## 14. プラグイン
+## 14. プラグイン (v2.0 拡張)
 
-`設定 → 基本 → プラグインフォルダ` に置いた `*.html` を WebView パネルとしてロードできます。
+`%APPDATA%\fastfiler\plugins\<id>\` に `manifest.json` と `index.html` を含むフォルダを置くと、
+プラグインパネル (`Ctrl+Shift+P` または右上 🧩) に一覧表示されます。
 
-サンプルは `doc/plugins-sample/` を参照。プラグインから利用できる API は次の通りです（`window.fastfiler` 以下）:
+### 14.1 セキュリティと有効化
 
-- `getActivePane()` 現在のペイン情報
-- `listDir(path)` フォルダ列挙
-- `openPath(path)` 別タブで開く
-- `notify(text)` ステータスバー通知
+- 既定では **すべてのプラグインは無効**。各行の左にあるチェックボックスで明示的に有効化してください。
+- 有効化したプラグインのみ、行をクリックしてアクティブ化 (iframe 表示) できます。
+- プラグインが呼び出せる API (capability) は `manifest.json` の `capabilities` で宣言されたものに限ります。
 
-`Ctrl+Shift+P` でプラグインパネルの表示／非表示を切り替えられます。
+### 14.2 manifest.json
+
+```json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "0.1.0",
+  "description": "短い説明",
+  "entry": "index.html",
+  "capabilities": [
+    "fs.read.dir", "fs.read.text", "fs.stat",
+    "fs.write.text", "fs.mkdir", "fs.rename",
+    "fs.copy", "fs.move", "fs.delete",
+    "shell.open",
+    "ui.notify", "ui.contextMenu.register",
+    "pane.getActive", "pane.setPath",
+    "storage.get", "storage.set"
+  ]
+}
+```
+
+### 14.3 SDK (推奨)
+
+`doc/plugins-sample/sdk.js` をプラグインフォルダの 1 階層上、もしくは同階層に置き
+`<script src="../sdk.js"></script>` で読み込むと `window.ff` 経由で型付き API を利用できます。
+
+主な API:
+
+| API | 説明 |
+|---|---|
+| `ff.fs.readDir(path)` / `readText` / `writeText` / `mkdir` / `rename` / `copy` / `move` / `delete([paths], permanent?)` / `stat` | ファイル操作。`fs.delete` は既定でゴミ箱、`permanent:true` で完全削除。 |
+| `ff.shell.open(path)` | OS の既定アプリで開く |
+| `ff.pane.getActive()` / `pane.setPath(path, paneId?)` | アクティブペインの取得 / 移動 |
+| `ff.notify(message, "info"\|"warn"\|"error")` | アプリ右下にトースト通知を表示 |
+| `ff.storage.get(key)` / `storage.set(key, value)` | プラグイン専用の永続 KV (`%APPDATA%\fastfiler\plugins\<id>\storage.json`) |
+| `ff.registerContextMenuItem({ id, label, icon?, when?, extensions? })` | ファイル/フォルダ右クリックメニュー末尾に項目を追加 |
+
+### 14.4 イベント (アプリ → プラグイン)
+
+```js
+ff.on("pane.changed",           e => { /* { paneId, path } */ });
+ff.on("pane.selection.changed", e => { /* { paneId, selection: string[] } */ });
+ff.on("plugin.activated",       e => { /* {} */ });
+ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, isDir } } */ });
+```
+
+注: イベントは「アクティブ化中のプラグイン」にのみ届きます。コンテキストメニュー登録もアクティブプラグインのみ有効です。
+
+### 14.5 サンプル
+
+| 場所 | 内容 |
+|---|---|
+| `doc/plugins-sample/hello-plugin/` | SDK / 読み書き / ペイン操作 / ストレージ / イベントログ |
+| `doc/plugins-sample/context-menu-demo/` | コンテキストメニュー追加 (パス通知 / フォルダ列挙 / テキスト先頭表示) |
+
+サンプルを使うには `doc/plugins-sample/sdk.js` も含めてフォルダごと
+`%APPDATA%\fastfiler\plugins\` 配下にコピーしてください
+(各プラグインから `../sdk.js` を参照する想定)。
+
+### 14.6 プラグインパネル
+
+- パネル**左端をドラッグ**して幅を変更可能 (220–900px、再起動後も保持)。
+- ヘッダ右上の `ctx=N` は登録中のコンテキストメニュー項目数 (デバッグ用)。
+- 📂 ボタンでプラグインフォルダ (`%APPDATA%\fastfiler\plugins\`) を Explorer で開く。
+- ⟳ ボタンでプラグイン一覧を再読込 (manifest 編集後など)。
+- プラグインを無効化すると、登録中のコンテキストメニュー項目は自動削除され、iframe は `about:blank` に戻ります。
+
+### 14.7 内部仕様メモ
+
+- iframe URL は Tauri の asset プロトコル (`http(s)://asset.localhost/...`) を使用。Tauri 2 のセキュリティ制約により `file://` は読めません。
+- `tauri.conf.json` の `app.security.assetProtocol` で `%APPDATA%\fastfiler\plugins\` 配下を許可しています。
+- 同時にアクティブにできるプラグインは 1 つ (1 iframe)。切替時に前のプラグインの登録項目はクリアされます。
+- メッセージ形式: `{ __ff: "invoke", id, capability, args }` / `{ __ff: "result", id, ok, result?, error? }` / `{ __ff: "event", topic, payload }`。
 
 ---
 
@@ -286,6 +358,10 @@ npm run tauri:build
 - 連動グループの設定（4 チャネル ON/OFF）
 - ホットキー割り当て
 - 設定ダイアログの内容（列数、隠しファイル、サムネイル、プラグインフォルダ）
+- テーマ (system / light / dark)
+- ワークスペース配置 (タブ位置、ツリー幅、タブ幅)
+- プラグインの有効/無効状態、プラグインパネル幅
+- プラグインごとの KV ストア (`%APPDATA%\fastfiler\plugins\<id>\storage.json` ファイル単位で保存。localStorage ではない)
 
 リセットしたいときはアプリを終了し、Tauri のローカルデータフォルダ
 `%APPDATA%\fastfiler\` 配下、または DevTools のコンソールで `localStorage.clear()` を実行してください。
@@ -301,6 +377,8 @@ npm run tauri:build
 | 大量ファイルでスクロールがガタつく | アニメーション拡張機能を OFF に。Webview2 を最新に更新。 |
 | ペインが空白 | パスが存在しないか権限不足。アドレスバーに有効なパスを入れて `Enter`。 |
 | 設定をやり直したい | `localStorage.clear()` ですべて初期化されます。 |
+| プラグイン iframe が真っ白 / 「ff is not defined」 | `sdk.js` を `%APPDATA%\fastfiler\plugins\` 直下に置き、各プラグインから `../sdk.js` で参照しているか確認。 |
+| プラグインの右クリックメニューが出ない | プラグインを ✅ 有効化＋プラグインパネルの行クリックでアクティブ化されているか確認。アクティブでないプラグインの登録は反映されません。 |
 
 ---
 

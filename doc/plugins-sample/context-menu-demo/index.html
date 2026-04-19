@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Context Menu Demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 12px; color: #222; background: #fff; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      pre { background: #f5f5f5; padding: 6px; font-size: 11px; max-height: 240px; overflow: auto; white-space: pre-wrap; }
+      .muted { color: #888; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>🖱 Context Menu Demo</h1>
+    <p class="muted">
+      ファイル/フォルダの右クリックメニューに項目を追加します。
+      下のログで、メニュー項目がクリックされた際に届くイベントを確認できます。
+    </p>
+    <pre id="log">(待機中)</pre>
+
+    <script src="../sdk.js"></script>
+    <script>
+      const log = document.getElementById("log");
+      const lines = [];
+      function add(s) {
+        lines.unshift(`[${new Date().toLocaleTimeString()}] ${s}`);
+        if (lines.length > 30) lines.pop();
+        log.textContent = lines.join("\n");
+      }
+
+      Promise.all([
+        ff.registerContextMenuItem({
+          id: "show-path",
+          label: "パスを通知で表示",
+          icon: "📋",
+          when: "any",
+        }),
+        ff.registerContextMenuItem({
+          id: "ls-this-dir",
+          label: "このフォルダを列挙",
+          icon: "📂",
+          when: "dir",
+        }),
+        ff.registerContextMenuItem({
+          id: "preview-text",
+          label: "テキストを覗く",
+          icon: "📝",
+          when: "file",
+          extensions: ["txt", "md", "log", "json", "ts", "js", "rs", "html", "css"],
+        }),
+      ]).then(() => add("3 項目を登録しました")).catch((e) => add("登録失敗: " + e));
+
+      ff.on("plugin.contextMenu.invoked", async (ev) => {
+        add(`invoked: ${ev.itemId}  target=${JSON.stringify(ev.target)}`);
+        if (ev.itemId === "show-path") {
+          ff.notify(ev.target.path, "info");
+        } else if (ev.itemId === "ls-this-dir") {
+          try {
+            const entries = await ff.fs.readDir(ev.target.path);
+            ff.notify(`${ev.target.name}: ${entries.length} 件`, "info");
+          } catch (e) {
+            ff.notify(String(e), "error");
+          }
+        } else if (ev.itemId === "preview-text") {
+          try {
+            const r = await ff.fs.readText(ev.target.path);
+            const head = (r.content || "").slice(0, 80).replace(/\n/g, " ");
+            ff.notify(head + (r.truncated ? " …" : ""), "info");
+          } catch (e) {
+            ff.notify(String(e), "error");
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

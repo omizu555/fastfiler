@@ -8,7 +8,9 @@ import type {
   PaneNode,
   PaneState,
   PaneUiState,
+  PluginContextMenuItem,
   Tab,
+  Toast,
   WorkspaceState,
 } from "./types";
 import { defaultHotkeys } from "./hotkeys";
@@ -58,6 +60,10 @@ interface AppState {
   paneUi: Record<string, PaneUiState>;
   workspace: WorkspaceState;
   theme: import("./types").ThemeMode;
+  plugins: { enabled: Record<string, boolean> };
+  pluginPanelWidth: number;
+  pluginContextMenu: PluginContextMenuItem[];
+  toasts: Toast[];
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -78,6 +84,7 @@ function loadInitial(): AppState | null {
     if (v.searchBackend === undefined) v.searchBackend = "builtin";
     if (v.everythingPort === undefined) v.everythingPort = 80;
     if (v.everythingScope === undefined) v.everythingScope = true;
+    if (v.pluginPanelWidth === undefined) v.pluginPanelWidth = 320;
     if (!v.paneUi) v.paneUi = {};
     // 既存ペインに対する PaneUi 補完
     for (const pid of Object.keys(v.panes ?? {})) {
@@ -87,6 +94,11 @@ function loadInitial(): AppState | null {
     if (!v.workspace) v.workspace = defaultWorkspace();
     else v.workspace = { ...defaultWorkspace(), ...v.workspace };
     if (!v.theme) v.theme = "system";
+    if (!v.plugins) v.plugins = { enabled: {} };
+    if (!v.plugins.enabled) v.plugins.enabled = {};
+    // pluginContextMenu / toasts は非永続だが型に必要
+    v.pluginContextMenu = [];
+    v.toasts = [];
     return v;
   } catch {
     return null;
@@ -125,6 +137,10 @@ function freshState(initialPath: string): AppState {
     paneUi: { [paneId]: defaultPaneUi() },
     workspace: defaultWorkspace(),
     theme: "system",
+    plugins: { enabled: {} },
+    pluginPanelWidth: 320,
+    pluginContextMenu: [],
+    toasts: [],
   };
 }
 
@@ -138,6 +154,9 @@ export function persist() {
   saveTimer = window.setTimeout(() => {
     try {
       const snapshot = { ...state, _seq: idSeq };
+      // pluginContextMenu / toasts は揮発のため除外
+      delete (snapshot as Record<string, unknown>).pluginContextMenu;
+      delete (snapshot as Record<string, unknown>).toasts;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {/* ignore */}
   }, 250);
@@ -565,4 +584,43 @@ export function togglePaneSearchFocused(paneId: string) {
 export function setTheme(t: import("./types").ThemeMode) {
   setState("theme", t);
   persist();
+}
+
+// === v2.0: plugins ===
+export function setPluginEnabled(pluginId: string, enabled: boolean) {
+  setState("plugins", "enabled", pluginId, enabled);
+  if (!enabled) {
+    // disable 時にコンテキストメニュー登録を全削除
+    setState("pluginContextMenu", (xs) => xs.filter((x) => x.pluginId !== pluginId));
+  }
+  persist();
+}
+
+export function isPluginEnabled(pluginId: string): boolean {
+  return !!state.plugins.enabled[pluginId];
+}
+
+export function setPluginPanelWidth(w: number) {
+  setState("pluginPanelWidth", Math.max(220, Math.min(900, Math.round(w))));
+  persist();
+}
+
+export function registerPluginContextMenuItem(item: PluginContextMenuItem) {
+  setState("pluginContextMenu", (xs) => {
+    const filtered = xs.filter((x) => !(x.pluginId === item.pluginId && x.id === item.id));
+    return [...filtered, item];
+  });
+}
+
+export function unregisterPluginContextMenuItems(pluginId: string) {
+  setState("pluginContextMenu", (xs) => xs.filter((x) => x.pluginId !== pluginId));
+}
+
+let toastSeq = 0;
+export function pushToast(message: string, level: Toast["level"] = "info") {
+  const id = ++toastSeq;
+  setState("toasts", (xs) => [...xs, { id, message, level }]);
+  window.setTimeout(() => {
+    setState("toasts", (xs) => xs.filter((t) => t.id !== id));
+  }, 3500);
 }

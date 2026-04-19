@@ -42,6 +42,7 @@ import Thumbnail, { shouldThumb } from "./Thumbnail";
 import SearchPanel from "./SearchPanel";
 import { PaneNameLabel } from "./DriveListView";
 import { matchKey } from "../hotkeys";
+import { invokePluginContextMenuItem } from "../plugin-host";
 
 interface Props {
   paneId: string;
@@ -260,7 +261,7 @@ export default function FileList(props: Props) {
     const cb = state.clipboard;
     const fullSel = sel.map((n) => joinPath(pane().path, n));
     const firstPath = fullSel[0];
-    return [
+    const base: ContextMenuItem[] = [
       {
         label: "開く", icon: "▶", disabled: !single,
         onClick: () => { if (target) enter(target); },
@@ -296,6 +297,41 @@ export default function FileList(props: Props) {
         onClick: () => { if (firstPath) void showProperties(firstPath); },
       },
     ];
+    // v2.0: プラグイン提供のコンテキストメニュー項目を末尾に追加
+    // 右クリック対象 (target) を基準に判定する。選択数は問わない。
+    const pluginItems = state.pluginContextMenu.filter((item) => {
+      if (!target) return false;
+      const isDir = target.kind === "dir";
+      if (item.when === "file" && isDir) return false;
+      if (item.when === "dir" && !isDir) return false;
+      if (item.extensions && item.extensions.length > 0) {
+        if (isDir) return false;
+        const ext = target.name.includes(".")
+          ? target.name.split(".").pop()!.toLowerCase()
+          : "";
+        if (!item.extensions.includes(ext)) return false;
+      }
+      return true;
+    });
+    if (pluginItems.length > 0) {
+      base.push({ separator: true });
+      for (const it of pluginItems) {
+        base.push({
+          label: it.label,
+          icon: it.icon ?? "🧩",
+          onClick: () => {
+            if (!target) return;
+            const tgtPath = joinPath(pane().path, target.name);
+            invokePluginContextMenuItem(it, {
+              path: tgtPath,
+              isDir: target.kind === "dir",
+              name: target.name,
+            });
+          },
+        });
+      }
+    }
+    return base;
   };
 
   // ----- 検索モード (タブ切替で保持される: store.paneUi) -----
