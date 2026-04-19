@@ -34,6 +34,7 @@ import {
   togglePaneSearchFocused,
   setPaneName,
   getPaneUi,
+  setFocusedPane,
   state,
 } from "../store";
 import type { FileEntry } from "../types";
@@ -483,8 +484,10 @@ export default function FileList(props: Props) {
     <div
       ref={paneRef}
       class="pane"
-      classList={{ "drop-target": paneDragOver() }}
+      classList={{ "drop-target": paneDragOver(), "pane-focused": state.focusedPaneId === props.paneId }}
       tabIndex={0}
+      onPointerDown={() => setFocusedPane(props.paneId)}
+      onFocusIn={() => setFocusedPane(props.paneId)}
       onKeyDown={onKey}
       onContextMenu={(e) => openContextMenu(e, null)}
       onDragOver={onPaneDragOver}

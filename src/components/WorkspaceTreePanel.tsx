@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { listDirs, listDrives } from "../fs";
 import {
+  focusedLeafPaneId,
   setPanePath,
   setPaneLinkGroup,
   setWorkspaceTreeApply,
@@ -9,15 +10,8 @@ import {
 } from "../store";
 import type { DriveInfo, PaneNode } from "../types";
 
-function findFirstLeaf(n: PaneNode): string | null {
-  if (n.kind === "leaf") return n.paneId;
-  return findFirstLeaf(n.a) ?? findFirstLeaf(n.b);
-}
-
 function activeLeafPaneId(): string | null {
-  const t = state.tabs.find((t) => t.id === state.activeTabId);
-  if (!t) return null;
-  return findFirstLeaf(t.rootPane);
+  return focusedLeafPaneId();
 }
 
 function leavesOf(n: PaneNode): string[] {
@@ -84,6 +78,15 @@ function TreeNode(props: NodeProps) {
     async () => listDirs(props.path, state.showHidden),
   );
 
+  let rowRef: HTMLDivElement | undefined;
+  // 自分が現在パスになったらビューに収める
+  createEffect(() => {
+    if (isCurrent() && rowRef) {
+      // 展開アニメーション後の高さ確定を待たずに済むよう microtask
+      queueMicrotask(() => rowRef?.scrollIntoView({ block: "nearest" }));
+    }
+  });
+
   const onClick = (e: MouseEvent) => {
     if (e.detail >= 2) {
       props.toggle(props.path);
@@ -95,6 +98,7 @@ function TreeNode(props: NodeProps) {
   return (
     <div class="tree-node">
       <div
+        ref={rowRef}
         class="tree-row"
         classList={{ current: isCurrent() }}
         style={{ "padding-left": `${props.depth * 14}px` }}

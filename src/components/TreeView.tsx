@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { listDirs } from "../fs";
-import { setPanePath, setPaneView, state } from "../store";
+import { setFocusedPane, setPanePath, setPaneView, state } from "../store";
 
 interface Props {
   paneId: string;
@@ -43,7 +43,11 @@ export default function TreeView(props: Props) {
   };
 
   return (
-    <div class="treeview">
+    <div
+      class="treeview"
+      classList={{ "pane-focused": state.focusedPaneId === props.paneId }}
+      onPointerDown={() => setFocusedPane(props.paneId)}
+    >
       <div class="treeview-head">
         <span>📂 ツリー</span>
         <button title="リスト表示に戻す" onClick={() => setPaneView(props.paneId, "list")}>📋</button>

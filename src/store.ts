@@ -64,6 +64,7 @@ interface AppState {
   pluginPanelWidth: number;
   pluginContextMenu: PluginContextMenuItem[];
   toasts: Toast[];
+  focusedPaneId: string | null;
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -99,6 +100,7 @@ function loadInitial(): AppState | null {
     // pluginContextMenu / toasts は非永続だが型に必要
     v.pluginContextMenu = [];
     v.toasts = [];
+    if (v.focusedPaneId === undefined) v.focusedPaneId = null;
     return v;
   } catch {
     return null;
@@ -141,6 +143,7 @@ function freshState(initialPath: string): AppState {
     pluginPanelWidth: 320,
     pluginContextMenu: [],
     toasts: [],
+    focusedPaneId: paneId,
   };
 }
 
@@ -181,6 +184,8 @@ export function setPanePath(paneId: string, path: string) {
     propagate(pane, "path", (other) =>
       setState("panes", other.id, { path, selection: [], scrollTop: 0 }),
     );
+    // ナビゲーションが起きた pane をフォーカスに昇格
+    setState("focusedPaneId", paneId);
   });
   persist();
 }
@@ -261,6 +266,17 @@ export function closeTab(tabId: string) {
       setState("panes", pid, undefined as never);
       setState("paneUi", pid, undefined as never);
     }
+    if (state.focusedPaneId && ids.includes(state.focusedPaneId)) {
+      // 削除されたタブにあった focused を、新アクティブタブの代表 leaf へ
+      const newActive = state.activeTabId === tabId ? tabs[0] : state.tabs.find((t) => t.id === state.activeTabId);
+      if (newActive) {
+        const leafIds: string[] = [];
+        collectPaneIds(newActive.rootPane, leafIds);
+        setState("focusedPaneId", leafIds[0] ?? null);
+      } else {
+        setState("focusedPaneId", null);
+      }
+    }
   });
   persist();
 }
@@ -272,7 +288,34 @@ function collectPaneIds(node: PaneNode, out: string[]) {
 
 export function setActiveTab(tabId: string) {
   setState("activeTabId", tabId);
+  // 切替先タブにフォーカス記憶が無ければ代表 leaf に合わせる
+  const tab = state.tabs.find((t) => t.id === tabId);
+  if (tab) {
+    const leafIds: string[] = [];
+    collectPaneIds(tab.rootPane, leafIds);
+    const cur = state.focusedPaneId;
+    if (!cur || !leafIds.includes(cur)) {
+      setState("focusedPaneId", leafIds[0] ?? null);
+    }
+  }
   persist();
+}
+
+export function setFocusedPane(paneId: string | null) {
+  if (state.focusedPaneId === paneId) return;
+  setState("focusedPaneId", paneId);
+}
+
+// アクティブタブ内のフォーカス済 leaf を返す。
+// focused が未設定 / 別タブのものなら代表 leaf にフォールバック。
+export function focusedLeafPaneId(): string | null {
+  const tab = state.tabs.find((t) => t.id === state.activeTabId);
+  if (!tab) return null;
+  const leafIds: string[] = [];
+  collectPaneIds(tab.rootPane, leafIds);
+  const cur = state.focusedPaneId;
+  if (cur && leafIds.includes(cur)) return cur;
+  return leafIds[0] ?? null;
 }
 
 export function setTabColumns(n: number) {

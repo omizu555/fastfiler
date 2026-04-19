@@ -1,6 +1,6 @@
 import { For, createResource, createSignal } from "solid-js";
 import { listDrives, DRIVES_PATH } from "../fs";
-import { setPanePath, setPaneName, state } from "../store";
+import { setPanePath, setPaneName, setFocusedPane, state } from "../store";
 import type { DriveInfo } from "../types";
 
 export function PaneNameLabel(props: { paneId: string; fallback?: string }) {
@@ -62,7 +62,13 @@ export default function DriveListView(props: Props) {
   };
 
   return (
-    <div class="pane drives-pane" tabIndex={0}>
+    <div
+      class="pane drives-pane"
+      classList={{ "pane-focused": state.focusedPaneId === props.paneId }}
+      tabIndex={0}
+      onPointerDown={() => setFocusedPane(props.paneId)}
+      onFocusIn={() => setFocusedPane(props.paneId)}
+    >
       <div class="pane-toolbar">
         <PaneNameLabel paneId={props.paneId} fallback="💻 PC" />
         <button title="これ以上は戻れません" disabled>↑</button>
