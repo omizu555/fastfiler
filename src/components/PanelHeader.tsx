@@ -1,7 +1,8 @@
 import { JSX, Show } from "solid-js";
 import type { PanelId } from "../types";
 import { startPanelDrag, endPanelDrag } from "../dock";
-import { setPanelSlot, togglePanelVisible, state } from "../store";
+import { setPanelSlot, togglePanelVisible, state, WINDOW_ID } from "../store";
+import { popOutPanel, dockBackPanel } from "../float";
 
 interface Props {
   panel: PanelId;
@@ -51,6 +52,11 @@ export default function PanelHeader(props: Props) {
         <button title="右にドック" classList={{ active: cur()?.slot === "right" }} onClick={() => setPanelSlot(props.panel, "right")}>◨</button>
         <button title="上にドック" classList={{ active: cur()?.slot === "top" }} onClick={() => setPanelSlot(props.panel, "top")}>⬒</button>
         <button title="下にドック" classList={{ active: cur()?.slot === "bottom" }} onClick={() => setPanelSlot(props.panel, "bottom")}>⬓</button>
+        <Show when={WINDOW_ID === "main"} fallback={
+          <button title="メインウィンドウに戻す" onClick={() => dockBackPanel(props.panel)}>⊟</button>
+        }>
+          <button title="フロートウィンドウに切り出し" onClick={() => popOutPanel(props.panel)}>🗗</button>
+        </Show>
         <Show when={cur()?.slot !== "hidden"}>
           <button title="閉じる" onClick={() => togglePanelVisible(props.panel)}>✕</button>
         </Show>

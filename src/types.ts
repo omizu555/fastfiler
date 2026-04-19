@@ -123,6 +123,7 @@ export interface PanelDock {
   size: number;
   lastDockSlot?: Exclude<DockSlot, "float" | "hidden">;
   floatGeom?: { x: number; y: number; w: number; h: number };
+  windowId?: string;
 }
 
 export type PanelId = "tabs" | "tree";
