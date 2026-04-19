@@ -211,8 +211,8 @@ export default function WorkspaceTreePanel() {
           <For each={drives() ?? []}>
             {(d) => (
               <TreeNode
-                path={d.letter + "\\"}
-                label={d.label ? `${d.letter}\\ (${d.label})` : `${d.letter}\\`}
+                path={d.letter}
+                label={d.label && d.label !== d.letter ? `${d.letter} (${d.label})` : d.letter}
                 depth={0}
                 expanded={expanded}
                 toggle={toggle}
