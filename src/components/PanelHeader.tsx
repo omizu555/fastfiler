@@ -15,6 +15,9 @@ export default function PanelHeader(props: Props) {
 
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
+    // ボタンや select 等の操作要素上ではドラッグを開始しない (click を妨げない)
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest("button, select, input, a, .panel-header-dockmenu")) return;
     downX = e.clientX;
     downY = e.clientY;
     dragging = false;
