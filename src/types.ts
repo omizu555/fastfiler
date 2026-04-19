@@ -140,6 +140,8 @@ export interface WorkspaceState {
   treeWidth: number;
   treeApply: "active" | "red" | "blue";
   panelDock?: PanelDockState;
+  /** 同じ slot に複数パネルがある場合、並列ではなく縦/横に積み重ねる */
+  samePanelStack?: boolean;
 }
 
 export type HotkeyAction =

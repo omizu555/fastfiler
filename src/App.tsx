@@ -6,7 +6,6 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import ToastContainer from "./components/ToastContainer";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
-import DockOverlay from "./components/DockOverlay";
 import {
   state,
   setInitialPath,
@@ -36,18 +35,24 @@ function PanelById(props: { id: PanelId }) {
 function DockArea(props: { slot: DockSlot }) {
   const ids = createMemo(() => panelsInSlot(props.slot));
   const horizontal = () => props.slot === "top" || props.slot === "bottom";
-  // 同 slot 内の複数パネルは並列に配置 → 合計サイズで外形を決める
+  const stack = createMemo(() => !!state.workspace.samePanelStack && ids().length > 1);
+  // 並列: SUM, スタック: MAX
   const totalSize = createMemo(() => {
     const pd = state.workspace.panelDock;
     if (!pd) return 240;
-    let sum = 0;
-    for (const id of ids()) sum += pd[id].size;
-    return sum || 240;
+    let v = 0;
+    if (stack()) {
+      for (const id of ids()) v = Math.max(v, pd[id].size);
+    } else {
+      for (const id of ids()) v += pd[id].size;
+    }
+    return v || 240;
   });
   return (
     <Show when={ids().length > 0}>
       <div
         class={`dock-area dock-${props.slot}`}
+        classList={{ "stack-mode": stack() }}
         style={horizontal()
           ? { height: `${totalSize()}px`, width: "100%" }
           : { width: `${totalSize()}px`, height: "100%" }}
@@ -158,7 +163,6 @@ export default function App() {
         </div>
         <DockArea slot="bottom" />
       </div>
-      <DockOverlay />
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       <ToastContainer />
     </div>

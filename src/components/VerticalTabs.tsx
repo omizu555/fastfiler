@@ -7,6 +7,7 @@ import {
   setPanePath,
   reorderTab,
   setWorkspaceTabsWidth,
+  panelsInSlot,
 } from "../store";
 import { listDrives, homeDir } from "../fs";
 import { driveIcon, driveTitle } from "../drive-util";
@@ -18,9 +19,16 @@ export default function VerticalTabs() {
   const [overIdx, setOverIdx] = createSignal<number | null>(null);
   const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
   const ownSize = createMemo(() => state.workspace.panelDock?.tabs.size ?? state.workspace.tabsWidth);
+  const stackMode = createMemo(() =>
+    !!state.workspace.samePanelStack && panelsInSlot(slot()).length > 1);
   const panelStyle = createMemo(() => {
     const s = slot();
     const sz = ownSize();
+    if (stackMode()) {
+      // 同 slot 内で他パネルと積み重ね → 主軸 flex 分配, 大きさは合わせる
+      if (s === "top" || s === "bottom") return { height: "100%", width: "auto", flex: "1 1 0" };
+      return { width: "100%", height: "auto", flex: "1 1 0" };
+    }
     if (s === "top" || s === "bottom") {
       return { height: `${sz}px`, width: "100%", flex: `0 0 ${sz}px` };
     }

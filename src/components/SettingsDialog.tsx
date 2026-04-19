@@ -13,6 +13,7 @@ import {
   setWorkspaceTabsWidth,
   setWorkspaceTreeWidth,
   setPanelSlot,
+  setSamePanelStack,
   setTheme,
 } from "../store";
 import { everythingPing, pluginsDirPath, revealInExplorer } from "../fs";
@@ -233,6 +234,18 @@ export default function SettingsDialog(props: Props) {
                   onChange={(e) => setWorkspaceTreeWidth(parseInt(e.currentTarget.value || "240", 10))}
                 /> px
                 <small class="muted">パネル端をドラッグでも変更可</small>
+              </div>
+              <div class="setting-row">
+                <label for="cfg-stack">同じ位置に複数あるとき</label>
+                <label class="checkline">
+                  <input
+                    id="cfg-stack"
+                    type="checkbox"
+                    checked={!!state.workspace.samePanelStack}
+                    onChange={(e) => setSamePanelStack(e.currentTarget.checked)}
+                  />
+                  縦/横に積み重ねる (OFF: 並列で 3 列表示)
+                </label>
               </div>
             </Show>
 

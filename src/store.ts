@@ -23,6 +23,7 @@ const defaultWorkspace = (): WorkspaceState => ({
   treeWidth: 240,
   treeApply: "active",
   panelDock: defaultPanelDock(),
+  samePanelStack: false,
 });
 
 function defaultPanelDock(): import("./types").PanelDockState {
@@ -622,6 +623,11 @@ export function setWorkspaceTreeWidth(w: number) {
 
 export function setWorkspaceTreeApply(a: WorkspaceState["treeApply"]) {
   setState("workspace", "treeApply", a);
+  persist();
+}
+
+export function setSamePanelStack(v: boolean) {
+  setState("workspace", "samePanelStack", v);
   persist();
 }
 

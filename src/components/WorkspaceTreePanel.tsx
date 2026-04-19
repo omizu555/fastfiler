@@ -8,6 +8,7 @@ import {
   setWorkspaceTreeApply,
   setWorkspaceTreeWidth,
   state,
+  panelsInSlot,
 } from "../store";
 import type { DriveInfo, PaneNode } from "../types";
 import { driveDisplayLabel, driveIcon, driveTitle } from "../drive-util";
@@ -235,9 +236,15 @@ export default function WorkspaceTreePanel() {
   const slot = createMemo(() => state.workspace.panelDock?.tree.slot ?? "left");
   const width = createMemo(() => state.workspace.treeWidth);
   const ownSize = createMemo(() => state.workspace.panelDock?.tree.size ?? state.workspace.treeWidth);
+  const stackMode = createMemo(() =>
+    !!state.workspace.samePanelStack && panelsInSlot(slot()).length > 1);
   const panelStyle = createMemo(() => {
     const s = slot();
     const sz = ownSize();
+    if (stackMode()) {
+      if (s === "top" || s === "bottom") return { height: "100%", width: "auto", flex: "1 1 0" };
+      return { width: "100%", height: "auto", flex: "1 1 0" };
+    }
     if (s === "top" || s === "bottom") {
       return { height: `${sz}px`, width: "100%", flex: `0 0 ${sz}px` };
     }
