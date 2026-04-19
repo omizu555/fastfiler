@@ -168,8 +168,6 @@ function freshState(initialPath: string): AppState {
 
 const loaded = loadInitial();
 export const [state, setState] = createStore<AppState>(loaded ?? freshState("C:\\"));
-
-// 永続化 (簡易 debounce)
 let saveTimer: number | null = null;
 export function persist() {
   if (saveTimer != null) window.clearTimeout(saveTimer);
@@ -183,6 +181,9 @@ export function persist() {
     } catch {/* ignore */}
   }, 250);
 }
+
+// 起動時、移行された panelDock を即座に保存しておく
+if (loaded) persist();
 
 export function setInitialPath(path: string) {
   if (!loaded) {

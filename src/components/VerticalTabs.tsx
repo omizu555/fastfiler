@@ -19,11 +19,9 @@ export default function VerticalTabs() {
   const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
   const panelStyle = createMemo(() => {
     const s = slot();
-    const sz = state.workspace.panelDock?.tabs.size ?? 240;
-    // 同 slot 内で複数パネルが共存する可能性があるため、主軸方向 (積み重ね) のサイズは flex で分配し、
-    // 交差軸 (slot の厚み) のみ size 指定する
-    if (s === "top" || s === "bottom") return { height: sz + "px", width: "auto", flex: "1 1 0" };
-    return { width: sz + "px", height: "auto", flex: "1 1 0" };
+    // 親 dock-area が外形サイズを持つので、ここでは cross 軸 100% + flex 分配のみ
+    if (s === "top" || s === "bottom") return { height: "100%", width: "auto", flex: "1 1 0" };
+    return { width: "100%", height: "auto", flex: "1 1 0" };
   });
 
   const findLeaf = (n: any): string | null => {
