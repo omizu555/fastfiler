@@ -10,9 +10,13 @@ export interface FileEntry {
   readonly?: boolean;
 }
 
+export type DriveKind = "fixed" | "removable" | "network" | "cdrom" | "ram" | "unknown";
+
 export interface DriveInfo {
   letter: string;
   label: string;
+  kind: DriveKind;
+  remotePath: string | null;
 }
 
 export interface PaneState {

@@ -62,7 +62,7 @@ export async function listDirs(path: string, includeHidden = true): Promise<File
 }
 
 export async function listDrives(): Promise<DriveInfo[]> {
-  if (!isTauri()) return [{ letter: "C:\\", label: "C:\\" }];
+  if (!isTauri()) return [{ letter: "C:\\", label: "C:\\", kind: "fixed", remotePath: null }];
   try {
     return await invoke<DriveInfo[]>("list_drives");
   } catch {
@@ -238,6 +238,14 @@ export function parentPath(path: string): string {
   const norm = path.replace(/\//g, "\\");
   // ドライブ root → ドライブ一覧へ
   if (/^[A-Za-z]:\\?$/.test(norm)) return DRIVES_PATH;
+  // UNC: \\server\share[\sub...]
+  if (norm.startsWith("\\\\")) {
+    const rest = norm.slice(2);
+    const trimmed = rest.endsWith("\\") ? rest.slice(0, -1) : rest;
+    const parts = trimmed.split("\\").filter(Boolean);
+    if (parts.length <= 2) return DRIVES_PATH; // \\server\share の親 → ドライブ一覧
+    return "\\\\" + parts.slice(0, parts.length - 1).join("\\");
+  }
   const trimmed = norm.endsWith("\\") ? norm.slice(0, -1) : norm;
   const idx = trimmed.lastIndexOf("\\");
   if (idx <= 2) return trimmed.substring(0, 3);

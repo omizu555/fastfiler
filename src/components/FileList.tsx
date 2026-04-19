@@ -425,6 +425,25 @@ export default function FileList(props: Props) {
   const breadcrumbs = createMemo(() => {
     const p = pane().path.replace(/\//g, "\\");
     const parts: { label: string; path: string }[] = [];
+    // UNC: \\server\share\...
+    if (p.startsWith("\\\\")) {
+      const rest = p.slice(2);
+      const segs = rest.split("\\").filter(Boolean);
+      if (segs.length >= 2) {
+        const root = `\\\\${segs[0]}\\${segs[1]}`;
+        parts.push({ label: root, path: root });
+        let cur = root;
+        for (let i = 2; i < segs.length; i++) {
+          cur = cur + "\\" + segs[i];
+          parts.push({ label: segs[i], path: cur });
+        }
+      } else if (segs.length === 1) {
+        parts.push({ label: `\\\\${segs[0]}`, path: `\\\\${segs[0]}` });
+      } else {
+        parts.push({ label: p, path: p });
+      }
+      return parts;
+    }
     // ドライブルート
     const m = p.match(/^([A-Za-z]:)\\?(.*)$/);
     if (m) {

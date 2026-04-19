@@ -1,6 +1,7 @@
 import { For, createResource, createSignal } from "solid-js";
 import { listDrives, DRIVES_PATH } from "../fs";
 import { setPanePath, setPaneName, setFocusedPane, state } from "../store";
+import { driveIcon, driveTitle } from "../drive-util";
 import type { DriveInfo } from "../types";
 
 export function PaneNameLabel(props: { paneId: string; fallback?: string }) {
@@ -82,12 +83,13 @@ export default function DriveListView(props: Props) {
           {(d) => (
             <button
               class="drive-card"
+              classList={{ [`drive-kind-${d.kind}`]: true }}
               onClick={() => open(d.letter)}
-              title={d.letter + (d.label ? `  ${d.label}` : "")}
+              title={driveTitle(d)}
             >
-              <div class="drive-icon">💽</div>
+              <div class="drive-icon">{driveIcon(d.kind)}</div>
               <div class="drive-letter">{d.letter}</div>
-              <div class="drive-label">{d.label || ""}</div>
+              <div class="drive-label">{d.label || (d.kind === "network" && d.remotePath) || ""}</div>
             </button>
           )}
         </For>

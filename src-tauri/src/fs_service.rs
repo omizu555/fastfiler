@@ -21,9 +21,12 @@ pub struct FileEntry {
 }
 
 #[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DriveInfo {
-    pub letter: String, // "C:\\"
-    pub label: String,
+    pub letter: String, // "C:\"
+    pub label: String,  // ボリュームラベル ("" の場合あり)
+    pub kind: String,   // "fixed" | "removable" | "network" | "cdrom" | "ram" | "unknown"
+    pub remote_path: Option<String>, // network の場合 "\\server\share"
 }
 
 fn to_unix_secs(t: SystemTime) -> i64 {
@@ -146,22 +149,116 @@ pub fn home_dir() -> AppResult<String> {
 pub fn list_drives() -> AppResult<Vec<DriveInfo>> {
     #[cfg(windows)]
     {
-        use windows::Win32::Storage::FileSystem::GetLogicalDrives;
+        use windows::core::PWSTR;
+        use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH};
+        use windows::Win32::NetworkManagement::WNet::WNetGetConnectionW;
+        use windows::Win32::Storage::FileSystem::{
+            GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
+        };
+
+        // GetDriveTypeW returns plain u32 codes
+        const DRIVE_REMOVABLE: u32 = 2;
+        const DRIVE_FIXED: u32 = 3;
+        const DRIVE_REMOTE: u32 = 4;
+        const DRIVE_CDROM: u32 = 5;
+        const DRIVE_RAMDISK: u32 = 6;
+
+        fn to_wide_z(s: &str) -> Vec<u16> {
+            s.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+        fn from_wide(buf: &[u16]) -> String {
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            String::from_utf16_lossy(&buf[..len])
+        }
+
         let mask = unsafe { GetLogicalDrives() };
         let mut drives = Vec::new();
         for i in 0..26u32 {
-            if (mask & (1 << i)) != 0 {
-                let letter = format!("{}:\\", (b'A' + i as u8) as char);
-                drives.push(DriveInfo {
-                    letter: letter.clone(),
-                    label: letter,
-                });
+            if (mask & (1 << i)) == 0 {
+                continue;
             }
+            let letter = format!("{}:\\", (b'A' + i as u8) as char);
+            let wide = to_wide_z(&letter);
+
+            let dt = unsafe { GetDriveTypeW(windows::core::PCWSTR(wide.as_ptr())) };
+            let kind = match dt {
+                DRIVE_FIXED => "fixed",
+                DRIVE_REMOVABLE => "removable",
+                DRIVE_REMOTE => "network",
+                DRIVE_CDROM => "cdrom",
+                DRIVE_RAMDISK => "ram",
+                _ => "unknown",
+            };
+
+            let mut name_buf = [0u16; (MAX_PATH + 1) as usize];
+            let label = unsafe {
+                if GetVolumeInformationW(
+                    windows::core::PCWSTR(wide.as_ptr()),
+                    Some(&mut name_buf),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .is_ok()
+                {
+                    from_wide(&name_buf)
+                } else {
+                    String::new()
+                }
+            };
+
+            let remote_path = if kind == "network" {
+                let local = format!("{}:", (b'A' + i as u8) as char);
+                let local_w = to_wide_z(&local);
+                let mut remote_buf = vec![0u16; 1024];
+                let mut size: u32 = remote_buf.len() as u32;
+                let r = unsafe {
+                    WNetGetConnectionW(
+                        windows::core::PCWSTR(local_w.as_ptr()),
+                        PWSTR(remote_buf.as_mut_ptr()),
+                        &mut size,
+                    )
+                };
+                if r == ERROR_SUCCESS {
+                    Some(from_wide(&remote_buf))
+                } else if r == ERROR_MORE_DATA {
+                    remote_buf.resize(size as usize, 0);
+                    let r2 = unsafe {
+                        WNetGetConnectionW(
+                            windows::core::PCWSTR(local_w.as_ptr()),
+                            PWSTR(remote_buf.as_mut_ptr()),
+                            &mut size,
+                        )
+                    };
+                    if r2 == ERROR_SUCCESS {
+                        Some(from_wide(&remote_buf))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            drives.push(DriveInfo {
+                letter,
+                label,
+                kind: kind.to_string(),
+                remote_path,
+            });
         }
         Ok(drives)
     }
     #[cfg(not(windows))]
     {
-        Ok(vec![DriveInfo { letter: "/".into(), label: "/".into() }])
+        Ok(vec![DriveInfo {
+            letter: "/".into(),
+            label: "/".into(),
+            kind: "fixed".into(),
+            remote_path: None,
+        }])
     }
 }

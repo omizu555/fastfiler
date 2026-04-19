@@ -9,6 +9,7 @@ import {
   setWorkspaceTabsWidth,
 } from "../store";
 import { listDrives, homeDir } from "../fs";
+import { driveIcon, driveTitle } from "../drive-util";
 
 export default function VerticalTabs() {
   const [drives] = createResource(() => listDrives());
@@ -55,8 +56,13 @@ export default function VerticalTabs() {
         <div class="drive-list">
           <For each={drives() ?? []}>
             {(d) => (
-              <button class="drive" onClick={() => navigateActive(d.letter)}>
-                💽 {d.letter}
+              <button
+                class="drive"
+                classList={{ [`drive-kind-${d.kind}`]: true }}
+                title={driveTitle(d)}
+                onClick={() => navigateActive(d.letter)}
+              >
+                {driveIcon(d.kind)} {d.letter}
               </button>
             )}
           </For>

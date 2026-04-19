@@ -494,6 +494,11 @@ button.primary:hover { filter: brightness(1.1); }
 .drive-letter { font-weight: 700; font-size: 14px; }
 .drive-label { color: var(--fg-dim); font-size: 11px; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-card.drive-kind-network { border-color: #4a7fa8; }
+.drive-card.drive-kind-network .drive-icon { filter: hue-rotate(200deg); }
+.drive-card.drive-kind-removable { border-color: #a87f4a; }
+.drive-card.drive-kind-cdrom { border-color: #a84a7f; }
+.drive.drive-kind-network { color: #6aa9d8; }
 .crumb-active { font-weight: 600; color: var(--accent); padding: 2px 4px; }
 
 /* v2.0: Toast */

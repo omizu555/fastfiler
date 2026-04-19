@@ -9,6 +9,7 @@ import {
   state,
 } from "../store";
 import type { DriveInfo, PaneNode } from "../types";
+import { driveDisplayLabel, driveIcon, driveTitle } from "../drive-util";
 
 function activeLeafPaneId(): string | null {
   return focusedLeafPaneId();
@@ -60,6 +61,7 @@ function joinPath(base: string, name: string): string {
 interface NodeProps {
   path: string;
   label: string;
+  title?: string;
   depth: number;
   expanded: () => Set<string>;
   toggle: (p: string) => void;
@@ -103,13 +105,15 @@ function TreeNode(props: NodeProps) {
         classList={{ current: isCurrent() }}
         style={{ "padding-left": `${props.depth * 14}px` }}
         onClick={onClick}
-        title={props.path}
+        title={props.title ?? props.path}
       >
         <span
           class="tree-toggle"
           onClick={(e) => { e.stopPropagation(); props.toggle(props.path); }}
         >{isOpen() ? "▾" : "▸"}</span>
-        <span class="tree-icon">{props.depth === 0 ? "💽" : "📁"}</span>
+        <Show when={props.depth > 0}>
+          <span class="tree-icon">📁</span>
+        </Show>
         <span class="tree-label">{props.label}</span>
       </div>
       <Show when={isOpen()}>
@@ -159,6 +163,19 @@ export default function WorkspaceTreePanel() {
     const norm = cur.replace(/\//g, "\\");
     setExpanded((old) => {
       const next = new Set(old);
+      // UNC: \\server\share\... の場合は \\server\share を 1 ノード扱い
+      if (norm.startsWith("\\\\")) {
+        const rest = norm.slice(2);
+        const parts = rest.split("\\").filter(Boolean);
+        if (parts.length < 2) return next; // \\server だけでは share 未確定
+        let acc = `\\\\${parts[0]}\\${parts[1]}`;
+        next.add(normalize(acc));
+        for (let i = 2; i < parts.length; i++) {
+          acc = acc + "\\" + parts[i];
+          next.add(normalize(acc));
+        }
+        return next;
+      }
       const parts = norm.split("\\").filter(Boolean);
       let acc = "";
       for (let i = 0; i < parts.length; i++) {
@@ -212,7 +229,8 @@ export default function WorkspaceTreePanel() {
             {(d) => (
               <TreeNode
                 path={d.letter}
-                label={d.label && d.label !== d.letter ? `${d.letter} (${d.label})` : d.letter}
+                label={`${driveIcon(d.kind)} ${driveDisplayLabel(d)}`}
+                title={driveTitle(d)}
                 depth={0}
                 expanded={expanded}
                 toggle={toggle}
