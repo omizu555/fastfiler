@@ -14,6 +14,7 @@ import {
   toggleWorkspaceTree,
   setWorkspaceTabsWidth,
   setWorkspaceTreeWidth,
+  setTheme,
 } from "../store";
 import { everythingPing, pluginsDirPath, revealInExplorer } from "../fs";
 import { defaultHotkeys, eventToCombo, hotkeyLabels } from "../hotkeys";
@@ -110,6 +111,25 @@ export default function SettingsDialog(props: Props) {
 
           <section class="modal-body">
             <Show when={tab() === "general"}>
+              <div class="setting-row">
+                <label>テーマ</label>
+                <label class="inline">
+                  <input type="radio" name="theme" value="system"
+                    checked={state.theme === "system"}
+                    onChange={() => setTheme("system")} /> OS依存
+                </label>
+                <label class="inline" style={{ "margin-left": "10px" }}>
+                  <input type="radio" name="theme" value="light"
+                    checked={state.theme === "light"}
+                    onChange={() => setTheme("light")} /> ☀ ライト
+                </label>
+                <label class="inline" style={{ "margin-left": "10px" }}>
+                  <input type="radio" name="theme" value="dark"
+                    checked={state.theme === "dark"}
+                    onChange={() => setTheme("dark")} /> 🌙 ダーク
+                </label>
+              </div>
+
               <div class="setting-row">
                 <label for="cfg-cols">タブ列数</label>
                 <input

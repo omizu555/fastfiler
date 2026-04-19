@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createResource, createEffect, createSignal, onCleanup } from "solid-js";
+import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
 import {
   listDir,
   watchDir,
@@ -31,6 +31,8 @@ import {
   setPaneView,
   focusPaneSearch,
   togglePaneSearch,
+  togglePaneSearchFocused,
+  setPaneName,
   getPaneUi,
   state,
 } from "../store";
@@ -38,6 +40,7 @@ import type { FileEntry } from "../types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
 import SearchPanel from "./SearchPanel";
+import { PaneNameLabel } from "./DriveListView";
 import { matchKey } from "../hotkeys";
 
 interface Props {
@@ -186,6 +189,11 @@ export default function FileList(props: Props) {
   };
 
   const onKey = async (ev: KeyboardEvent) => {
+    // v1.7: 検索 input 等の入力要素内のキーはペインの hotkey として処理しない
+    const tgt = ev.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) {
+      return;
+    }
     const sel = pane().selection;
     const hk = state.hotkeys;
     if (matchKey(hk.open, ev) && sel.length === 1) {
@@ -221,7 +229,7 @@ export default function FileList(props: Props) {
       setPaneSelection(props.paneId, visible().map((e) => e.name));
     } else if (matchKey(hk.search, ev)) {
       ev.preventDefault();
-      focusPaneSearch(props.paneId);
+      togglePaneSearchFocused(props.paneId);
     }
   };
 
@@ -292,6 +300,17 @@ export default function FileList(props: Props) {
 
   // ----- 検索モード (タブ切替で保持される: store.paneUi) -----
   const searchMode = () => getPaneUi(props.paneId).searchOpen;
+
+  // v1.6: Ctrl+F で検索を閉じた直後にペイン本体へ focus を戻す
+  let paneRef: HTMLDivElement | undefined;
+  createEffect(on(
+    () => getPaneUi(props.paneId).paneFocusTick,
+    (t) => {
+      if (!t) return;
+      queueMicrotask(() => paneRef?.focus());
+    },
+    { defer: true }
+  ));
 
   // ----- D&D -----
   const [dragOverRow, setDragOverRow] = createSignal<string | null>(null);
@@ -426,6 +445,7 @@ export default function FileList(props: Props) {
 
   return (
     <div
+      ref={paneRef}
       class="pane"
       classList={{ "drop-target": paneDragOver() }}
       tabIndex={0}
@@ -436,6 +456,7 @@ export default function FileList(props: Props) {
       onDrop={(e) => handleDrop(e, pane().path)}
     >
       <div class="pane-toolbar">
+        <PaneNameLabel paneId={props.paneId} />
         <button title="親フォルダへ (Backspace)"
           onClick={() => setPanePath(props.paneId, parentPath(pane().path))}>↑</button>
         <Show when={editingPath()} fallback={

@@ -22,6 +22,7 @@ export interface PaneState {
   scrollTop: number;
   linkGroupId: string | null;
   view?: "list" | "tree"; // v1.1: ペイン表示モード
+  name?: string | null; // v1.5: ユーザー設定のペイン名
 }
 
 export type SplitDir = "h" | "v";
@@ -89,6 +90,8 @@ export interface PluginInfo {
   entry_path: string;
 }
 
+export type ThemeMode = "system" | "dark" | "light";
+
 export type WorkspaceLayout = "tabsLeft" | "tabsRight" | "tabsHidden";
 
 export interface WorkspaceState {
@@ -131,6 +134,7 @@ export interface PaneUiState {
   searchCaseSensitive: boolean;
   searchRegex: boolean;
   searchFocusTick: number;
+  paneFocusTick: number; // v1.6: ペイン本体に focus を戻すための tick
 }
 
 export function defaultPaneUi(): PaneUiState {
@@ -140,5 +144,6 @@ export function defaultPaneUi(): PaneUiState {
     searchCaseSensitive: false,
     searchRegex: false,
     searchFocusTick: 0,
+    paneFocusTick: 0,
   };
 }

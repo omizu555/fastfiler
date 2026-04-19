@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createResource, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js";
 import { listDirs, listDrives } from "../fs";
 import {
   setPanePath,
@@ -145,6 +145,25 @@ export default function WorkspaceTreePanel() {
       return next;
     });
   };
+
+  // アクティブペインの path を購読 → 祖先パスを自動展開
+  createEffect(() => {
+    const pid = activeLeafPaneId();
+    if (!pid) return;
+    const cur = state.panes[pid]?.path ?? "";
+    if (!cur || cur.startsWith("::")) return;
+    const norm = cur.replace(/\//g, "\\");
+    setExpanded((old) => {
+      const next = new Set(old);
+      const parts = norm.split("\\").filter(Boolean);
+      let acc = "";
+      for (let i = 0; i < parts.length; i++) {
+        acc = i === 0 ? parts[0] + "\\" : (acc.endsWith("\\") ? acc + parts[i] : acc + "\\" + parts[i]);
+        next.add(normalize(acc));
+      }
+      return next;
+    });
+  });
 
   const width = createMemo(() => state.workspace.treeWidth);
 

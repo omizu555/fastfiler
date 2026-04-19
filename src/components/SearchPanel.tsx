@@ -147,6 +147,11 @@ export default function SearchPanel(props: Props) {
               stop();
               setPaneSearchOpen(props.paneId, false);
             }
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+              e.preventDefault();
+              stop();
+              setPaneSearchOpen(props.paneId, false);
+            }
           }}
         />
         <label class="inline" title="大文字小文字を区別">

@@ -227,10 +227,17 @@ export function joinPath(base: string, name: string): string {
   return base + "\\" + name;
 }
 
+export const DRIVES_PATH = "::drives";
+
+export function isDrivesPath(p: string): boolean {
+  return p === DRIVES_PATH;
+}
+
 export function parentPath(path: string): string {
+  if (path === DRIVES_PATH) return DRIVES_PATH;
   const norm = path.replace(/\//g, "\\");
-  // ドライブ root
-  if (/^[A-Za-z]:\\?$/.test(norm)) return norm.length === 2 ? norm + "\\" : norm;
+  // ドライブ root → ドライブ一覧へ
+  if (/^[A-Za-z]:\\?$/.test(norm)) return DRIVES_PATH;
   const trimmed = norm.endsWith("\\") ? norm.slice(0, -1) : norm;
   const idx = trimmed.lastIndexOf("\\");
   if (idx <= 2) return trimmed.substring(0, 3);

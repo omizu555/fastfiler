@@ -3,6 +3,8 @@ import type { PaneNode } from "../types";
 import { setSplitRatio, state } from "../store";
 import FileList from "./FileList";
 import TreeView from "./TreeView";
+import DriveListView from "./DriveListView";
+import { isDrivesPath } from "../fs";
 
 interface Props {
   node: PaneNode;
@@ -11,10 +13,13 @@ interface Props {
 }
 
 function Leaf(p: { tabId: string; paneId: string }) {
-  const view = () => state.panes[p.paneId]?.view ?? "list";
+  const pane = () => state.panes[p.paneId];
+  const view = () => pane()?.view ?? "list";
   return (
-    <Show when={view() === "tree"} fallback={<FileList tabId={p.tabId} paneId={p.paneId} />}>
-      <TreeView paneId={p.paneId} />
+    <Show when={!isDrivesPath(pane()?.path ?? "")} fallback={<DriveListView tabId={p.tabId} paneId={p.paneId} />}>
+      <Show when={view() === "tree"} fallback={<FileList tabId={p.tabId} paneId={p.paneId} />}>
+        <TreeView paneId={p.paneId} />
+      </Show>
     </Show>
   );
 }

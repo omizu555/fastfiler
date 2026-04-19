@@ -57,6 +57,7 @@ interface AppState {
   everythingScope: boolean;
   paneUi: Record<string, PaneUiState>;
   workspace: WorkspaceState;
+  theme: import("./types").ThemeMode;
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -81,9 +82,11 @@ function loadInitial(): AppState | null {
     // 既存ペインに対する PaneUi 補完
     for (const pid of Object.keys(v.panes ?? {})) {
       if (!v.paneUi[pid]) v.paneUi[pid] = defaultPaneUi();
+      else v.paneUi[pid] = { ...defaultPaneUi(), ...v.paneUi[pid] };
     }
     if (!v.workspace) v.workspace = defaultWorkspace();
     else v.workspace = { ...defaultWorkspace(), ...v.workspace };
+    if (!v.theme) v.theme = "system";
     return v;
   } catch {
     return null;
@@ -121,6 +124,7 @@ function freshState(initialPath: string): AppState {
     everythingScope: true,
     paneUi: { [paneId]: defaultPaneUi() },
     workspace: defaultWorkspace(),
+    theme: "system",
   };
 }
 
@@ -456,7 +460,12 @@ export function getPaneUi(paneId: string): PaneUiState {
 
 export function setPaneSearchOpen(paneId: string, open: boolean) {
   ensurePaneUi(paneId);
+  const wasOpen = state.paneUi[paneId]?.searchOpen;
   setState("paneUi", paneId, "searchOpen", open);
+  // v1.7.1: 閉じる遷移ではペイン本体に focus を戻す
+  if (wasOpen && !open) {
+    setState("paneUi", paneId, "paneFocusTick", (n) => n + 1);
+  }
 }
 
 export function togglePaneSearch(paneId: string) {
@@ -521,5 +530,39 @@ export function setWorkspaceTreeWidth(w: number) {
 
 export function setWorkspaceTreeApply(a: WorkspaceState["treeApply"]) {
   setState("workspace", "treeApply", a);
+  persist();
+}
+
+// === v1.5: pane name ===
+export function setPaneName(paneId: string, name: string | null) {
+  setState("panes", paneId, "name", name && name.trim() ? name.trim() : null);
+  persist();
+}
+
+export function activeLeafPaneId(): string | null {
+  const t = state.tabs.find((t) => t.id === state.activeTabId);
+  if (!t) return null;
+  const walk = (n: import("./types").PaneNode): string => {
+    return n.kind === "leaf" ? n.paneId : walk(n.a);
+  };
+  return walk(t.rootPane);
+}
+
+// === v1.5: search toggle (open/close 切替) ===
+export function togglePaneSearchFocused(paneId: string) {
+  ensurePaneUi(paneId);
+  const ui = state.paneUi[paneId];
+  if (ui?.searchOpen) {
+    setState("paneUi", paneId, "searchOpen", false);
+    setState("paneUi", paneId, "paneFocusTick", (n) => n + 1);
+  } else {
+    setState("paneUi", paneId, "searchOpen", true);
+    setState("paneUi", paneId, "searchFocusTick", (n) => n + 1);
+  }
+}
+
+// === v1.5: theme ===
+export function setTheme(t: import("./types").ThemeMode) {
+  setState("theme", t);
   persist();
 }
