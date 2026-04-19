@@ -58,15 +58,15 @@ input, select {
 .dock-middle > .plugin-panel { flex: 0 0 auto; }
 
 .dock-area { display: flex; min-width: 0; min-height: 0; flex: 0 0 auto; }
-.dock-area.dock-left { flex-direction: column; }
-.dock-area.dock-right { flex-direction: column; }
-.dock-area.dock-top { flex-direction: row; width: 100%; border-bottom: 1px solid var(--border); }
-.dock-area.dock-bottom { flex-direction: row; width: 100%; border-top: 1px solid var(--border); }
+.dock-area.dock-left { flex-direction: row; height: 100%; }
+.dock-area.dock-right { flex-direction: row; height: 100%; }
+.dock-area.dock-top { flex-direction: column; width: 100%; border-bottom: 1px solid var(--border); }
+.dock-area.dock-bottom { flex-direction: column; width: 100%; border-top: 1px solid var(--border); }
 .dock-area > * { flex: 0 0 auto; min-width: 0; min-height: 0; }
 .dock-area.dock-left > *:not(:last-child),
-.dock-area.dock-right > *:not(:last-child) { border-bottom: 1px solid var(--border); }
+.dock-area.dock-right > *:not(:last-child) { border-right: 1px solid var(--border); }
 .dock-area.dock-top > *:not(:last-child),
-.dock-area.dock-bottom > *:not(:last-child) { border-right: 1px solid var(--border); }
+.dock-area.dock-bottom > *:not(:last-child) { border-bottom: 1px solid var(--border); }
 
 /* PanelHeader */
 .panel-header {

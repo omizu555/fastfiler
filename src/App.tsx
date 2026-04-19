@@ -36,15 +36,13 @@ function PanelById(props: { id: PanelId }) {
 function DockArea(props: { slot: DockSlot }) {
   const ids = createMemo(() => panelsInSlot(props.slot));
   const horizontal = () => props.slot === "top" || props.slot === "bottom";
+  // 同 slot 内の複数パネルは並列に配置 → 合計サイズで外形を決める
   const totalSize = createMemo(() => {
     const pd = state.workspace.panelDock;
     if (!pd) return 240;
-    let max = 0;
-    for (const id of ids()) {
-      const s = pd[id].size;
-      if (s > max) max = s;
-    }
-    return max || 240;
+    let sum = 0;
+    for (const id of ids()) sum += pd[id].size;
+    return sum || 240;
   });
   return (
     <Show when={ids().length > 0}>

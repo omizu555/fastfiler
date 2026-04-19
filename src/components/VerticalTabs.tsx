@@ -17,11 +17,14 @@ export default function VerticalTabs() {
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [overIdx, setOverIdx] = createSignal<number | null>(null);
   const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
+  const ownSize = createMemo(() => state.workspace.panelDock?.tabs.size ?? state.workspace.tabsWidth);
   const panelStyle = createMemo(() => {
     const s = slot();
-    // 親 dock-area が外形サイズを持つので、ここでは cross 軸 100% + flex 分配のみ
-    if (s === "top" || s === "bottom") return { height: "100%", width: "auto", flex: "1 1 0" };
-    return { width: "100%", height: "auto", flex: "1 1 0" };
+    const sz = ownSize();
+    if (s === "top" || s === "bottom") {
+      return { height: `${sz}px`, width: "100%", flex: `0 0 ${sz}px` };
+    }
+    return { width: `${sz}px`, height: "100%", flex: `0 0 ${sz}px` };
   });
 
   const findLeaf = (n: any): string | null => {

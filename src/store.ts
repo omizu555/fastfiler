@@ -1,4 +1,4 @@
-import { createStore, reconcile } from "solid-js/store";
+import { createStore } from "solid-js/store";
 import { batch } from "solid-js";
 import type {
   HotkeyAction,
@@ -27,8 +27,8 @@ const defaultWorkspace = (): WorkspaceState => ({
 
 function defaultPanelDock(): import("./types").PanelDockState {
   return {
-    tabs: { slot: "left", order: 0, size: 240, lastDockSlot: "left", windowId: "main" },
-    tree: { slot: "left", order: 1, size: 240, lastDockSlot: "left", windowId: "main" },
+    tabs: { slot: "left", order: 0, size: 240, lastDockSlot: "left" },
+    tree: { slot: "left", order: 1, size: 240, lastDockSlot: "left" },
   };
 }
 
@@ -76,22 +76,6 @@ interface AppState {
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
-
-/** このウィンドウの識別子。URL の ?win= から取得 (なければ "main") */
-export const WINDOW_ID: string = (() => {
-  if (typeof window === "undefined") return "main";
-  try {
-    return new URLSearchParams(window.location.search).get("win") || "main";
-  } catch {
-    return "main";
-  }
-})();
-
-const SYNC_CHANNEL = typeof BroadcastChannel !== "undefined"
-  ? new BroadcastChannel("fastfiler-sync")
-  : null;
-
-let receivingRemote = false;
 
 function loadInitial(): AppState | null {
   try {
@@ -193,14 +177,7 @@ export function persist() {
       // pluginContextMenu / toasts は揮発のため除外
       delete (snapshot as Record<string, unknown>).pluginContextMenu;
       delete (snapshot as Record<string, unknown>).toasts;
-      // メインウィンドウのみ localStorage に保存 (フロートはレプリカなので不要)
-      if (WINDOW_ID === "main") {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-      }
-      // 全ウィンドウへ broadcast (受信中はループ防止のためスキップ)
-      if (!receivingRemote && SYNC_CHANNEL) {
-        SYNC_CHANNEL.postMessage({ type: "state", from: WINDOW_ID, payload: snapshot });
-      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {/* ignore */}
   }, 250);
 }
@@ -209,71 +186,7 @@ export function persist() {
 if (loaded) persist();
 
 // デバッグ用: ブラウザ Console から state を確認可能にする
-if (typeof window !== "undefined") (window as any).__ff = { state, persist, WINDOW_ID };
-
-// === マルチウィンドウ同期 (BroadcastChannel) ===
-function snapshotForSync() {
-  const snapshot = { ...state, _seq: idSeq };
-  delete (snapshot as Record<string, unknown>).pluginContextMenu;
-  delete (snapshot as Record<string, unknown>).toasts;
-  return snapshot;
-}
-
-if (SYNC_CHANNEL) {
-  SYNC_CHANNEL.addEventListener("message", (e) => {
-    const msg = (e as MessageEvent).data;
-    if (!msg || typeof msg !== "object") return;
-    if (msg.from === WINDOW_ID) return;
-
-    if (msg.type === "state") {
-      receivingRemote = true;
-      try {
-        const incoming = msg.payload;
-        // 自ウィンドウ固有 (揮発) フィールドは保持
-        const merged = {
-          ...incoming,
-          pluginContextMenu: state.pluginContextMenu,
-          toasts: state.toasts,
-          focusedPaneId: state.focusedPaneId,
-        };
-        setState(reconcile(merged as AppState));
-      } finally {
-        receivingRemote = false;
-      }
-    } else if (msg.type === "request-state" && WINDOW_ID === "main") {
-      // フロートウィンドウからの初期 state 要求
-      SYNC_CHANNEL.postMessage({ type: "state", from: WINDOW_ID, payload: snapshotForSync() });
-    } else if (msg.type === "window-closing" && WINDOW_ID === "main") {
-      // フロートウィンドウ閉鎖 → 該当パネルを main に戻す
-      const closedWid = msg.from;
-      const pd = state.workspace.panelDock;
-      if (!pd) return;
-      receivingRemote = true;
-      try {
-        for (const id of ["tabs", "tree"] as PanelId[]) {
-          if ((pd[id].windowId ?? "main") === closedWid) {
-            const back = pd[id].lastDockSlot ?? "left";
-            setState("workspace", "panelDock", id, "windowId", "main");
-            setState("workspace", "panelDock", id, "slot", back);
-          }
-        }
-      } finally {
-        receivingRemote = false;
-      }
-      persist();
-    }
-  });
-
-  // フロートウィンドウは起動直後にメイン state を要求
-  if (WINDOW_ID !== "main") {
-    SYNC_CHANNEL.postMessage({ type: "request-state", from: WINDOW_ID });
-  }
-
-  // 自ウィンドウ閉鎖通知
-  window.addEventListener("beforeunload", () => {
-    try { SYNC_CHANNEL.postMessage({ type: "window-closing", from: WINDOW_ID }); } catch {/* ignore */}
-  });
-}
+if (typeof window !== "undefined") (window as any).__ff = { state, persist };
 
 export function setInitialPath(path: string) {
   if (!loaded) {
@@ -748,12 +661,6 @@ export function setPanelFloatGeom(panel: PanelId, geom: { x: number; y: number; 
   persist();
 }
 
-export function setPanelWindow(panel: PanelId, windowId: string) {
-  ensureDock();
-  setState("workspace", "panelDock", panel, "windowId", windowId);
-  persist();
-}
-
 export function togglePanelVisible(panel: PanelId) {
   ensureDock();
   const cur = state.workspace.panelDock![panel];
@@ -761,17 +668,13 @@ export function togglePanelVisible(panel: PanelId) {
   else setPanelSlot(panel, "hidden");
 }
 
-/** 指定 slot かつ現在のウィンドウに属するパネル ID を order 昇順で返す */
+/** 指定 slot に属するパネル ID を order 昇順で返す */
 export function panelsInSlot(slot: DockSlot): PanelId[] {
   const pd = state.workspace.panelDock;
   if (!pd) return [];
   const list: { id: PanelId; order: number }[] = [];
-  if (pd.tabs.slot === slot && (pd.tabs.windowId ?? "main") === WINDOW_ID) {
-    list.push({ id: "tabs", order: pd.tabs.order });
-  }
-  if (pd.tree.slot === slot && (pd.tree.windowId ?? "main") === WINDOW_ID) {
-    list.push({ id: "tree", order: pd.tree.order });
-  }
+  if (pd.tabs.slot === slot) list.push({ id: "tabs", order: pd.tabs.order });
+  if (pd.tree.slot === slot) list.push({ id: "tree", order: pd.tree.order });
   list.sort((a, b) => a.order - b.order);
   return list.map((x) => x.id);
 }

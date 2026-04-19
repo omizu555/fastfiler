@@ -234,10 +234,14 @@ export default function WorkspaceTreePanel() {
 
   const slot = createMemo(() => state.workspace.panelDock?.tree.slot ?? "left");
   const width = createMemo(() => state.workspace.treeWidth);
+  const ownSize = createMemo(() => state.workspace.panelDock?.tree.size ?? state.workspace.treeWidth);
   const panelStyle = createMemo(() => {
     const s = slot();
-    if (s === "top" || s === "bottom") return { height: "100%", width: "auto", flex: "1 1 0" };
-    return { width: "100%", height: "auto", flex: "1 1 0" };
+    const sz = ownSize();
+    if (s === "top" || s === "bottom") {
+      return { height: `${sz}px`, width: "100%", flex: `0 0 ${sz}px` };
+    }
+    return { width: `${sz}px`, height: "100%", flex: `0 0 ${sz}px` };
   });
 
   // splitter ドラッグ

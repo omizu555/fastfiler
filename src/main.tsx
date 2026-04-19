@@ -2,11 +2,8 @@
 import { render } from "solid-js/web";
 import { createEffect } from "solid-js";
 import App from "./App";
-import FloatApp from "./FloatApp";
-import { state, activeLeafPaneId, togglePaneSearchFocused, WINDOW_ID } from "./store";
+import { state, activeLeafPaneId, togglePaneSearchFocused } from "./store";
 import "./styles.css";
-
-const isFloat = WINDOW_ID !== "main";
 
 // v1.7.1: WebView2 標準 Find ダイアログを抑止し Ctrl+F を必ずアプリ側で処理
 window.addEventListener(
@@ -53,6 +50,6 @@ mql.addEventListener("change", () => {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root not found");
-render(() => (isFloat ? <FloatApp /> : <App />), root);
+render(() => <App />, root);
 
 
