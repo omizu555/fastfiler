@@ -1,0 +1,26 @@
+{
+  "name": "fastfiler",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "縦タブ + 任意分割ペイン + ペイン連動を持つ高速 Windows ファイラ (Tauri 2 + Solid)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.0.1",
+    "solid-js": "^1.8.22"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.10",
+    "vite-plugin-solid": "^2.10.2"
+  }
+}

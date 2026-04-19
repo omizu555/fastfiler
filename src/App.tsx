@@ -1,0 +1,132 @@
+import { Show, createMemo, createSignal, onMount } from "solid-js";
+import VerticalTabs from "./components/VerticalTabs";
+import PaneTree from "./components/PaneTree";
+import SettingsDialog from "./components/SettingsDialog";
+import PreviewPane from "./components/PreviewPane";
+import PluginPanel from "./components/PluginPanel";
+import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
+import {
+  state,
+  setInitialPath,
+  togglePreview,
+  togglePluginPanel,
+  addTab,
+  closeTab,
+  cycleTab,
+  setActiveTabIndex,
+  cycleWorkspaceLayout,
+  toggleWorkspaceTree,
+} from "./store";
+import { homeDir } from "./fs";
+import { matchKey } from "./hotkeys";
+
+export default function App() {
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const activeTab = createMemo(() =>
+    state.tabs.find((t) => t.id === state.activeTabId),
+  );
+
+  // 「現在フォーカスされているペイン」推定: 最後にアクティブだった leaf を辿る
+  const previewPaneId = createMemo<string | null>(() => {
+    const t = activeTab();
+    if (!t) return null;
+    const find = (n: typeof t.rootPane): string | null => {
+      if (n.kind === "leaf") return n.paneId;
+      return find(n.a) ?? find(n.b);
+    };
+    return find(t.rootPane);
+  });
+
+  onMount(async () => {
+    try {
+      const home = await homeDir();
+      setInitialPath(home);
+    } catch {/* ignore */}
+    const onKey = (e: KeyboardEvent) => {
+      const hk = state.hotkeys;
+      if (matchKey(hk["open-settings"], e)) {
+        e.preventDefault();
+        setSettingsOpen(true);
+      } else if (matchKey(hk["toggle-preview"], e)) {
+        e.preventDefault();
+        togglePreview();
+      } else if (matchKey(hk["toggle-plugin"], e)) {
+        e.preventDefault();
+        togglePluginPanel();
+      } else if (matchKey(hk["toggle-tabs"], e)) {
+        e.preventDefault();
+        cycleWorkspaceLayout();
+      } else if (matchKey(hk["toggle-tree"], e)) {
+        e.preventDefault();
+        toggleWorkspaceTree();
+      } else if (matchKey(hk["new-tab"], e)) {
+        e.preventDefault();
+        homeDir().then((h) => addTab(h)).catch(() => addTab("C:\\"));
+      } else if (matchKey(hk["close-tab"], e)) {
+        e.preventDefault();
+        if (state.tabs.length > 1) closeTab(state.activeTabId);
+      } else if (matchKey(hk["next-tab"], e) || (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "PageDown")) {
+        e.preventDefault();
+        cycleTab(1);
+      } else if (matchKey(hk["prev-tab"], e) || (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "PageUp")) {
+        e.preventDefault();
+        cycleTab(-1);
+      } else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
+        // Ctrl+1..8 → 指定インデックス、Ctrl+9 → 最後のタブ
+        e.preventDefault();
+        const n = parseInt(e.key, 10);
+        if (n === 9) setActiveTabIndex(state.tabs.length - 1);
+        else setActiveTabIndex(n - 1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+  });
+
+  const showTabs = createMemo(() => state.workspace.layout !== "tabsHidden");
+  const tabsOnRight = createMemo(() => state.workspace.layout === "tabsRight");
+
+  return (
+    <div class="app">
+      <header class="app-header">
+        <span class="logo">⚡ FastFiler</span>
+        <span class="muted">v0.1.0</span>
+        <span class="spacer" />
+        <span class="muted">Ctrl+F:検索 ／ Ctrl+P:プレビュー ／ Ctrl+B:タブサイドバー ／ Ctrl+Shift+E:ツリー ／ Ctrl+,:設定</span>
+        <button class="header-btn" classList={{ active: showTabs() }}
+          title="タブサイドバー切替 (Ctrl+B) / クリックで左→右→非表示" onClick={cycleWorkspaceLayout}>
+          {state.workspace.layout === "tabsRight" ? "📑→" : state.workspace.layout === "tabsHidden" ? "📑✕" : "📑"}
+        </button>
+        <button class="header-btn" classList={{ active: state.workspace.showTree }}
+          title="ツリーパネル切替 (Ctrl+Shift+E)" onClick={toggleWorkspaceTree}>🌲</button>
+        <button class="header-btn" classList={{ active: state.showPreview }}
+          title="プレビュー (Ctrl+P)" onClick={togglePreview}>👁</button>
+        <button class="header-btn" classList={{ active: state.showPluginPanel }}
+          title="プラグイン (Ctrl+Shift+P)" onClick={togglePluginPanel}>🧩</button>
+        <button class="header-btn" title="設定 (Ctrl+,)" onClick={() => setSettingsOpen(true)}>⚙ 設定</button>
+      </header>
+      <div class="app-body">
+        <Show when={showTabs() && !tabsOnRight()}>
+          <VerticalTabs />
+        </Show>
+        <Show when={state.workspace.showTree}>
+          <WorkspaceTreePanel />
+        </Show>
+        <main class="workspace">
+          <Show when={activeTab()} fallback={<div class="empty">タブなし</div>}>
+            <PaneTree node={activeTab()!.rootPane} tabId={activeTab()!.id} />
+          </Show>
+        </main>
+        <Show when={state.showPreview && previewPaneId()}>
+          {(pid) => <PreviewPane paneId={pid()} />}
+        </Show>
+        <Show when={state.showPluginPanel}>
+          <PluginPanel />
+        </Show>
+        <Show when={showTabs() && tabsOnRight()}>
+          <VerticalTabs />
+        </Show>
+      </div>
+      <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
+    </div>
+  );
+}

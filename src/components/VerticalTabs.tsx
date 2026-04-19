@@ -1,0 +1,154 @@
+import { For, createResource, createSignal } from "solid-js";
+import {
+  state,
+  setActiveTab,
+  closeTab,
+  addTab,
+  setPanePath,
+  reorderTab,
+  setWorkspaceTabsWidth,
+} from "../store";
+import { listDrives, homeDir } from "../fs";
+
+export default function VerticalTabs() {
+  const [drives] = createResource(() => listDrives());
+  const [dragId, setDragId] = createSignal<string | null>(null);
+  const [overIdx, setOverIdx] = createSignal<number | null>(null);
+
+  const findLeaf = (n: any): string | null => {
+    if (!n) return null;
+    if (n.kind === "leaf") return n.paneId;
+    return findLeaf(n.a) ?? findLeaf(n.b);
+  };
+
+  const navigateActive = (path: string) => {
+    const tab = state.tabs.find((t) => t.id === state.activeTabId);
+    if (!tab) return;
+    const id = findLeaf(tab.rootPane);
+    if (id) setPanePath(id, path);
+  };
+
+  const tabLabel = (tab: { rootPane: any; title: string }) => {
+    const id = findLeaf(tab.rootPane);
+    const p = id ? state.panes[id]?.path : "";
+    if (!p) return tab.title || "(空)";
+    // basename: 末尾の \ または / を除去してから最後のセパレータ以降
+    const trimmed = p.replace(/[\\/]+$/, "");
+    const m = trimmed.match(/[^\\/]+$/);
+    if (m) return m[0];
+    // ドライブルート ("C:\" 等)
+    return trimmed || p;
+  };
+
+  return (
+    <aside class="vtabs" style={{ width: state.workspace.tabsWidth + "px" }}>
+      <VTabsSplitter />
+      <div class="vtabs-head">
+        <strong>タブ</strong>
+        <button class="add" title="新規タブ" onClick={async () => {
+          try { addTab(await homeDir()); } catch { addTab("C:\\"); }
+        }}>＋ 新規</button>
+      </div>
+
+      <div class="drives">
+        <small class="muted">ドライブ</small>
+        <div class="drive-list">
+          <For each={drives() ?? []}>
+            {(d) => (
+              <button class="drive" onClick={() => navigateActive(d.letter)}>
+                💽 {d.letter}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+
+      <div
+        class="vtabs-grid"
+        style={{ "grid-template-columns": `repeat(${state.tabColumns}, 1fr)` }}
+      >
+        <For each={state.tabs}>
+          {(t, i) => (
+            <div
+              classList={{
+                vtab: true,
+                active: state.activeTabId === t.id,
+                dragging: dragId() === t.id,
+                "drop-before": overIdx() === i(),
+              }}
+              draggable={true}
+              onDragStart={(ev) => {
+                setDragId(t.id);
+                ev.dataTransfer?.setData("application/x-fastfiler-tab", t.id);
+                if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+              }}
+              onDragEnd={() => { setDragId(null); setOverIdx(null); }}
+              onDragOver={(ev) => {
+                if (!ev.dataTransfer?.types.includes("application/x-fastfiler-tab")) return;
+                ev.preventDefault();
+                ev.dataTransfer.dropEffect = "move";
+                const rect = ev.currentTarget.getBoundingClientRect();
+                const before = (ev.clientY - rect.top) < rect.height / 2;
+                setOverIdx(before ? i() : i() + 1);
+              }}
+              onDragLeave={() => { /* ちらつき抑制のため何もしない */ }}
+              onDrop={(ev) => {
+                ev.preventDefault();
+                const id = ev.dataTransfer?.getData("application/x-fastfiler-tab");
+                const target = overIdx();
+                if (id && target !== null) reorderTab(id, target);
+                setDragId(null);
+                setOverIdx(null);
+              }}
+              onClick={() => setActiveTab(t.id)}
+              title={state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}
+            >
+              <span class="vtab-title">{tabLabel(t)}</span>
+              <button
+                class="vtab-close"
+                onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}
+              >×</button>
+            </div>
+          )}
+        </For>
+      </div>
+
+      <div class="vtabs-foot">
+        <small>
+          連動:{" "}
+          <For each={state.linkGroups}>
+            {(g) => <span class="lg-chip" style={{ background: g.color }}>{g.name}</span>}
+          </For>
+        </small>
+      </div>
+    </aside>
+  );
+}
+
+function VTabsSplitter() {
+  const onDown = (e: PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = state.workspace.tabsWidth;
+    const onRight = state.workspace.layout === "tabsRight";
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      // tabsRight の場合はマウスを左に動かしたら幅が増える
+      setWorkspaceTabsWidth(onRight ? startW - dx : startW + dx);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return (
+    <div
+      class="vtabs-splitter"
+      classList={{ "on-right": state.workspace.layout === "tabsRight" }}
+      onPointerDown={onDown}
+      title="ドラッグで幅変更"
+    />
+  );
+}

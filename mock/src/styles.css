@@ -1,0 +1,155 @@
+/* スピード重視: アニメーションは全廃 */
+*,
+*::before,
+*::after {
+  animation: none !important;
+  transition: none !important;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #1e1f22;
+  --bg2: #2b2d31;
+  --bg3: #36373d;
+  --fg: #e6e6e6;
+  --fg-dim: #a0a0a8;
+  --accent: #4ea1ff;
+  --border: #3a3b40;
+  --selected: #2d4a6e;
+  font-family: "Yu Gothic UI", "Segoe UI", sans-serif;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+}
+
+button {
+  background: var(--bg3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+button:hover { background: #44464d; }
+button.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+input, select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.app-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 10px; background: var(--bg2);
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.logo { font-weight: bold; color: var(--accent); }
+.muted { color: var(--fg-dim); }
+.spacer { flex: 1; }
+
+.app-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 0;
+}
+
+.vtabs {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.vtabs-head {
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.vtabs-head .col-ctl { display: flex; gap: 2px; align-items: center; }
+.vtabs-head .col-ctl button { width: 22px; }
+.vtabs-head .add { margin-left: auto; }
+.vtabs-grid {
+  flex: 1; display: grid; gap: 2px; padding: 4px;
+  align-content: start; overflow-y: auto;
+}
+.vtab {
+  background: var(--bg3); border: 1px solid var(--border);
+  padding: 4px 6px; display: flex; align-items: center; gap: 4px;
+  cursor: pointer; min-width: 0; font-size: 12px;
+}
+.vtab.active { border-color: var(--accent); background: #2c3a4d; }
+.vtab-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vtab-close {
+  padding: 0 4px; border: none; background: transparent; color: var(--fg-dim);
+}
+.vtab-close:hover { color: #ff8080; background: transparent; }
+.vtabs-foot { padding: 6px 8px; border-top: 1px solid var(--border); font-size: 11px; }
+.lg-chip {
+  display: inline-block; padding: 1px 6px; margin: 0 2px;
+  border-radius: 8px; color: #000; font-weight: bold;
+}
+
+.workspace { min-width: 0; min-height: 0; display: flex; }
+.workspace > * { flex: 1; min-width: 0; min-height: 0; }
+.split {
+  display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0;
+}
+.splitter { background: var(--border); cursor: col-resize; }
+.split-v > .splitter { cursor: row-resize; }
+.splitter:hover { background: var(--accent); }
+
+.pane {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.pane-toolbar {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.pane-path { flex: 1; min-width: 0; }
+.link-select { width: 90px; }
+.link-badge {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+}
+.file-list { flex: 1; overflow: auto; min-height: 0; }
+.file-list table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.file-list th {
+  position: sticky; top: 0; background: var(--bg2);
+  text-align: left; padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  font-weight: normal; color: var(--fg-dim);
+}
+.file-list td {
+  padding: 2px 6px; border-bottom: 1px solid #2a2b30;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-list tr { cursor: default; }
+.file-list tr:hover { background: #2a2c32; }
+.file-list tr.selected { background: var(--selected); }
+.icon { margin-right: 4px; }
+.empty { padding: 16px; color: var(--fg-dim); text-align: center; }
+.pane-status {
+  padding: 2px 8px; background: var(--bg2);
+  border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--fg-dim);
+}

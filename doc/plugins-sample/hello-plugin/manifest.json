@@ -1,0 +1,8 @@
+{
+  "id": "hello-plugin",
+  "name": "Hello Plugin",
+  "version": "0.1.0",
+  "description": "FastFiler のサンプルプラグイン。capability テスト用。",
+  "entry": "index.html",
+  "capabilities": ["fs.read.dir", "fs.read.text", "shell.open"]
+}
