@@ -2,6 +2,9 @@ import { For, Show, createMemo, createResource, createEffect, createSignal, on, 
 import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree, shellMenuShow, oleStartDrag } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { openPrompt } from "./PromptDialog";
+import { sortFileEntries } from "../file-list/sort";
+import { buildAsciiTree, parseDepthInput } from "../file-list/ascii-tree";
+import { invalidNameMessage, uniqueName } from "../file-list/name-utils";
 import {
   setPanePath,
   setPaneSelection,
@@ -80,37 +83,11 @@ export default function FileList(props: Props) {
   const visible = createMemo<FileEntry[]>(() => {
     const list = entries() ?? [];
     const ui = getPaneUi(props.paneId);
-    const dir = ui.sortDir === "asc" ? 1 : -1;
-    const cmp = (a: FileEntry, b: FileEntry): number => {
-      if (ui.foldersFirst && a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-      switch (ui.sortKey) {
-        case "size": {
-          const av = a.size ?? -1, bv = b.size ?? -1;
-          if (av !== bv) return (av - bv) * dir;
-          break;
-        }
-        case "mtime": {
-          const av = a.modified ?? 0, bv = b.modified ?? 0;
-          if (av !== bv) return (av - bv) * dir;
-          break;
-        }
-        case "kind": {
-          const ext = (n: string) => {
-            const i = n.lastIndexOf(".");
-            return i > 0 ? n.slice(i + 1).toLowerCase() : "";
-          };
-          const ax = a.kind === "dir" ? "" : ext(a.name);
-          const bx = b.kind === "dir" ? "" : ext(b.name);
-          if (ax !== bx) return ax.localeCompare(bx) * dir;
-          break;
-        }
-        case "name":
-        default:
-          break;
-      }
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) * dir;
-    };
-    return [...list].sort(cmp);
+    return sortFileEntries(list, {
+      key: ui.sortKey,
+      dir: ui.sortDir,
+      foldersFirst: ui.foldersFirst,
+    });
   });
 
   // ----- ステータスバー: 選択合計サイズ + ドライブ空き容量 -----
@@ -176,46 +153,14 @@ export default function FileList(props: Props) {
       label: "再帰の深さ (1〜8) / ファイル含む場合は末尾に f を付与 (例: 4f)",
       initial: "4",
       confirmLabel: "コピー",
-      validate: (v) => {
-        const m = v.trim().match(/^(\d+)(f?)$/i);
-        if (!m) return "数字を入力してください (例: 4 または 4f)";
-        const n = parseInt(m[1], 10);
-        if (n < 1 || n > 8) return "深さは 1〜8 の範囲で";
-        return null;
-      },
+      validate: (v) => parseDepthInput(v) ? null : "数字 (1-8) を入力 (例: 4 または 4f)",
     });
     if (!depthStr) return;
-    const m = depthStr.trim().match(/^(\d+)(f?)$/i)!;
-    const maxDepth = parseInt(m[1], 10);
-    const includeFiles = !!m[2];
-    const rootName = rootPath.split(/[\\/]/).pop() || rootPath;
-    const lines: string[] = [rootName];
-
-    const walk = async (path: string, prefix: string, depth: number) => {
-      if (depth > maxDepth) return;
-      let items: FileEntry[];
-      try {
-        items = await listDir(path);
-      } catch { return; }
-      const filtered = items
-        .filter((e) => includeFiles || e.kind === "dir")
-        .filter((e) => state.showHidden || !e.hidden)
-        .sort((a, b) => {
-          if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        });
-      for (let i = 0; i < filtered.length; i++) {
-        const e = filtered[i];
-        const last = i === filtered.length - 1;
-        const branch = last ? "└─ " : "├─ ";
-        lines.push(prefix + branch + e.name + (e.kind === "dir" ? "/" : ""));
-        if (e.kind === "dir") {
-          await walk(joinPath(path, e.name), prefix + (last ? "   " : "│  "), depth + 1);
-        }
-      }
-    };
-    await walk(rootPath, "", 1);
-    const text = lines.join("\n");
+    const opts = parseDepthInput(depthStr)!;
+    const text = await buildAsciiTree(rootPath, {
+      ...opts,
+      includeHidden: state.showHidden,
+    });
     try {
       await navigator.clipboard.writeText(text);
     } catch (e) {
@@ -292,13 +237,7 @@ export default function FileList(props: Props) {
       label: oldName,
       initial: oldName,
       confirmLabel: "変更",
-      validate: (v) => {
-        const t = v.trim();
-        if (!t) return "名前を入力してください";
-        if (/[\\/:*?"<>|]/.test(t)) return "使用できない文字が含まれています";
-        if (existing.has(t)) return "同名の項目が既に存在します";
-        return null;
-      },
+      validate: (v) => invalidNameMessage(v, existing),
     });
     if (newName && newName !== oldName) {
       const from = joinPath(pane().path, oldName);
@@ -315,24 +254,13 @@ export default function FileList(props: Props) {
 
   const doNewFolder = async () => {
     const existing = new Set(visible().map((e) => e.name));
-    let initial = "新しいフォルダー";
-    if (existing.has(initial)) {
-      let i = 2;
-      while (existing.has(`${initial} (${i})`)) i++;
-      initial = `${initial} (${i})`;
-    }
+    const initial = uniqueName("新しいフォルダー", existing);
     const name = await openPrompt({
       title: "新しいフォルダー",
       label: "フォルダー名",
       initial,
       confirmLabel: "作成",
-      validate: (v) => {
-        const t = v.trim();
-        if (!t) return "名前を入力してください";
-        if (/[\\/:*?"<>|]/.test(t)) return "使用できない文字が含まれています";
-        if (existing.has(t)) return "同名の項目が既に存在します";
-        return null;
-      },
+      validate: (v) => invalidNameMessage(v, existing),
     });
     if (!name) return;
     try {
