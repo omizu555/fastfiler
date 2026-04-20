@@ -13,6 +13,8 @@ mod search;
 mod everything;
 mod plugin;
 mod term;
+mod win_shell;
+mod ole_dnd;
 mod error;
 
 pub use error::AppError;
@@ -84,6 +86,11 @@ pub fn run() {
             term::term_write,
             term::term_resize,
             term::term_close,
+            // v4.0 scaffolds (未実装)
+            win_shell::shell_menu_query,
+            win_shell::shell_menu_invoke,
+            ole_dnd::ole_dnd_register,
+            ole_dnd::ole_dnd_start_drag,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");
