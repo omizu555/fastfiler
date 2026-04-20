@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
-import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree, shellMenuShow } from "../fs";
+import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree, shellMenuShow, oleStartDrag } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { openPrompt } from "./PromptDialog";
 import {
@@ -528,6 +528,13 @@ export default function FileList(props: Props) {
     if (!sel.includes(name)) {
       setPaneSelection(props.paneId, [name]);
       sel = [name];
+    }
+    // Alt+ドラッグ: Windows ネイティブ OS ドラッグ (エクスプローラ等へ drag-out 可能)
+    if (ev.altKey) {
+      ev.preventDefault();
+      const fullSel = sel.map((n) => joinPath(pane().path, n));
+      void oleStartDrag(fullSel, 0x7).catch((err) => console.warn("oleStartDrag:", err));
+      return;
     }
     const payload: DragPayload = {
       paths: sel.map((n) => joinPath(pane().path, n)),

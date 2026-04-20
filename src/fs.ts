@@ -252,6 +252,12 @@ export async function shellMenuShow(paths: string[], x: number, y: number): Prom
   return await invoke<boolean>("shell_menu_show", { paths, x, y });
 }
 
+// v4.0 (40b drag-out) ネイティブ OLE ドラッグ送信
+export async function oleStartDrag(paths: string[], allowedEffects = 0x7): Promise<number> {
+  if (!isTauri()) return 0;
+  return await invoke<number>("ole_dnd_start_drag", { paths, allowedEffects });
+}
+
 export { DRIVES_PATH, isDrivesPath, joinPath, parentPath } from "./path-util";
 
 export function formatSize(n: number): string {

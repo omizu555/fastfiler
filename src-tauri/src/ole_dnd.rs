@@ -232,10 +232,184 @@ pub fn ole_dnd_register() -> AppResult<()> {
     Ok(())
 }
 
+// ---------------- drag-out (Files → エクスプローラ等) ----------------
+//
+// SHCreateDataObject で CF_HDROP 相当の IDataObject を作り、
+// 自前の IDropSource と一緒に DoDragDrop に渡す。
+// DoDragDrop はブロッキングでメインスレッド (STA) 必須なので
+// run_on_main_thread でディスパッチする。
+
 #[tauri::command]
-pub fn ole_dnd_start_drag(_paths: Vec<String>, _allowed_effects: u32) -> AppResult<u32> {
-    // TODO(v4.0 Phase 2): SHCreateDataObject + DoDragDrop で送信側を実装
-    Err(AppError::Other(
-        "ole_dnd_start_drag: 未実装 (drag-out は Phase 2 で対応)".into(),
-    ))
+pub fn ole_dnd_start_drag(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+    allowed_effects: u32,
+) -> AppResult<u32> {
+    if paths.is_empty() {
+        return Err(AppError::Other("paths が空です".into()));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, allowed_effects);
+        return Err(AppError::Other("Windows でのみ利用可能".into()));
+    }
+    #[cfg(windows)]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<AppResult<u32>>();
+        let allowed = if allowed_effects == 0 { 0x7 } else { allowed_effects }; // COPY|MOVE|LINK
+        app.run_on_main_thread(move || {
+            let r = unsafe { do_drag_drop(&paths, allowed) };
+            let _ = tx.send(r);
+        })
+        .map_err(|e| AppError::Other(format!("dispatch failed: {e}")))?;
+        rx.recv().map_err(|e| AppError::Other(format!("recv failed: {e}")))?
+    }
 }
+
+#[cfg(windows)]
+unsafe fn do_drag_drop(paths: &[String], allowed_effects: u32) -> AppResult<u32> {
+    use windows::core::{ComObject, PCWSTR};
+    use windows::Win32::System::Com::IDataObject;
+    use windows::Win32::System::Ole::{DoDragDrop, DROPEFFECT};
+    use windows::Win32::UI::Shell::{
+        Common::ITEMIDLIST, ILFree, SHCreateDataObject, SHParseDisplayName,
+    };
+
+    // 各 path → 完全 PIDL
+    let mut full_pidls: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
+    struct PidlGuard(Vec<*mut ITEMIDLIST>);
+    impl Drop for PidlGuard {
+        fn drop(&mut self) {
+            for p in self.0.drain(..) {
+                if !p.is_null() { unsafe { ILFree(Some(p)); } }
+            }
+        }
+    }
+
+    for p in paths {
+        let wide: Vec<u16> = p.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+        if SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None).is_err()
+            || pidl.is_null()
+        {
+            for q in &full_pidls { if !q.is_null() { ILFree(Some(*q)); } }
+            return Err(AppError::Other(format!("SHParseDisplayName 失敗: {p}")));
+        }
+        full_pidls.push(pidl);
+    }
+    let pidl_guard = PidlGuard(full_pidls.clone());
+    full_pidls.clear();
+
+    // 親 PIDL を作る (最初の項目をクローンして最後の ID を削る)
+    let parent_pidl: *mut ITEMIDLIST = clone_parent_pidl(pidl_guard.0[0])?;
+    struct ParentGuard(*mut ITEMIDLIST);
+    impl Drop for ParentGuard {
+        fn drop(&mut self) { if !self.0.is_null() { unsafe { ILFree(Some(self.0)); } } }
+    }
+    let _parent_guard = ParentGuard(parent_pidl);
+
+    // 各 child の last ID ポインタを取り出し配列に
+    let mut children: Vec<*const ITEMIDLIST> = Vec::with_capacity(pidl_guard.0.len());
+    let parent_path = parent_path_from(&paths[0]);
+    for (i, &full) in pidl_guard.0.iter().enumerate() {
+        // 同一親フォルダチェック
+        if parent_path_from(&paths[i]) != parent_path {
+            return Err(AppError::Other(
+                "異なる親フォルダの項目が混在しています (drag-out は同一フォルダのみ対応)".into(),
+            ));
+        }
+        let last = il_find_last_id(full);
+        if last.is_null() {
+            return Err(AppError::Other("ILFindLastID 失敗".into()));
+        }
+        children.push(last as *const _);
+    }
+
+    let data: IDataObject = SHCreateDataObject(
+        Some(parent_pidl as *const _),
+        Some(&children),
+        None,
+    )
+    .map_err(|e| AppError::Other(format!("SHCreateDataObject: {e}")))?;
+
+    let source: ComObject<DropSource> = DropSource::new().into();
+    let isrc: windows::Win32::System::Ole::IDropSource = source.to_interface();
+
+    let mut effect = DROPEFFECT(0);
+    let allowed_eff = DROPEFFECT(allowed_effects);
+    let hr = DoDragDrop(&data, &isrc, allowed_eff, &mut effect);
+    // DRAGDROP_S_DROP = 0x40100, DRAGDROP_S_CANCEL = 0x40101
+    let _ = hr;
+    Ok(effect.0)
+}
+
+#[cfg(windows)]
+unsafe fn clone_parent_pidl(
+    full: *mut windows::Win32::UI::Shell::Common::ITEMIDLIST,
+) -> AppResult<*mut windows::Win32::UI::Shell::Common::ITEMIDLIST> {
+    use windows::Win32::UI::Shell::{ILClone, ILRemoveLastID};
+    let cloned = ILClone(full as *const _);
+    if cloned.is_null() {
+        return Err(AppError::Other("ILClone 失敗".into()));
+    }
+    let _ = ILRemoveLastID(Some(cloned));
+    Ok(cloned)
+}
+
+#[cfg(windows)]
+unsafe fn il_find_last_id(
+    pidl: *mut windows::Win32::UI::Shell::Common::ITEMIDLIST,
+) -> *mut windows::Win32::UI::Shell::Common::ITEMIDLIST {
+    use windows::Win32::UI::Shell::ILFindLastID;
+    ILFindLastID(pidl as *const _)
+}
+
+fn parent_path_from(p: &str) -> String {
+    let p = p.trim_end_matches(|c| c == '\\' || c == '/');
+    match p.rfind(|c| c == '\\' || c == '/') {
+        Some(i) => p[..i].to_string(),
+        None => String::new(),
+    }
+}
+
+#[cfg(windows)]
+mod impl_source {
+    use windows::core::implement;
+    use windows::Win32::Foundation::{BOOL, S_OK};
+    use windows::Win32::System::Ole::{IDropSource, IDropSource_Impl};
+    use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
+
+    // HRESULT 定数 (windows-rs 0.58 では Win32::System::Ole に無いため自前定義)
+    const DRAGDROP_S_DROP: windows::core::HRESULT = windows::core::HRESULT(0x00040100u32 as i32);
+    const DRAGDROP_S_CANCEL: windows::core::HRESULT = windows::core::HRESULT(0x00040101u32 as i32);
+    const DRAGDROP_S_USEDEFAULTCURSORS: windows::core::HRESULT = windows::core::HRESULT(0x00040102u32 as i32);
+
+    #[implement(IDropSource)]
+    pub struct DropSource;
+    impl DropSource {
+        pub fn new() -> Self { Self }
+    }
+
+    impl IDropSource_Impl for DropSource_Impl {
+        fn QueryContinueDrag(
+            &self,
+            f_escape_pressed: BOOL,
+            grf_key_state: MODIFIERKEYS_FLAGS,
+        ) -> windows::core::HRESULT {
+            const MK_LBUTTON: u32 = 0x0001;
+            const MK_RBUTTON: u32 = 0x0002;
+            if f_escape_pressed.as_bool() { return DRAGDROP_S_CANCEL; }
+            // ボタンがどちらも離されたら drop
+            if grf_key_state.0 & (MK_LBUTTON | MK_RBUTTON) == 0 {
+                return DRAGDROP_S_DROP;
+            }
+            S_OK
+        }
+        fn GiveFeedback(&self, _dw_effect: windows::Win32::System::Ole::DROPEFFECT) -> windows::core::HRESULT {
+            DRAGDROP_S_USEDEFAULTCURSORS
+        }
+    }
+}
+
+#[cfg(windows)]
+use impl_source::DropSource;
