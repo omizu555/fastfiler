@@ -74,8 +74,11 @@ pub fn run() {
             search::everything_ping,
             // plugins
             plugin::list_plugins,
+            plugin::list_plugins_with_status,
             plugin::plugins_dir_path,
             plugin::plugin_invoke,
+            plugin::import_plugin_zip,
+            plugin::delete_plugin,
             // terminal
             term::term_open,
             term::term_write,

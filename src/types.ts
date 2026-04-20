@@ -95,6 +95,13 @@ export interface PluginInfo {
   entry_path: string;
 }
 
+export interface PluginStatus {
+  dir: string;
+  id?: string | null;
+  manifest?: PluginManifest | null;
+  error?: string | null;
+}
+
 export type ThemeMode = "system" | "dark" | "light";
 
 // v3.3: アイコンセット

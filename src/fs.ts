@@ -225,6 +225,18 @@ export async function listPlugins(): Promise<PluginInfo[]> {
   if (!isTauri()) return [];
   try { return await invoke<PluginInfo[]>("list_plugins"); } catch { return []; }
 }
+export async function listPluginsWithStatus(): Promise<import("./types").PluginStatus[]> {
+  if (!isTauri()) return [];
+  try { return await invoke("list_plugins_with_status"); } catch { return []; }
+}
+export async function importPluginZip(zipPath: string): Promise<string> {
+  if (!isTauri()) throw new Error("Tauri 環境でのみ利用可能");
+  return await invoke<string>("import_plugin_zip", { zipPath });
+}
+export async function deletePlugin(id: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("delete_plugin", { id });
+}
 export async function pluginsDirPath(): Promise<string> {
   if (!isTauri()) return "";
   try { return await invoke<string>("plugins_dir_path"); } catch { return ""; }

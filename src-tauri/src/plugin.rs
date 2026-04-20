@@ -89,6 +89,144 @@ pub fn plugins_dir_path() -> AppResult<String> {
     Ok(p.to_string_lossy().to_string())
 }
 
+/// 検証付きで一覧 (manifest 不正もエラー入りで返す)
+#[derive(Serialize, Clone, Debug)]
+pub struct PluginStatus {
+    pub dir: String,
+    pub id: Option<String>,
+    pub manifest: Option<PluginManifest>,
+    pub error: Option<String>,
+}
+
+const ALLOWED_CAPS: &[&str] = &[
+    "fs.read.dir","fs.read.text","fs.stat","fs.write.text","fs.mkdir","fs.rename",
+    "fs.copy","fs.move","fs.delete","shell.open","storage.get","storage.set",
+    "ui.notify","pane.getActive","pane.setPath","ui.contextMenu.register",
+];
+
+#[tauri::command]
+pub fn list_plugins_with_status() -> AppResult<Vec<PluginStatus>> {
+    let dir = match plugins_dir() {
+        Some(d) => d,
+        None => return Ok(vec![]),
+    };
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(vec![]),
+    };
+    for ent in entries.flatten() {
+        let p = ent.path();
+        if !p.is_dir() { continue; }
+        let dir_str = p.to_string_lossy().to_string();
+        let manifest_path = p.join("manifest.json");
+        if !manifest_path.exists() {
+            out.push(PluginStatus { dir: dir_str, id: None, manifest: None, error: Some("manifest.json が見つかりません".into()) });
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&manifest_path) {
+            Ok(s) => s,
+            Err(e) => { out.push(PluginStatus { dir: dir_str, id: None, manifest: None, error: Some(format!("読み込み失敗: {e}")) }); continue; }
+        };
+        let manifest: PluginManifest = match serde_json::from_str(&raw) {
+            Ok(m) => m,
+            Err(e) => { out.push(PluginStatus { dir: dir_str, id: None, manifest: None, error: Some(format!("manifest 解析失敗: {e}")) }); continue; }
+        };
+        let mut errs: Vec<String> = Vec::new();
+        if manifest.id.trim().is_empty() { errs.push("id が空".into()); }
+        if manifest.name.trim().is_empty() { errs.push("name が空".into()); }
+        let entry_path = p.join(&manifest.entry);
+        if !entry_path.exists() { errs.push(format!("entry '{}' が存在しません", manifest.entry)); }
+        for c in &manifest.capabilities {
+            if !ALLOWED_CAPS.iter().any(|a| a == c) {
+                errs.push(format!("未知の capability: {c}"));
+            }
+        }
+        let id = Some(manifest.id.clone());
+        let error = if errs.is_empty() { None } else { Some(errs.join(" / ")) };
+        out.push(PluginStatus { dir: dir_str, id, manifest: Some(manifest), error });
+    }
+    Ok(out)
+}
+
+/// ZIP インポート: 1階層目に manifest.json があれば <id>/ に、無ければ ZIP 内最上位フォルダを <id>/ にリネーム
+#[tauri::command]
+pub fn import_plugin_zip(zip_path: String) -> AppResult<String> {
+    let dir = plugins_dir().ok_or_else(|| AppError::Other("no plugin dir".into()))?;
+    let f = std::fs::File::open(&zip_path).map_err(|e| AppError::Other(format!("zip open: {e}")))?;
+    let mut archive = zip::ZipArchive::new(f).map_err(|e| AppError::Other(format!("zip read: {e}")))?;
+
+    // 1) manifest.json を探す → そこから id を決定
+    let mut manifest_inner: Option<String> = None;
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|e| AppError::Other(format!("zip entry: {e}")))?;
+        let name = entry.name().replace('\\', "/");
+        if name.ends_with("manifest.json") && !name.contains("__MACOSX") {
+            manifest_inner = Some(name);
+            break;
+        }
+    }
+    let manifest_inner = manifest_inner.ok_or_else(|| AppError::Other("manifest.json が ZIP 内にありません".into()))?;
+    let mut mf = archive.by_name(&manifest_inner).map_err(|e| AppError::Other(format!("zip manifest: {e}")))?;
+    let mut raw = String::new();
+    use std::io::Read;
+    mf.read_to_string(&mut raw).map_err(|e| AppError::Other(format!("manifest read: {e}")))?;
+    drop(mf);
+    let manifest: PluginManifest = serde_json::from_str(&raw)
+        .map_err(|e| AppError::Other(format!("manifest 解析: {e}")))?;
+    if manifest.id.trim().is_empty() {
+        return Err(AppError::Other("manifest.id が空です".into()));
+    }
+
+    // 2) 展開先
+    let target = dir.join(&manifest.id);
+    if target.exists() {
+        std::fs::remove_dir_all(&target).map_err(|e| AppError::Other(format!("既存削除: {e}")))?;
+    }
+    std::fs::create_dir_all(&target).map_err(|e| AppError::Other(format!("mkdir: {e}")))?;
+
+    // 3) 共通プレフィックス算出 (manifest.json があった階層)
+    let prefix = {
+        let mut p = manifest_inner.clone();
+        if let Some(pos) = p.rfind('/') { p.truncate(pos + 1); } else { p.clear(); }
+        p
+    };
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| AppError::Other(format!("zip entry: {e}")))?;
+        let name = entry.name().replace('\\', "/");
+        if name.contains("__MACOSX") { continue; }
+        let rel = if prefix.is_empty() { name.clone() } else if let Some(s) = name.strip_prefix(&prefix) { s.to_string() } else { continue };
+        if rel.is_empty() { continue; }
+        let out_path = target.join(&rel);
+        if entry.is_dir() || rel.ends_with('/') {
+            std::fs::create_dir_all(&out_path).ok();
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| AppError::Other(format!("mkdir: {e}")))?;
+        }
+        let mut out_f = std::fs::File::create(&out_path).map_err(|e| AppError::Other(format!("create {}: {e}", out_path.display())))?;
+        std::io::copy(&mut entry, &mut out_f).map_err(|e| AppError::Other(format!("write: {e}")))?;
+    }
+    Ok(manifest.id)
+}
+
+#[tauri::command]
+pub fn delete_plugin(id: String) -> AppResult<()> {
+    let dir = plugins_dir().ok_or_else(|| AppError::Other("no plugin dir".into()))?;
+    let target = dir.join(&id);
+    if !target.exists() { return Ok(()); }
+    // 安全策: plugins_dir 配下であることを再確認
+    let canon_dir = std::fs::canonicalize(&dir).unwrap_or(dir.clone());
+    let canon_target = std::fs::canonicalize(&target).unwrap_or(target.clone());
+    if !canon_target.starts_with(&canon_dir) {
+        return Err(AppError::Other("invalid plugin path".into()));
+    }
+    std::fs::remove_dir_all(&canon_target).map_err(|e| AppError::Other(format!("削除失敗: {e}")))?;
+    Ok(())
+}
+
 /// プラグイン用の中継 IPC（capability チェック付き）
 #[tauri::command]
 pub fn plugin_invoke(
