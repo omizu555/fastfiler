@@ -37,6 +37,7 @@ pub fn run() {
             app.manage(search::SearchState::default());
             app.manage(file_jobs::JobRegistry::default());
             term::register(app.handle());
+            ole_dnd::register(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

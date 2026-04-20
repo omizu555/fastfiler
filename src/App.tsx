@@ -23,10 +23,12 @@ import {
   toggleWorkspaceTree,
   panelsInSlot,
   setPanelSize,
+  focusedLeafPaneId,
 } from "./store";
 import { homeDir } from "./fs";
 import { matchKey } from "./hotkeys";
 import { performUndo } from "./undo";
+import { runFileJob } from "./jobs";
 import type { DockSlot, PanelId } from "./types";
 
 function PanelById(props: { id: PanelId }) {
@@ -90,6 +92,28 @@ export default function App() {
       const home = await homeDir();
       setInitialPath(home);
     } catch {/* ignore */}
+    // v4.0: OLE D&D 受信 (エクスプローラからのドロップ)
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      await listen<{ paths: string[]; effect: number; x: number; y: number }>("ole-drop", async (e) => {
+        const { paths, effect, x, y } = e.payload;
+        if (!paths.length) return;
+        // ドロップ位置から data-pane-id を持つ要素を辿って対象パネルを特定
+        const el = document.elementFromPoint(x, y) as HTMLElement | null;
+        const paneEl = el?.closest("[data-pane-id]") as HTMLElement | null;
+        const targetPaneId = paneEl?.dataset.paneId ?? focusedLeafPaneId();
+        const targetPath = targetPaneId ? state.panes[targetPaneId]?.path : null;
+        if (!targetPath) return;
+        const isMove = (effect & 2) !== 0;
+        const op: "copy" | "move" = isMove ? "move" : "copy";
+        const items = paths.map((from) => {
+          const name = from.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+          const sep = targetPath.endsWith("\\") || targetPath.endsWith("/") ? "" : "\\";
+          return { from, to: `${targetPath}${sep}${name}` };
+        });
+        await runFileJob(op, items, { label: `${op === "copy" ? "コピー" : "移動"} (${items.length} 件) → ${targetPath}` });
+      });
+    } catch {/* non-tauri */}
     const onKey = (e: KeyboardEvent) => {
       const hk = state.hotkeys;
       if (matchKey(hk["open-settings"], e)) {

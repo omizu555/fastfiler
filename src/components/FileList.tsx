@@ -657,6 +657,7 @@ export default function FileList(props: Props) {
     <div
       ref={paneRef}
       class="pane"
+      data-pane-id={props.paneId}
       classList={{ "drop-target": paneDragOver(), "pane-focused": state.focusedPaneId === props.paneId }}
       tabIndex={0}
       onPointerDown={() => setFocusedPane(props.paneId)}
