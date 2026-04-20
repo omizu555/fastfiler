@@ -72,6 +72,8 @@ interface AppState {
   paneUi: Record<string, PaneUiState>;
   workspace: WorkspaceState;
   theme: import("./types").ThemeMode;
+  accentColor: string | null;
+  iconSet: import("./types").IconSet;
   plugins: { enabled: Record<string, boolean> };
   pluginPanelWidth: number;
   pluginContextMenu: PluginContextMenuItem[];
@@ -120,6 +122,8 @@ function loadInitial(): AppState | null {
       }
     }
     if (!v.theme) v.theme = "system";
+    if (v.accentColor === undefined) v.accentColor = null;
+    if (!v.iconSet) v.iconSet = "emoji";
     if (!v.plugins) v.plugins = { enabled: {} };
     if (!v.plugins.enabled) v.plugins.enabled = {};
     // pluginContextMenu / toasts は非永続だが型に必要
@@ -168,6 +172,8 @@ function freshState(initialPath: string): AppState {
     paneUi: { [paneId]: defaultPaneUi() },
     workspace: defaultWorkspace(),
     theme: "system",
+    accentColor: null,
+    iconSet: "emoji",
     plugins: { enabled: {} },
     pluginPanelWidth: 320,
     pluginContextMenu: [],
@@ -729,6 +735,16 @@ export function togglePaneSearchFocused(paneId: string) {
 // === v1.5: theme ===
 export function setTheme(t: import("./types").ThemeMode) {
   setState("theme", t);
+  persist();
+}
+
+// === v3.3: アクセントカラー / アイコンセット ===
+export function setAccentColor(c: string | null) {
+  setState("accentColor", c);
+  persist();
+}
+export function setIconSet(s: import("./types").IconSet) {
+  setState("iconSet", s);
   persist();
 }
 

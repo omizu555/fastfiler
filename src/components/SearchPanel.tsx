@@ -16,6 +16,7 @@ import {
   state,
 } from "../store";
 import type { SearchHit, SearchDoneInfo } from "../types";
+import { iconForEntryWith } from "../icons";
 
 interface Props {
   paneId: string;
@@ -189,7 +190,7 @@ export default function SearchPanel(props: Props) {
               onClick={() => onResultClick(h)}
               onDblClick={() => onResultDbl(h)}
             >
-              <span class="icon">{h.is_dir ? "📁" : "📄"}</span>
+              <span class="icon">{iconForEntryWith({ kind: h.is_dir ? "dir" : "file", ext: h.name.includes(".") ? h.name.split(".").pop() : null }, state.iconSet)}</span>
               <span class="search-name">{h.name}</span>
               <span class="search-path muted">{h.path}</span>
             </div>

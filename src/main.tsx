@@ -40,6 +40,18 @@ createEffect(() => {
   document.documentElement.dataset.theme = effective;
   void applyNativeTheme(effective, t === "system");
 });
+
+// v3.3: アクセントカラー反映
+createEffect(() => {
+  const c = state.accentColor;
+  if (c) document.documentElement.style.setProperty("--accent", c);
+  else document.documentElement.style.removeProperty("--accent");
+});
+
+// v3.3: アイコンセット (data 属性で CSS から参照可能に)
+createEffect(() => {
+  document.documentElement.dataset.iconset = state.iconSet;
+});
 mql.addEventListener("change", () => {
   if (state.theme === "system") {
     const eff = mql.matches ? "light" : "dark";

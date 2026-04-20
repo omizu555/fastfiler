@@ -96,6 +96,9 @@ export interface PluginInfo {
 
 export type ThemeMode = "system" | "dark" | "light";
 
+// v3.3: アイコンセット
+export type IconSet = "emoji" | "minimal" | "colored";
+
 // v2.0: プラグインが登録可能なコンテキストメニュー項目
 export interface PluginContextMenuItem {
   pluginId: string;

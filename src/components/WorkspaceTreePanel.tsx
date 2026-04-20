@@ -13,6 +13,7 @@ import {
 import type { DriveInfo, PaneNode } from "../types";
 import { driveDisplayLabel, driveIcon, driveTitle } from "../drive-util";
 import PanelHeader from "./PanelHeader";
+import { iconForEntryWith } from "../icons";
 
 function leavesOf(n: PaneNode): string[] {
   if (n.kind === "leaf") return [n.paneId];
@@ -132,7 +133,7 @@ function TreeNode(props: NodeProps) {
           onClick={(e) => { e.stopPropagation(); props.toggle(props.path); }}
         >{isOpen() ? "▾" : "▸"}</span>
         <Show when={props.depth > 0}>
-          <span class="tree-icon">📁</span>
+          <span class="tree-icon">{iconForEntryWith({ kind: "dir" }, state.iconSet)}</span>
         </Show>
         <span class="tree-label">{props.label}</span>
       </div>

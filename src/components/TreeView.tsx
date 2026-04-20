@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createResource, createSignal } fro
 import { listDirs } from "../fs";
 import { ancestorChain, joinPath, normalizePath, splitPath } from "../path-util";
 import { setFocusedPane, setPanePath, setPaneView, state } from "../store";
+import { iconForEntryWith } from "../icons";
 
 interface Props {
   paneId: string;
@@ -100,7 +101,7 @@ function TreeNode(props: NodeProps) {
           class="tree-toggle"
           onClick={(e) => { e.stopPropagation(); props.toggle(props.path); }}
         >{isOpen() ? "▾" : "▸"}</span>
-        <span class="tree-icon">📁</span>
+        <span class="tree-icon">{iconForEntryWith({ kind: "dir" }, state.iconSet)}</span>
         <span class="tree-label">{props.label}</span>
       </div>
       <Show when={isOpen()}>

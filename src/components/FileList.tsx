@@ -28,6 +28,7 @@ import { runFileJob } from "../jobs";
 import type { FileEntry } from "../types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
+import { iconForEntryWith } from "../icons";
 import SearchPanel from "./SearchPanel";
 import { PaneNameLabel } from "./DriveListView";
 import { matchKey } from "../hotkeys";
@@ -808,13 +809,13 @@ export default function FileList(props: Props) {
                     <td>
                       <Show
                         when={state.showThumbnails && shouldThumb(e.ext)}
-                        fallback={<span class="icon">{e.kind === "dir" ? "📁" : "📄"}</span>}
+                        fallback={<span class="icon">{iconForEntryWith(e, state.iconSet)}</span>}
                       >
                         <Thumbnail
                           path={joinPath(pane().path, e.name)}
                           ext={e.ext}
                           size={48}
-                          fallback={e.kind === "dir" ? "📁" : "📄"}
+                          fallback={iconForEntryWith(e, state.iconSet)}
                         />
                       </Show>
                       {e.name}

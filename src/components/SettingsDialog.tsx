@@ -15,6 +15,8 @@ import {
   setPanelSlot,
   setSamePanelStack,
   setTheme,
+  setAccentColor,
+  setIconSet,
 } from "../store";
 import { everythingPing, pluginsDirPath, revealInExplorer } from "../fs";
 import { defaultHotkeys, eventToCombo, hotkeyLabels } from "../hotkeys";
@@ -127,6 +129,42 @@ export default function SettingsDialog(props: Props) {
                   <input type="radio" name="theme" value="dark"
                     checked={state.theme === "dark"}
                     onChange={() => setTheme("dark")} /> 🌙 ダーク
+                </label>
+              </div>
+
+              <div class="setting-row">
+                <label for="cfg-accent">アクセント色</label>
+                <input
+                  id="cfg-accent"
+                  type="color"
+                  value={state.accentColor ?? "#3b82f6"}
+                  onInput={(e) => setAccentColor(e.currentTarget.value)}
+                  style={{ "width": "48px", "height": "28px", "padding": "0", "border": "1px solid var(--border)" }}
+                />
+                <button class="ghost" style={{ "margin-left": "8px" }} onClick={() => setAccentColor(null)}>
+                  既定に戻す
+                </button>
+                <small class="muted" style={{ "margin-left": "8px" }}>
+                  ボタン/選択行などのハイライト色
+                </small>
+              </div>
+
+              <div class="setting-row">
+                <label>アイコンセット</label>
+                <label class="inline">
+                  <input type="radio" name="iconset" value="emoji"
+                    checked={state.iconSet === "emoji"}
+                    onChange={() => setIconSet("emoji")} /> 📁 既定
+                </label>
+                <label class="inline" style={{ "margin-left": "10px" }}>
+                  <input type="radio" name="iconset" value="colored"
+                    checked={state.iconSet === "colored"}
+                    onChange={() => setIconSet("colored")} /> 🎨 拡張子別
+                </label>
+                <label class="inline" style={{ "margin-left": "10px" }}>
+                  <input type="radio" name="iconset" value="minimal"
+                    checked={state.iconSet === "minimal"}
+                    onChange={() => setIconSet("minimal")} /> ▸ ミニマル
                 </label>
               </div>
 
