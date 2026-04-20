@@ -22,6 +22,7 @@ export const defaultHotkeys: HotkeyMap = {
   "prev-tab": "Ctrl+Shift+Tab",
   "toggle-tabs": "Ctrl+B",
   "toggle-tree": "Ctrl+Shift+E",
+  "address-bar": "Ctrl+L",
 };
 
 export const hotkeyLabels: Record<HotkeyAction, string> = {
@@ -46,6 +47,7 @@ export const hotkeyLabels: Record<HotkeyAction, string> = {
   "prev-tab": "前のタブへ",
   "toggle-tabs": "タブサイドバー表示切替",
   "toggle-tree": "ツリーパネル表示切替",
+  "address-bar": "アドレスバーを編集",
 };
 
 // "Ctrl+Shift+N" -> { ctrl, shift, alt, meta, key: "N" }

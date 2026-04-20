@@ -84,6 +84,13 @@ export async function watchDir(path: string): Promise<void> {
   try { await invoke("watch_dir", { path }); } catch (e) { console.warn(e); }
 }
 
+export interface DiskInfo { total: number; free: number; available: number }
+
+export async function diskFree(path: string): Promise<DiskInfo | null> {
+  if (!isTauri()) return null;
+  try { return await invoke<DiskInfo>("disk_free", { path }); } catch { return null; }
+}
+
 export async function unwatchDir(path: string): Promise<void> {
   if (!isTauri()) return;
   try { await invoke("unwatch_dir", { path }); } catch (e) { console.warn(e); }

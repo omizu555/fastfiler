@@ -165,7 +165,8 @@ export type HotkeyAction =
   | "next-tab"
   | "prev-tab"
   | "toggle-tabs"
-  | "toggle-tree";
+  | "toggle-tree"
+  | "address-bar";
 
 export type HotkeyMap = Record<HotkeyAction, string>;
 

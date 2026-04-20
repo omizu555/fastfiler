@@ -1,21 +1,5 @@
 import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
-import {
-  listDir,
-  watchDir,
-  unwatchDir,
-  listenFsChange,
-  formatSize,
-  formatDate,
-  openWithShell,
-  revealInExplorer,
-  showProperties,
-  deletePath,
-  deleteToTrash,
-  renamePath,
-  createDir,
-  copyPath,
-  movePath,
-} from "../fs";
+import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { openPrompt } from "./PromptDialog";
 import {
@@ -89,6 +73,28 @@ export default function FileList(props: Props) {
 
   const visible = createMemo<FileEntry[]>(() => entries() ?? []);
 
+  // ----- ステータスバー: 選択合計サイズ + ドライブ空き容量 -----
+  const selectionSize = createMemo(() => {
+    const sel = new Set(pane().selection);
+    let n = 0;
+    for (const e of visible()) {
+      if (sel.has(e.name) && e.kind === "file") n += e.size ?? 0;
+    }
+    return n;
+  });
+
+  const [diskInfo, setDiskInfo] = createSignal<{ total: number; free: number; available: number } | null>(null);
+  createEffect(() => {
+    const p = pane().path;
+    let cancelled = false;
+    const refresh = () => {
+      void diskFree(p).then((d) => { if (!cancelled) setDiskInfo(d); });
+    };
+    refresh();
+    const id = window.setInterval(refresh, 5000);
+    onCleanup(() => { cancelled = true; window.clearInterval(id); });
+  });
+
   let lastClickedIndex: number | null = null;
 
   const onRowClick = (name: string, idx: number, ev: MouseEvent) => {
@@ -116,6 +122,61 @@ export default function FileList(props: Props) {
       void openWithShell(joinPath(pane().path, e.name));
     }
   };
+
+  // ----- ASCII ツリーエクスポート -----
+  const exportAsciiTree = async (rootPath: string) => {
+    const depthStr = await openPrompt({
+      title: "ツリーをコピー (ASCII)",
+      label: "再帰の深さ (1〜8) / ファイル含む場合は末尾に f を付与 (例: 4f)",
+      initial: "4",
+      confirmLabel: "コピー",
+      validate: (v) => {
+        const m = v.trim().match(/^(\d+)(f?)$/i);
+        if (!m) return "数字を入力してください (例: 4 または 4f)";
+        const n = parseInt(m[1], 10);
+        if (n < 1 || n > 8) return "深さは 1〜8 の範囲で";
+        return null;
+      },
+    });
+    if (!depthStr) return;
+    const m = depthStr.trim().match(/^(\d+)(f?)$/i)!;
+    const maxDepth = parseInt(m[1], 10);
+    const includeFiles = !!m[2];
+    const rootName = rootPath.split(/[\\/]/).pop() || rootPath;
+    const lines: string[] = [rootName];
+
+    const walk = async (path: string, prefix: string, depth: number) => {
+      if (depth > maxDepth) return;
+      let items: FileEntry[];
+      try {
+        items = await listDir(path);
+      } catch { return; }
+      const filtered = items
+        .filter((e) => includeFiles || e.kind === "dir")
+        .filter((e) => state.showHidden || !e.hidden)
+        .sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+      for (let i = 0; i < filtered.length; i++) {
+        const e = filtered[i];
+        const last = i === filtered.length - 1;
+        const branch = last ? "└─ " : "├─ ";
+        lines.push(prefix + branch + e.name + (e.kind === "dir" ? "/" : ""));
+        if (e.kind === "dir") {
+          await walk(joinPath(path, e.name), prefix + (last ? "   " : "│  "), depth + 1);
+        }
+      }
+    };
+    await walk(rootPath, "", 1);
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      alert(`クリップボードコピー失敗: ${e}\n\n${text}`);
+    }
+  };
+
 
   // ----- クリップボード操作 -----
   const cutSelection = () => {
@@ -223,6 +284,10 @@ export default function FileList(props: Props) {
     } catch (e) { alert(`作成失敗: ${e}`); }
   };
 
+  // ----- インクリメンタルサーチ (英数キーで先頭一致選択) -----
+  let typingBuffer = "";
+  let typingTimer: number | null = null;
+
   const onKey = async (ev: KeyboardEvent) => {
     // v1.7: 検索 input 等の入力要素内のキーはペインの hotkey として処理しない
     const tgt = ev.target as HTMLElement | null;
@@ -231,6 +296,12 @@ export default function FileList(props: Props) {
     }
     const sel = pane().selection;
     const hk = state.hotkeys;
+    if (matchKey(hk["address-bar"], ev)) {
+      ev.preventDefault();
+      setPathError(null);
+      setEditingPath(true);
+      return;
+    }
     if (matchKey(hk.open, ev) && sel.length === 1) {
       const e = visible().find((x) => x.name === sel[0]);
       if (e) enter(e);
@@ -265,6 +336,29 @@ export default function FileList(props: Props) {
     } else if (matchKey(hk.search, ev)) {
       ev.preventDefault();
       togglePaneSearchFocused(props.paneId);
+    } else if (
+      ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey
+      && /[\p{L}\p{N}._\-\s]/u.test(ev.key)
+    ) {
+      // インクリメンタルサーチ
+      typingBuffer += ev.key.toLowerCase();
+      if (typingTimer !== null) clearTimeout(typingTimer);
+      typingTimer = window.setTimeout(() => { typingBuffer = ""; typingTimer = null; }, 600);
+      const buf = typingBuffer;
+      const items = visible();
+      const hit = items.find((e) => e.name.toLowerCase().startsWith(buf));
+      if (hit) {
+        ev.preventDefault();
+        setPaneSelection(props.paneId, [hit.name]);
+        const idx = items.indexOf(hit);
+        if (listRef) {
+          const top = idx * ROW_H;
+          const bottom = top + ROW_H;
+          if (top < listRef.scrollTop || bottom > listRef.scrollTop + listRef.clientHeight) {
+            listRef.scrollTop = Math.max(0, top - listRef.clientHeight / 2);
+          }
+        }
+      }
     }
   };
 
@@ -318,6 +412,12 @@ export default function FileList(props: Props) {
       { separator: true },
       { label: "名前の変更", icon: "✎", shortcut: "F2", disabled: !single, onClick: doRename },
       { label: "新規フォルダ", icon: "📁", shortcut: "Ctrl+Shift+N", onClick: doNewFolder },
+      { separator: true },
+      {
+        label: "ツリーをコピー (ASCII)", icon: "🌳",
+        disabled: !single || (target?.kind !== "dir"),
+        onClick: () => { if (target?.kind === "dir") void exportAsciiTree(joinPath(pane().path, target.name)); },
+      },
       { separator: true },
       { label: "ゴミ箱へ", icon: "🗑", shortcut: "Del", disabled: !hasSel, onClick: () => doDelete(false) },
       { label: "完全削除", icon: "✖", shortcut: "Shift+Del", disabled: !hasSel, danger: true, onClick: () => doDelete(true) },
@@ -451,8 +551,9 @@ export default function FileList(props: Props) {
     return cb.paths.includes(joinPath(pane().path, name));
   };
 
-  // ----- パンくず -----
+  // ----- パンくず / アドレスバー -----
   const [editingPath, setEditingPath] = createSignal(false);
+  const [pathError, setPathError] = createSignal<string | null>(null);
   const [crumbDropIdx, setCrumbDropIdx] = createSignal<number | null>(null);
 
   const breadcrumbs = createMemo(() => breadcrumbsOf(pane().path));
@@ -511,7 +612,16 @@ export default function FileList(props: Props) {
         <button title="親フォルダへ (Backspace)"
           onClick={() => setPanePath(props.paneId, parentPath(pane().path))}>↑</button>
         <Show when={editingPath()} fallback={
-          <div class="breadcrumbs">
+          <div
+            class="breadcrumbs"
+            onClick={(ev) => {
+              if (ev.target === ev.currentTarget) { setPathError(null); setEditingPath(true); }
+            }}
+            onDblClick={(ev) => {
+              const t = ev.target as HTMLElement;
+              if (t.tagName !== "BUTTON") { setPathError(null); setEditingPath(true); }
+            }}
+          >
             <For each={breadcrumbs()}>
               {(c, i) => (
                 <>
@@ -528,16 +638,61 @@ export default function FileList(props: Props) {
                 </>
               )}
             </For>
-            <button class="crumb-edit" title="パスを編集" onClick={() => setEditingPath(true)}>✎</button>
+            <button class="crumb-edit" title="パスを編集 (Ctrl+L)" onClick={() => { setPathError(null); setEditingPath(true); }}>✎</button>
           </div>
         }>
           <input
             class="pane-path"
+            classList={{ "pane-path-error": !!pathError() }}
             value={pane().path}
+            title={pathError() ?? ""}
             ref={(el) => queueMicrotask(() => { el?.focus(); el?.select(); })}
-            onChange={(e) => { setPanePath(props.paneId, e.currentTarget.value); setEditingPath(false); }}
-            onBlur={() => setEditingPath(false)}
-            onKeyDown={(e) => { if (e.key === "Escape") setEditingPath(false); }}
+            onChange={async (e) => {
+              const v = e.currentTarget.value.trim();
+              try {
+                await listDir(v);
+                setPathError(null);
+                setPanePath(props.paneId, v);
+                setEditingPath(false);
+              } catch (err) {
+                setPathError(String(err));
+                e.currentTarget.focus();
+              }
+            }}
+            onBlur={() => { if (!pathError()) setEditingPath(false); }}
+            onKeyDown={async (e) => {
+              if (e.key === "Escape") { setPathError(null); setEditingPath(false); }
+              else if (e.key === "Tab") {
+                e.preventDefault();
+                const el = e.currentTarget;
+                const v = el.value;
+                // 末尾を分離して prefix を出す
+                const m = v.match(/^(.*[\\\/])([^\\\/]*)$/);
+                const parent = m ? m[1] : v;
+                const prefix = (m ? m[2] : "").toLowerCase();
+                try {
+                  const dirs = await listDirs(parent.replace(/[\\\/]$/, "") || parent, true);
+                  const candidates = dirs
+                    .map((d) => d.name)
+                    .filter((n) => n.toLowerCase().startsWith(prefix))
+                    .sort();
+                  if (candidates.length === 0) return;
+                  // 共通プレフィクス
+                  let common = candidates[0];
+                  for (const c of candidates) {
+                    let i = 0;
+                    while (i < common.length && i < c.length
+                      && common[i].toLowerCase() === c[i].toLowerCase()) i++;
+                    common = common.slice(0, i);
+                  }
+                  const completed = parent + (common || candidates[0]);
+                  el.value = completed + (candidates.length === 1 ? "\\" : "");
+                  // 補完した部分を選択
+                  el.setSelectionRange(parent.length + prefix.length, el.value.length);
+                  setPathError(null);
+                } catch { /* noop */ }
+              }
+            }}
           />
         </Show>
         <button title="再読込 (F5)" onClick={() => { bumpRefresh(); refetch(); }}>⟳</button>
@@ -664,10 +819,22 @@ export default function FileList(props: Props) {
       </div>
       <div class="pane-status">
         {visible().length} 項目 ／ 選択 {pane().selection.length}
+        <Show when={selectionSize() > 0}>
+          <span class="muted" style={{ "margin-left": "10px" }}>
+            ／ {formatSize(selectionSize())}
+          </span>
+        </Show>
         <Show when={state.clipboard}>
           {(cb) => (
             <span class="muted" style={{ "margin-left": "10px" }}>
               ／ クリップボード: {cb().paths.length}件 ({cb().op === "cut" ? "切り取り" : "コピー"})
+            </span>
+          )}
+        </Show>
+        <Show when={diskInfo()}>
+          {(d) => (
+            <span class="muted status-disk" title={`空き ${formatSize(d().free)} / 全 ${formatSize(d().total)}`}>
+              💾 空き {formatSize(d().free)} / {formatSize(d().total)}
             </span>
           )}
         </Show>

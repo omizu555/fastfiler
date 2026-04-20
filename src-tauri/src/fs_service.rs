@@ -262,3 +262,38 @@ pub fn list_drives() -> AppResult<Vec<DriveInfo>> {
         }])
     }
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskInfo {
+    pub total: u64,
+    pub free: u64,
+    pub available: u64,
+}
+
+#[tauri::command]
+pub fn disk_free(path: String) -> AppResult<DiskInfo> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut available: u64 = 0;
+        let mut total: u64 = 0;
+        let mut free: u64 = 0;
+        unsafe {
+            GetDiskFreeSpaceExW(
+                windows::core::PCWSTR(wide.as_ptr()),
+                Some(&mut available as *mut u64),
+                Some(&mut total as *mut u64),
+                Some(&mut free as *mut u64),
+            )
+            .map_err(|e| AppError::Other(format!("GetDiskFreeSpaceExW: {e}")))?;
+        }
+        Ok(DiskInfo { total, free, available })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(DiskInfo { total: 0, free: 0, available: 0 })
+    }
+}

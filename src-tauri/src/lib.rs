@@ -40,6 +40,7 @@ pub fn run() {
             fs_service::list_drives,
             fs_service::stat_path,
             fs_service::home_dir,
+            fs_service::disk_free,
             // file ops
             file_ops::create_dir,
             file_ops::rename_path,

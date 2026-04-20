@@ -594,3 +594,8 @@ button.primary:hover { filter: brightness(1.1); }
 }
 .prompt-input:focus { border-color: var(--accent); }
 .prompt-error { color: #e06c75; font-size: 12px; }
+
+.pane-path-error { outline: 2px solid #c0392b; background: #3a1212; color: #ffd0c8; }
+.status-disk { margin-left: auto; padding-left: 12px; }
+.pane-status { display: flex; align-items: center; }
+
