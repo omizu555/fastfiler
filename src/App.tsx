@@ -5,6 +5,7 @@ import SettingsDialog from "./components/SettingsDialog";
 import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import ToastContainer from "./components/ToastContainer";
+import JobsPanel from "./components/JobsPanel";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
 import PromptDialog from "./components/PromptDialog";
 import {
@@ -180,6 +181,7 @@ export default function App() {
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       <PromptDialog />
       <ToastContainer />
+      <JobsPanel />
     </div>
   );
 }

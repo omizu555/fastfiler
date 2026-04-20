@@ -24,6 +24,7 @@ import {
   state,
 } from "../store";
 import { performUndo } from "../undo";
+import { runFileJob } from "../jobs";
 import type { FileEntry } from "../types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
@@ -196,26 +197,21 @@ export default function FileList(props: Props) {
     const cb = state.clipboard;
     if (!cb) return;
     const dst = pane().path;
-    const fn = cb.op === "cut" ? movePath : copyPath;
-    const ops: import("../types").UndoOp[] = [];
-    let okCount = 0;
-    for (const src of cb.paths) {
-      const name = src.split(/[\\/]/).pop() ?? "untitled";
-      const to = joinPath(dst, name);
-      try {
-        await fn(src, to);
-        if (cb.op === "cut") ops.push({ kind: "move", from: src, to });
-        else ops.push({ kind: "copy", created: to });
-        okCount++;
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    if (cb.op === "cut") clearClipboard();
-    if (okCount > 0) {
-      const label = cb.op === "cut" ? `移動 ${okCount}件` : `コピー ${okCount}件`;
+    const items = cb.paths.map((src) => ({
+      from: src,
+      to: joinPath(dst, src.split(/[\\/]/).pop() ?? "untitled"),
+    }));
+    const isCut = cb.op === "cut";
+    if (isCut) clearClipboard();
+    const label = `${isCut ? "移動" : "コピー"} ${items.length}件 → ${dst}`;
+    const r = await runFileJob(isCut ? "move" : "copy", items, { label });
+    if (r.ok) {
+      const ops: import("../types").UndoOp[] = items.map((it) =>
+        isCut ? { kind: "move", from: it.from, to: it.to } : { kind: "copy", created: it.to });
       pushUndo(label, ops);
       pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+    } else if (!r.canceled) {
+      pushToast(`${label} 失敗`, "error");
     }
     refetch();
   };
@@ -539,25 +535,19 @@ export default function FileList(props: Props) {
     try { payload = JSON.parse(raw); } catch { return; }
     if (payload.sourcePath === destPath && !ev.ctrlKey) return; // 同フォルダへの移動は無意味
     const isCopy = ev.ctrlKey;
-    const fn = isCopy ? copyPath : movePath;
-    const ops: import("../types").UndoOp[] = [];
-    let okCount = 0;
-    for (const src of payload.paths) {
-      const name = src.split(/[\\/]/).pop() ?? "untitled";
-      const to = joinPath(destPath, name);
-      try {
-        await fn(src, to);
-        if (isCopy) ops.push({ kind: "copy", created: to });
-        else ops.push({ kind: "move", from: src, to });
-        okCount++;
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    if (okCount > 0) {
-      const label = isCopy ? `コピー ${okCount}件` : `移動 ${okCount}件`;
+    const items = payload.paths.map((src) => ({
+      from: src,
+      to: joinPath(destPath, src.split(/[\\/]/).pop() ?? "untitled"),
+    }));
+    const label = `${isCopy ? "コピー" : "移動"} ${items.length}件 → ${destPath}`;
+    const r = await runFileJob(isCopy ? "copy" : "move", items, { label });
+    if (r.ok) {
+      const ops: import("../types").UndoOp[] = items.map((it) =>
+        isCopy ? { kind: "copy", created: it.to } : { kind: "move", from: it.from, to: it.to });
       pushUndo(label, ops);
       pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+    } else if (!r.canceled) {
+      pushToast(`${label} 失敗`, "error");
     }
     refetch();
   };

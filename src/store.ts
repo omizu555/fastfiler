@@ -77,6 +77,7 @@ interface AppState {
   pluginContextMenu: PluginContextMenuItem[];
   toasts: Toast[];
   undoStack: UndoEntry[];
+  activeJobs: import("./types").FileJob[];
   focusedPaneId: string | null;
 }
 
@@ -128,6 +129,7 @@ function loadInitial(): AppState | null {
     if (v.focusedPaneId === undefined) v.focusedPaneId = null;
     if (!v.toasts) v.toasts = [];
     if (!v.undoStack) v.undoStack = [];
+    v.activeJobs = [];
     return v;
   } catch {
     return null;
@@ -171,6 +173,7 @@ function freshState(initialPath: string): AppState {
     pluginContextMenu: [],
     toasts: [],
     undoStack: [],
+    activeJobs: [],
     focusedPaneId: paneId,
   };
 }
@@ -187,6 +190,7 @@ export function persist() {
       delete (snapshot as Record<string, unknown>).pluginContextMenu;
       delete (snapshot as Record<string, unknown>).toasts;
       delete (snapshot as Record<string, unknown>).undoStack;
+      delete (snapshot as Record<string, unknown>).activeJobs;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {/* ignore */}
   }, 250);

@@ -4,6 +4,7 @@
 
 mod fs_service;
 mod file_ops;
+mod file_jobs;
 mod watcher;
 mod shell;
 mod thumbnail;
@@ -31,6 +32,7 @@ pub fn run() {
             let watcher_state = watcher::WatcherState::new(app.handle().clone());
             app.manage(watcher_state);
             app.manage(search::SearchState::default());
+            app.manage(file_jobs::JobRegistry::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,6 +50,11 @@ pub fn run() {
             file_ops::delete_to_trash,
             file_ops::copy_path,
             file_ops::move_path,
+            // file jobs (with progress)
+            file_jobs::job_copy,
+            file_jobs::job_move,
+            file_jobs::job_delete,
+            file_jobs::cancel_job,
             // watcher
             watcher::watch_dir,
             watcher::unwatch_dir,

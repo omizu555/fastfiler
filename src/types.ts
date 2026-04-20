@@ -106,6 +106,26 @@ export interface PluginContextMenuItem {
   extensions?: string[]; // 拡張子フィルタ (小文字、ドットなし)
 }
 
+// v3.2: ファイルジョブ (進捗付き)
+export type FileJobKind = "copy" | "move" | "delete";
+export interface JobItem { from: string; to: string }
+export interface FileJob {
+  id: number;
+  kind: FileJobKind;
+  label: string;
+  phase: "scan" | "run" | "done";
+  totalFiles: number;
+  doneFiles: number;
+  totalBytes: number;
+  doneBytes: number;
+  current: string;
+  startedAt: number;
+  finishedAt?: number;
+  ok: boolean;
+  canceled: boolean;
+  error: string | null;
+}
+
 // v2.0: トースト通知 (一過性)
 export interface ToastAction {
   label: string;
