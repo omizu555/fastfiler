@@ -622,3 +622,6 @@ button.primary:hover { filter: brightness(1.1); }
 .job-meta { margin-top: 4px; color: #aab4c0; }
 .job-status { margin-left: 6px; }
 .job-current { margin-top: 2px; color: #6a7682; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+
+.perf-warn { color: #e07a3a; font-weight: 600; }
+

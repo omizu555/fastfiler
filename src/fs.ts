@@ -3,6 +3,7 @@
 // では空配列にフォールバックする。
 
 import type { DriveInfo, FileEntry, PluginInfo, PreviewData, SearchHit, ThumbnailResult } from "./types";
+import { recordPerf } from "./perf";
 
 // Tauri 2 の判定: window.__TAURI_INTERNALS__ の存在
 function isTauri(): boolean {
@@ -36,17 +37,21 @@ export async function listenFsChange(
 
 export async function listDir(path: string): Promise<FileEntry[]> {
   if (!isTauri()) return [];
+  const t0 = performance.now();
   try {
     const entries = await invoke<FileEntry[]>("list_dir", { path });
-    return entries.sort((a, b) => {
+    const sorted = entries.sort((a, b) => {
       if (a.kind !== b.kind) {
         if (a.kind === "dir") return -1;
         if (b.kind === "dir") return 1;
       }
       return a.name.localeCompare(b.name, undefined, { numeric: true });
     });
+    recordPerf({ kind: "list_dir", label: path, ms: performance.now() - t0, count: sorted.length });
+    return sorted;
   } catch (e) {
     console.warn("list_dir failed", path, e);
+    recordPerf({ kind: "list_dir", label: path + " (error)", ms: performance.now() - t0 });
     return [];
   }
 }

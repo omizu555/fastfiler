@@ -553,6 +553,16 @@ export default function FileList(props: Props) {
     refetch();
   };
 
+  // v3.4: Spring-loaded folder (ホバー長押しで自動展開)
+  let springTimer: number | null = null;
+  let springName: string | null = null;
+  const SPRING_DELAY = 800;
+  const cancelSpring = () => {
+    if (springTimer != null) { clearTimeout(springTimer); springTimer = null; }
+    springName = null;
+  };
+  onCleanup(cancelSpring);
+
   const onRowDragOver = (ev: DragEvent, entry: FileEntry) => {
     if (entry.kind !== "dir") return;
     if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
@@ -560,6 +570,18 @@ export default function FileList(props: Props) {
     ev.stopPropagation();
     ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
     setDragOverRow(entry.name);
+    // ホバー継続をスプリングタイマーで監視
+    if (springName !== entry.name) {
+      cancelSpring();
+      springName = entry.name;
+      springTimer = window.setTimeout(() => {
+        // タイマー発火時もまだホバー中ならフォルダへ navigate
+        if (dragOverRow() === entry.name) {
+          setPanePath(props.paneId, joinPath(pane().path, entry.name));
+        }
+        cancelSpring();
+      }, SPRING_DELAY);
+    }
   };
   const onRowDrop = (ev: DragEvent, entry: FileEntry) => {
     if (entry.kind !== "dir") return;
@@ -599,6 +621,22 @@ export default function FileList(props: Props) {
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewH, setViewH] = createSignal(600);
   let listRef: HTMLDivElement | undefined;
+  let lastAppliedRatio = -1;
+
+  // v3.4: 他ペインからの scrollRatio 変化を反映 (フィードバックループ防止)
+  createEffect(() => {
+    const r = pane().scrollRatio;
+    if (typeof r !== "number" || !isFinite(r)) return;
+    if (Math.abs(r - lastAppliedRatio) < 0.0005) return;
+    if (!listRef) return;
+    const max = Math.max(1, listRef.scrollHeight - listRef.clientHeight);
+    const targetTop = Math.round(r * max);
+    if (Math.abs(listRef.scrollTop - targetTop) > 1) {
+      lastAppliedRatio = r;
+      listRef.scrollTop = targetTop;
+      setScrollTop(targetTop);
+    }
+  });
 
   const slice = createMemo(() => {
     const items = visible();
@@ -761,9 +799,12 @@ export default function FileList(props: Props) {
           }
         }}
         onScroll={(e) => {
-          const top = e.currentTarget.scrollTop;
+          const el = e.currentTarget;
+          const top = el.scrollTop;
+          const max = Math.max(1, el.scrollHeight - el.clientHeight);
+          const ratio = max > 0 ? top / max : 0;
           setScrollTop(top);
-          setPaneScroll(props.paneId, top);
+          setPaneScroll(props.paneId, top, ratio);
         }}
       >
         <table class="vlist">
@@ -800,8 +841,8 @@ export default function FileList(props: Props) {
                     draggable={true}
                     onDragStart={(ev) => onRowDragStart(ev, e.name)}
                     onDragOver={(ev) => onRowDragOver(ev, e)}
-                    onDragLeave={() => { if (dragOverRow() === e.name) setDragOverRow(null); }}
-                    onDrop={(ev) => onRowDrop(ev, e)}
+                    onDragLeave={() => { if (dragOverRow() === e.name) { setDragOverRow(null); cancelSpring(); } }}
+                    onDrop={(ev) => { cancelSpring(); onRowDrop(ev, e); }}
                     onClick={(ev) => onRowClick(e.name, idx(), ev)}
                     onDblClick={() => enter(e)}
                     onContextMenu={(ev) => openContextMenu(ev, e)}

@@ -247,13 +247,20 @@ export function setPaneSelection(paneId: string, selection: string[]) {
   });
 }
 
-export function setPaneScroll(paneId: string, scrollTop: number) {
+export function setPaneScroll(paneId: string, scrollTop: number, scrollRatio?: number) {
   const pane = state.panes[paneId];
   if (!pane) return;
   setState("panes", paneId, "scrollTop", scrollTop);
-  propagate(pane, "scroll", (other) =>
-    setState("panes", other.id, "scrollTop", scrollTop),
-  );
+  if (typeof scrollRatio === "number" && isFinite(scrollRatio)) {
+    setState("panes", paneId, "scrollRatio", scrollRatio);
+    propagate(pane, "scroll", (other) =>
+      setState("panes", other.id, "scrollRatio", scrollRatio),
+    );
+  } else {
+    propagate(pane, "scroll", (other) =>
+      setState("panes", other.id, "scrollTop", scrollTop),
+    );
+  }
   persist();
 }
 

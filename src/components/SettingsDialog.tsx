@@ -27,13 +27,14 @@ import {
 import { everythingPing, pluginsDirPath, revealInExplorer } from "../fs";
 import { defaultHotkeys, eventToCombo, hotkeyLabels } from "../hotkeys";
 import type { HotkeyAction, LinkChannel } from "../types";
+import PerfPanel from "./PerfPanel";
 
 interface Props {
   open: boolean;
   onClose: () => void;
 }
 
-type TabId = "general" | "search" | "links" | "hotkeys" | "presets";
+type TabId = "general" | "search" | "links" | "hotkeys" | "presets" | "perf";
 
 const channelLabels: Record<LinkChannel, string> = {
   path: "パス移動",
@@ -153,6 +154,7 @@ export default function SettingsDialog(props: Props) {
             <button classList={{ active: tab() === "links" }} onClick={() => setTab("links")}>連動</button>
             <button classList={{ active: tab() === "hotkeys" }} onClick={() => setTab("hotkeys")}>ホットキー</button>
             <button classList={{ active: tab() === "presets" }} onClick={() => setTab("presets")}>プリセット</button>
+            <button classList={{ active: tab() === "perf" }} onClick={() => setTab("perf")}>計測</button>
           </nav>
 
           <section class="modal-body">
@@ -517,6 +519,10 @@ export default function SettingsDialog(props: Props) {
                   </div>
                 </div>
               </Show>
+            </Show>
+
+            <Show when={tab() === "perf"}>
+              <PerfPanel />
             </Show>
           </section>
 

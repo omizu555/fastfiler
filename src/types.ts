@@ -24,6 +24,7 @@ export interface PaneState {
   path: string;
   selection: string[];
   scrollTop: number;
+  scrollRatio?: number; // v3.4: 同期スクロールを比率で
   linkGroupId: string | null;
   view?: "list" | "tree"; // v1.1: ペイン表示モード
   name?: string | null; // v1.5: ユーザー設定のペイン名
