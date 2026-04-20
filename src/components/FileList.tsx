@@ -19,8 +19,11 @@ import {
   setPaneName,
   getPaneUi,
   setFocusedPane,
+  pushUndo,
+  pushToast,
   state,
 } from "../store";
+import { performUndo } from "../undo";
 import type { FileEntry } from "../types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
@@ -194,15 +197,26 @@ export default function FileList(props: Props) {
     if (!cb) return;
     const dst = pane().path;
     const fn = cb.op === "cut" ? movePath : copyPath;
+    const ops: import("../types").UndoOp[] = [];
+    let okCount = 0;
     for (const src of cb.paths) {
       const name = src.split(/[\\/]/).pop() ?? "untitled";
+      const to = joinPath(dst, name);
       try {
-        await fn(src, joinPath(dst, name));
+        await fn(src, to);
+        if (cb.op === "cut") ops.push({ kind: "move", from: src, to });
+        else ops.push({ kind: "copy", created: to });
+        okCount++;
       } catch (e) {
         console.error(e);
       }
     }
     if (cb.op === "cut") clearClipboard();
+    if (okCount > 0) {
+      const label = cb.op === "cut" ? `移動 ${okCount}件` : `コピー ${okCount}件`;
+      pushUndo(label, ops);
+      pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+    }
     refetch();
   };
 
@@ -249,8 +263,13 @@ export default function FileList(props: Props) {
       },
     });
     if (newName && newName !== oldName) {
+      const from = joinPath(pane().path, oldName);
+      const to = joinPath(pane().path, newName);
       try {
-        await renamePath(joinPath(pane().path, oldName), joinPath(pane().path, newName));
+        await renamePath(from, to);
+        pushUndo(`名前変更: ${oldName} → ${newName}`, [{ kind: "rename", from, to }]);
+        pushToast(`名前変更: ${oldName} → ${newName}`, "info",
+          { label: "↶取り消し", onClick: () => { void performUndo(); } });
         refetch();
       } catch (e) { alert(`リネーム失敗: ${e}`); }
     }
@@ -519,14 +538,26 @@ export default function FileList(props: Props) {
     let payload: DragPayload;
     try { payload = JSON.parse(raw); } catch { return; }
     if (payload.sourcePath === destPath && !ev.ctrlKey) return; // 同フォルダへの移動は無意味
-    const fn = ev.ctrlKey ? copyPath : movePath;
+    const isCopy = ev.ctrlKey;
+    const fn = isCopy ? copyPath : movePath;
+    const ops: import("../types").UndoOp[] = [];
+    let okCount = 0;
     for (const src of payload.paths) {
       const name = src.split(/[\\/]/).pop() ?? "untitled";
+      const to = joinPath(destPath, name);
       try {
-        await fn(src, joinPath(destPath, name));
+        await fn(src, to);
+        if (isCopy) ops.push({ kind: "copy", created: to });
+        else ops.push({ kind: "move", from: src, to });
+        okCount++;
       } catch (e) {
         console.error(e);
       }
+    }
+    if (okCount > 0) {
+      const label = isCopy ? `コピー ${okCount}件` : `移動 ${okCount}件`;
+      pushUndo(label, ops);
+      pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
     }
     refetch();
   };

@@ -11,6 +11,9 @@ import type {
   PluginContextMenuItem,
   Tab,
   Toast,
+  ToastAction,
+  UndoEntry,
+  UndoOp,
   WorkspaceState,
 } from "./types";
 import { defaultHotkeys } from "./hotkeys";
@@ -73,6 +76,7 @@ interface AppState {
   pluginPanelWidth: number;
   pluginContextMenu: PluginContextMenuItem[];
   toasts: Toast[];
+  undoStack: UndoEntry[];
   focusedPaneId: string | null;
 }
 
@@ -120,7 +124,10 @@ function loadInitial(): AppState | null {
     // pluginContextMenu / toasts は非永続だが型に必要
     v.pluginContextMenu = [];
     v.toasts = [];
+    v.undoStack = [];
     if (v.focusedPaneId === undefined) v.focusedPaneId = null;
+    if (!v.toasts) v.toasts = [];
+    if (!v.undoStack) v.undoStack = [];
     return v;
   } catch {
     return null;
@@ -163,6 +170,7 @@ function freshState(initialPath: string): AppState {
     pluginPanelWidth: 320,
     pluginContextMenu: [],
     toasts: [],
+    undoStack: [],
     focusedPaneId: paneId,
   };
 }
@@ -178,6 +186,7 @@ export function persist() {
       // pluginContextMenu / toasts は揮発のため除外
       delete (snapshot as Record<string, unknown>).pluginContextMenu;
       delete (snapshot as Record<string, unknown>).toasts;
+      delete (snapshot as Record<string, unknown>).undoStack;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     } catch {/* ignore */}
   }, 250);
@@ -750,10 +759,36 @@ export function unregisterPluginContextMenuItems(pluginId: string) {
 }
 
 let toastSeq = 0;
-export function pushToast(message: string, level: Toast["level"] = "info") {
+export function pushToast(message: string, level: Toast["level"] = "info", action?: ToastAction, durationMs = 5000) {
   const id = ++toastSeq;
-  setState("toasts", (xs) => [...xs, { id, message, level }]);
+  setState("toasts", (xs) => [...xs, { id, message, level, action }]);
   window.setTimeout(() => {
     setState("toasts", (xs) => xs.filter((t) => t.id !== id));
-  }, 3500);
+  }, durationMs);
+  return id;
 }
+export function dismissToast(id: number) {
+  setState("toasts", (xs) => xs.filter((t) => t.id !== id));
+}
+
+// ----- v3.2: Undo スタック -----
+const UNDO_MAX = 20;
+let undoSeq = 0;
+export function pushUndo(label: string, ops: UndoOp[]) {
+  if (ops.length === 0) return;
+  const entry: UndoEntry = { id: ++undoSeq, label, ops, ts: Date.now() };
+  setState("undoStack", (xs) => {
+    const next = [...xs, entry];
+    if (next.length > UNDO_MAX) next.splice(0, next.length - UNDO_MAX);
+    return next;
+  });
+  return entry;
+}
+export function popUndo(): UndoEntry | null {
+  const stack = state.undoStack;
+  if (stack.length === 0) return null;
+  const last = stack[stack.length - 1];
+  setState("undoStack", (xs) => xs.slice(0, -1));
+  return last;
+}
+export function clearUndo() { setState("undoStack", []); }

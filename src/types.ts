@@ -107,10 +107,27 @@ export interface PluginContextMenuItem {
 }
 
 // v2.0: トースト通知 (一過性)
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 export interface Toast {
   id: number;
   message: string;
   level: "info" | "warn" | "error";
+  action?: ToastAction;
+}
+
+// v3.2: Undo スタックエントリ
+export type UndoOp =
+  | { kind: "rename"; from: string; to: string }
+  | { kind: "move"; from: string; to: string }
+  | { kind: "copy"; created: string }; // 取り消しは created を削除
+export interface UndoEntry {
+  id: number;
+  label: string;
+  ops: UndoOp[];
+  ts: number;
 }
 
 export type WorkspaceLayout = "tabsLeft" | "tabsRight" | "tabsHidden";
@@ -166,7 +183,8 @@ export type HotkeyAction =
   | "prev-tab"
   | "toggle-tabs"
   | "toggle-tree"
-  | "address-bar";
+  | "address-bar"
+  | "undo";
 
 export type HotkeyMap = Record<HotkeyAction, string>;
 

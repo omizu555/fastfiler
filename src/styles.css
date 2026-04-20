@@ -599,3 +599,11 @@ button.primary:hover { filter: brightness(1.1); }
 .status-disk { margin-left: auto; padding-left: 12px; }
 .pane-status { display: flex; align-items: center; }
 
+
+.toast { display: flex; align-items: center; gap: 8px; }
+.toast-msg { flex: 1; }
+.toast-action { background: rgba(255,255,255,0.15); color: inherit; border: 1px solid rgba(255,255,255,0.25); padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.toast-action:hover { background: rgba(255,255,255,0.28); }
+.toast-close { background: transparent; color: inherit; border: 0; cursor: pointer; opacity: 0.6; font-size: 16px; padding: 0 4px; }
+.toast-close:hover { opacity: 1; }
+

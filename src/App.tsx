@@ -23,6 +23,7 @@ import {
 } from "./store";
 import { homeDir } from "./fs";
 import { matchKey } from "./hotkeys";
+import { performUndo } from "./undo";
 import type { DockSlot, PanelId } from "./types";
 
 function PanelById(props: { id: PanelId }) {
@@ -115,6 +116,11 @@ export default function App() {
       } else if (matchKey(hk["prev-tab"], e) || (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "PageUp")) {
         e.preventDefault();
         cycleTab(-1);
+      } else if (matchKey(hk["undo"], e)) {
+        const tgt = e.target as HTMLElement | null;
+        if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+        e.preventDefault();
+        void performUndo();
       } else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && /^[1-9]$/.test(e.key)) {
         // Ctrl+1..8 → 指定インデックス、Ctrl+9 → 最後のタブ
         e.preventDefault();
