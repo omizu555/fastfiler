@@ -12,6 +12,7 @@ mod preview;
 mod search;
 mod everything;
 mod plugin;
+mod term;
 mod error;
 
 pub use error::AppError;
@@ -33,6 +34,7 @@ pub fn run() {
             app.manage(watcher_state);
             app.manage(search::SearchState::default());
             app.manage(file_jobs::JobRegistry::default());
+            term::register(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -74,6 +76,11 @@ pub fn run() {
             plugin::list_plugins,
             plugin::plugins_dir_path,
             plugin::plugin_invoke,
+            // terminal
+            term::term_open,
+            term::term_write,
+            term::term_resize,
+            term::term_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

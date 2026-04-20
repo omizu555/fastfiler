@@ -24,6 +24,7 @@ export const defaultHotkeys: HotkeyMap = {
   "toggle-tree": "Ctrl+Shift+E",
   "address-bar": "Ctrl+L",
   "undo": "Ctrl+Z",
+  "toggle-terminal": "Ctrl+`",
 };
 
 export const hotkeyLabels: Record<HotkeyAction, string> = {
@@ -50,6 +51,7 @@ export const hotkeyLabels: Record<HotkeyAction, string> = {
   "toggle-tree": "ツリーパネル表示切替",
   "address-bar": "アドレスバーを編集",
   "undo": "操作を取り消す",
+  "toggle-terminal": "ターミナル表示切替",
 };
 
 // "Ctrl+Shift+N" -> { ctrl, shift, alt, meta, key: "N" }

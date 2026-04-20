@@ -17,6 +17,9 @@ import {
   setTheme,
   setAccentColor,
   setIconSet,
+  setTerminalShell,
+  setTerminalFont,
+  setTerminalFontSize,
   savePreset,
   applyPreset,
   deletePreset,
@@ -262,6 +265,41 @@ export default function SettingsDialog(props: Props) {
                   try { await revealInExplorer(await pluginsDirPath()); } catch (e) { alert(`開けません: ${e}`); }
                 }}>📂 プラグインフォルダを開く</button>
                 <small class="muted">manifest.json を含むフォルダを置くと自動検出されます</small>
+              </div>
+
+              <hr />
+              <h3 class="settings-subhead">ターミナル</h3>
+              <div class="setting-row">
+                <label for="cfg-term-shell">既定シェル</label>
+                <input
+                  id="cfg-term-shell"
+                  type="text"
+                  placeholder="(空欄で OS 既定: cmd.exe / $SHELL)"
+                  value={state.terminalShell ?? ""}
+                  onChange={(e) => setTerminalShell(e.currentTarget.value.trim() || null)}
+                  style={{ "min-width": "220px" }}
+                />
+                <small class="muted">例: powershell.exe / pwsh / wt.exe</small>
+              </div>
+              <div class="setting-row">
+                <label for="cfg-term-font">フォント</label>
+                <input
+                  id="cfg-term-font"
+                  type="text"
+                  placeholder="Cascadia Mono, Consolas, monospace"
+                  value={state.terminalFont ?? ""}
+                  onChange={(e) => setTerminalFont(e.currentTarget.value.trim() || null)}
+                  style={{ "min-width": "220px" }}
+                />
+                <label for="cfg-term-fs" style={{ "margin-left": "12px" }}>サイズ</label>
+                <input
+                  id="cfg-term-fs"
+                  type="number" min={8} max={36}
+                  value={state.terminalFontSize}
+                  onInput={(e) => setTerminalFontSize(parseInt(e.currentTarget.value || "13", 10))}
+                  style={{ "width": "60px" }}
+                />
+                <small class="muted">変更は次のセッションから適用</small>
               </div>
 
               <hr />

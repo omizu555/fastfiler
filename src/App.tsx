@@ -4,6 +4,7 @@ import PaneTree from "./components/PaneTree";
 import SettingsDialog from "./components/SettingsDialog";
 import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
+import TerminalPanel from "./components/TerminalPanel";
 import ToastContainer from "./components/ToastContainer";
 import JobsPanel from "./components/JobsPanel";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
@@ -13,6 +14,7 @@ import {
   setInitialPath,
   togglePreview,
   togglePluginPanel,
+  toggleTerminal,
   addTab,
   closeTab,
   cycleTab,
@@ -99,6 +101,9 @@ export default function App() {
       } else if (matchKey(hk["toggle-plugin"], e)) {
         e.preventDefault();
         togglePluginPanel();
+      } else if (matchKey(hk["toggle-terminal"], e)) {
+        e.preventDefault();
+        toggleTerminal();
       } else if (matchKey(hk["toggle-tabs"], e)) {
         e.preventDefault();
         cycleWorkspaceLayout();
@@ -157,6 +162,8 @@ export default function App() {
           title="プレビュー (Ctrl+P)" onClick={togglePreview}>👁</button>
         <button class="header-btn" classList={{ active: state.showPluginPanel }}
           title="プラグイン (Ctrl+Shift+P)" onClick={togglePluginPanel}>🧩</button>
+        <button class="header-btn" classList={{ active: state.showTerminal }}
+          title="ターミナル (Ctrl+`)" onClick={toggleTerminal}>⌨</button>
         <button class="header-btn" title="設定 (Ctrl+,)" onClick={() => setSettingsOpen(true)}>⚙ 設定</button>
       </header>
       <div class="app-body dock-grid">
@@ -178,6 +185,7 @@ export default function App() {
         </div>
         <DockArea slot="bottom" />
       </div>
+      <TerminalPanel />
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       <PromptDialog />
       <ToastContainer />

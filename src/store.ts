@@ -81,6 +81,11 @@ interface AppState {
   undoStack: UndoEntry[];
   activeJobs: import("./types").FileJob[];
   presets: import("./types").WorkspacePreset[];
+  showTerminal: boolean;
+  terminalHeight: number;
+  terminalShell: string | null;
+  terminalFont: string | null;
+  terminalFontSize: number;
   focusedPaneId: string | null;
 }
 
@@ -126,6 +131,11 @@ function loadInitial(): AppState | null {
     if (v.accentColor === undefined) v.accentColor = null;
     if (!v.iconSet) v.iconSet = "emoji";
     if (!Array.isArray(v.presets)) v.presets = [];
+    if (v.showTerminal === undefined) v.showTerminal = false;
+    if (typeof v.terminalHeight !== "number") v.terminalHeight = 240;
+    if (v.terminalShell === undefined) v.terminalShell = null;
+    if (v.terminalFont === undefined) v.terminalFont = null;
+    if (typeof v.terminalFontSize !== "number") v.terminalFontSize = 13;
     if (!v.plugins) v.plugins = { enabled: {} };
     if (!v.plugins.enabled) v.plugins.enabled = {};
     // pluginContextMenu / toasts は非永続だが型に必要
@@ -183,6 +193,11 @@ function freshState(initialPath: string): AppState {
     undoStack: [],
     activeJobs: [],
     presets: [],
+    showTerminal: false,
+    terminalHeight: 240,
+    terminalShell: null,
+    terminalFont: null,
+    terminalFontSize: 13,
     focusedPaneId: paneId,
   };
 }
@@ -828,6 +843,13 @@ export function importPresetsJson(text: string, mode: "merge" | "replace" = "mer
   persist();
   return remapped.length;
 }
+
+// === v3.5: terminal ===
+export function toggleTerminal() { setState("showTerminal", (v) => !v); persist(); }
+export function setTerminalHeight(h: number) { setState("terminalHeight", Math.max(80, Math.min(800, Math.round(h)))); persist(); }
+export function setTerminalShell(s: string | null) { setState("terminalShell", s); persist(); }
+export function setTerminalFont(f: string | null) { setState("terminalFont", f); persist(); }
+export function setTerminalFontSize(n: number) { setState("terminalFontSize", Math.max(8, Math.min(36, Math.round(n)))); persist(); }
 
 // === v2.0: plugins ===
 export function setPluginEnabled(pluginId: string, enabled: boolean) {

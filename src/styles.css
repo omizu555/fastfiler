@@ -625,3 +625,16 @@ button.primary:hover { filter: brightness(1.1); }
 
 .perf-warn { color: #e07a3a; font-weight: 600; }
 
+
+/* v3.5: TerminalPanel */
+.terminal-panel { position: relative; border-top: 1px solid var(--border); background: #0f1218; display: flex; flex-direction: column; }
+.terminal-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 5; }
+.terminal-tabbar { display: flex; align-items: center; background: var(--panel); border-bottom: 1px solid var(--border); padding: 2px 4px; gap: 2px; }
+.terminal-tab { display: flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px; cursor: pointer; border-radius: 3px; max-width: 200px; overflow: hidden; }
+.terminal-tab:hover { background: var(--hover); }
+.terminal-tab.active { background: var(--selected); color: var(--fg); }
+.terminal-tab-close { background: transparent; border: none; color: inherit; font-size: 12px; padding: 0 4px; cursor: pointer; }
+.terminal-tab-close:hover { background: rgba(255,255,255,0.15); }
+.terminal-new, .terminal-close { background: transparent; border: none; color: var(--fg); font-size: 14px; padding: 2px 8px; cursor: pointer; border-radius: 3px; }
+.terminal-new:hover, .terminal-close:hover { background: var(--hover); }
+.terminal-host { flex: 1; min-height: 0; padding: 4px; }

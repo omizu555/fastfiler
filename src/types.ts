@@ -222,7 +222,8 @@ export type HotkeyAction =
   | "toggle-tabs"
   | "toggle-tree"
   | "address-bar"
-  | "undo";
+  | "undo"
+  | "toggle-terminal";
 
 export type HotkeyMap = Record<HotkeyAction, string>;
 
