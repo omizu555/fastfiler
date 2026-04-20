@@ -235,6 +235,9 @@ export type HotkeyAction =
 export type HotkeyMap = Record<HotkeyAction, string>;
 
 // v1.2: ペイン単位の一時 UI 状態（タブ切替で保持される）
+export type SortKey = "name" | "size" | "mtime" | "kind";
+export type SortDir = "asc" | "desc";
+
 export interface PaneUiState {
   searchOpen: boolean;
   searchQuery: string;
@@ -242,6 +245,10 @@ export interface PaneUiState {
   searchRegex: boolean;
   searchFocusTick: number;
   paneFocusTick: number; // v1.6: ペイン本体に focus を戻すための tick
+  sortKey: SortKey;
+  sortDir: SortDir;
+  // フォルダを常に先頭にまとめる (既定 true)
+  foldersFirst: boolean;
 }
 
 export function defaultPaneUi(): PaneUiState {
@@ -252,5 +259,8 @@ export function defaultPaneUi(): PaneUiState {
     searchRegex: false,
     searchFocusTick: 0,
     paneFocusTick: 0,
+    sortKey: "name",
+    sortDir: "asc",
+    foldersFirst: true,
   };
 }

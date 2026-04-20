@@ -18,6 +18,7 @@ import {
   togglePaneSearchFocused,
   setPaneName,
   getPaneUi,
+  setPaneSort,
   setFocusedPane,
   pushUndo,
   pushToast,
@@ -25,7 +26,7 @@ import {
 } from "../store";
 import { performUndo } from "../undo";
 import { runFileJob } from "../jobs";
-import type { FileEntry } from "../types";
+import type { FileEntry, SortKey } from "../types";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
 import { iconForEntryWith } from "../icons";
@@ -76,7 +77,41 @@ export default function FileList(props: Props) {
     });
   });
 
-  const visible = createMemo<FileEntry[]>(() => entries() ?? []);
+  const visible = createMemo<FileEntry[]>(() => {
+    const list = entries() ?? [];
+    const ui = getPaneUi(props.paneId);
+    const dir = ui.sortDir === "asc" ? 1 : -1;
+    const cmp = (a: FileEntry, b: FileEntry): number => {
+      if (ui.foldersFirst && a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+      switch (ui.sortKey) {
+        case "size": {
+          const av = a.size ?? -1, bv = b.size ?? -1;
+          if (av !== bv) return (av - bv) * dir;
+          break;
+        }
+        case "mtime": {
+          const av = a.modified ?? 0, bv = b.modified ?? 0;
+          if (av !== bv) return (av - bv) * dir;
+          break;
+        }
+        case "kind": {
+          const ext = (n: string) => {
+            const i = n.lastIndexOf(".");
+            return i > 0 ? n.slice(i + 1).toLowerCase() : "";
+          };
+          const ax = a.kind === "dir" ? "" : ext(a.name);
+          const bx = b.kind === "dir" ? "" : ext(b.name);
+          if (ax !== bx) return ax.localeCompare(bx) * dir;
+          break;
+        }
+        case "name":
+        default:
+          break;
+      }
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) * dir;
+    };
+    return [...list].sort(cmp);
+  });
 
   // ----- ステータスバー: 選択合計サイズ + ドライブ空き容量 -----
   const selectionSize = createMemo(() => {
@@ -99,6 +134,12 @@ export default function FileList(props: Props) {
     const id = window.setInterval(refresh, 5000);
     onCleanup(() => { cancelled = true; window.clearInterval(id); });
   });
+
+  const sortIndicator = (k: SortKey) => {
+    const ui = getPaneUi(props.paneId);
+    if (ui.sortKey !== k) return "";
+    return ui.sortDir === "asc" ? " ▲" : " ▼";
+  };
 
   let lastClickedIndex: number | null = null;
 
@@ -843,10 +884,18 @@ export default function FileList(props: Props) {
           </colgroup>
           <thead>
             <tr>
-              <th>名前</th>
-              <th>サイズ</th>
-              <th>更新日時</th>
-              <th>種別</th>
+              <th class="sortable" onClick={() => setPaneSort(props.paneId, "name")}>
+                名前{sortIndicator("name")}
+              </th>
+              <th class="sortable" onClick={() => setPaneSort(props.paneId, "size")}>
+                サイズ{sortIndicator("size")}
+              </th>
+              <th class="sortable" onClick={() => setPaneSort(props.paneId, "mtime")}>
+                更新日時{sortIndicator("mtime")}
+              </th>
+              <th class="sortable" onClick={() => setPaneSort(props.paneId, "kind")}>
+                種別{sortIndicator("kind")}
+              </th>
             </tr>
           </thead>
           <tbody>

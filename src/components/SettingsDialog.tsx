@@ -263,10 +263,7 @@ export default function SettingsDialog(props: Props) {
 
               <div class="setting-row">
                 <label>プラグイン</label>
-                <button onClick={async () => {
-                  try { await revealInExplorer(await pluginsDirPath()); } catch (e) { alert(`開けません: ${e}`); }
-                }}>📂 プラグインフォルダを開く</button>
-                <small class="muted">manifest.json を含むフォルダを置くと自動検出されます</small>
+                <small class="muted">「プラグイン」タブで一覧 / 有効化 / インポート / 削除ができます</small>
               </div>
 
               <hr />

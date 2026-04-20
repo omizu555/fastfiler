@@ -603,6 +603,17 @@ export function togglePaneSearch(paneId: string) {
   setPaneSearchOpen(paneId, !cur);
 }
 
+export function setPaneSort(paneId: string, key: import("./types").SortKey) {
+  ensurePaneUi(paneId);
+  const ui = state.paneUi[paneId];
+  if (ui.sortKey === key) {
+    setState("paneUi", paneId, "sortDir", ui.sortDir === "asc" ? "desc" : "asc");
+  } else {
+    setState("paneUi", paneId, "sortKey", key);
+    setState("paneUi", paneId, "sortDir", "asc");
+  }
+}
+
 export function focusPaneSearch(paneId: string) {
   ensurePaneUi(paneId);
   batch(() => {

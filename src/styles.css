@@ -337,6 +337,10 @@ button.primary:hover { filter: brightness(1.1); }
   position: sticky; top: 0; background: var(--bg3); z-index: 1;
   text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 12px;
 }
+.file-list table.vlist thead th.sortable {
+  cursor: pointer; user-select: none;
+}
+.file-list table.vlist thead th.sortable:hover { background: var(--bg2); }
 .file-list table.vlist tbody td {
   padding: 0 6px; border-bottom: 1px solid var(--bg);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px;
