@@ -184,6 +184,20 @@ export interface WorkspaceState {
   samePanelStack?: boolean;
 }
 
+// v3.3: ワークスペースプリセット (タブ/ペイン/ドック配置のスナップショット)
+export interface WorkspacePresetSnapshot {
+  tabs: Tab[];
+  activeTabId: string;
+  panes: Record<string, PaneState>;
+  workspace: WorkspaceState;
+}
+export interface WorkspacePreset {
+  id: string;
+  name: string;
+  savedAt: number;
+  snapshot: WorkspacePresetSnapshot;
+}
+
 export type HotkeyAction =
   | "open"
   | "parent"

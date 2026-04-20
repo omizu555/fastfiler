@@ -80,6 +80,7 @@ interface AppState {
   toasts: Toast[];
   undoStack: UndoEntry[];
   activeJobs: import("./types").FileJob[];
+  presets: import("./types").WorkspacePreset[];
   focusedPaneId: string | null;
 }
 
@@ -124,6 +125,7 @@ function loadInitial(): AppState | null {
     if (!v.theme) v.theme = "system";
     if (v.accentColor === undefined) v.accentColor = null;
     if (!v.iconSet) v.iconSet = "emoji";
+    if (!Array.isArray(v.presets)) v.presets = [];
     if (!v.plugins) v.plugins = { enabled: {} };
     if (!v.plugins.enabled) v.plugins.enabled = {};
     // pluginContextMenu / toasts は非永続だが型に必要
@@ -180,6 +182,7 @@ function freshState(initialPath: string): AppState {
     toasts: [],
     undoStack: [],
     activeJobs: [],
+    presets: [],
     focusedPaneId: paneId,
   };
 }
@@ -746,6 +749,77 @@ export function setAccentColor(c: string | null) {
 export function setIconSet(s: import("./types").IconSet) {
   setState("iconSet", s);
   persist();
+}
+
+// === v3.3: ワークスペースプリセット ===
+function snapshotWorkspace(): import("./types").WorkspacePresetSnapshot {
+  return JSON.parse(JSON.stringify({
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+    panes: state.panes,
+    workspace: state.workspace,
+  })) as import("./types").WorkspacePresetSnapshot;
+}
+
+export function savePreset(name: string): import("./types").WorkspacePreset {
+  const preset: import("./types").WorkspacePreset = {
+    id: nid("preset"),
+    name: name.trim() || "(無題)",
+    savedAt: Date.now(),
+    snapshot: snapshotWorkspace(),
+  };
+  setState("presets", (xs) => [...xs, preset]);
+  persist();
+  return preset;
+}
+
+export function deletePreset(id: string) {
+  setState("presets", (xs) => xs.filter((p) => p.id !== id));
+  persist();
+}
+
+export function renamePreset(id: string, name: string) {
+  setState("presets", (xs) => xs.map((p) => (p.id === id ? { ...p, name: name.trim() || p.name } : p)));
+  persist();
+}
+
+export function applyPreset(id: string) {
+  const p = state.presets.find((x) => x.id === id);
+  if (!p) return;
+  // tabs/panes/workspace を一括差し替え。paneUi は新規ペインに対して補完
+  setState("tabs", p.snapshot.tabs);
+  setState("activeTabId", p.snapshot.activeTabId);
+  setState("panes", p.snapshot.panes);
+  setState("workspace", p.snapshot.workspace);
+  // paneUi 補完
+  for (const pid of Object.keys(p.snapshot.panes)) {
+    if (!state.paneUi[pid]) setState("paneUi", pid, defaultPaneUi());
+  }
+  // フォーカス先を最初のペインに
+  const firstPane = Object.keys(p.snapshot.panes)[0] ?? null;
+  setState("focusedPaneId", firstPane);
+  persist();
+}
+
+export function exportPresetsJson(): string {
+  return JSON.stringify({ kind: "fastfiler.presets", version: 1, presets: state.presets }, null, 2);
+}
+
+export function importPresetsJson(text: string, mode: "merge" | "replace" = "merge"): number {
+  const obj = JSON.parse(text) as { kind?: string; version?: number; presets?: import("./types").WorkspacePreset[] };
+  if (obj.kind !== "fastfiler.presets" || !Array.isArray(obj.presets)) {
+    throw new Error("不正なプリセット JSON です");
+  }
+  // id 衝突回避のため再採番
+  const remapped = obj.presets.map((p) => ({
+    ...p,
+    id: nid("preset"),
+    savedAt: typeof p.savedAt === "number" ? p.savedAt : Date.now(),
+  }));
+  if (mode === "replace") setState("presets", remapped);
+  else setState("presets", (xs) => [...xs, ...remapped]);
+  persist();
+  return remapped.length;
 }
 
 // === v2.0: plugins ===
