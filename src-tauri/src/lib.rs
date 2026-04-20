@@ -87,7 +87,8 @@ pub fn run() {
             term::term_write,
             term::term_resize,
             term::term_close,
-            // v4.0 scaffolds (未実装)
+            // v4.0
+            win_shell::shell_menu_show,
             win_shell::shell_menu_query,
             win_shell::shell_menu_invoke,
             ole_dnd::ole_dnd_register,

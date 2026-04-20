@@ -246,6 +246,12 @@ export async function pluginInvoke(pluginId: string, capability: string, args: R
   return await invoke("plugin_invoke", { pluginId, capability, args });
 }
 
+// v4.0 (40a) Windows ネイティブ右クリックメニュー
+export async function shellMenuShow(paths: string[], x: number, y: number): Promise<boolean> {
+  if (!isTauri()) return false;
+  return await invoke<boolean>("shell_menu_show", { paths, x, y });
+}
+
 export { DRIVES_PATH, isDrivesPath, joinPath, parentPath } from "./path-util";
 
 export function formatSize(n: number): string {

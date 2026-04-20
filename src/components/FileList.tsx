@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
-import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree } from "../fs";
+import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree, shellMenuShow } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { openPrompt } from "./PromptDialog";
 import {
@@ -393,6 +393,15 @@ export default function FileList(props: Props) {
     } else {
       setPaneSelection(props.paneId, []);
     }
+    // Shift+右クリックで Windows ネイティブの右クリックメニューを直接開く
+    if (e.shiftKey && entry) {
+      const sel = pane().selection.includes(entry.name) ? pane().selection : [entry.name];
+      const fullSel = sel.map((n) => joinPath(pane().path, n));
+      const sx = (e as MouseEvent).screenX;
+      const sy = (e as MouseEvent).screenY;
+      void shellMenuShow(fullSel, sx, sy).catch((err) => console.warn("shellMenuShow:", err));
+      return;
+    }
     setCtxTarget({ entry });
     setCtxPos({ x: e.clientX, y: e.clientY });
   };
@@ -441,6 +450,16 @@ export default function FileList(props: Props) {
       {
         label: "エクスプローラで表示", icon: "🪟", disabled: !single,
         onClick: () => { if (firstPath) void revealInExplorer(firstPath); },
+      },
+      {
+        label: "Windows メニュー…", icon: "🪄", shortcut: "Shift+右クリック", disabled: !hasSel,
+        onClick: () => {
+          if (!fullSel.length) return;
+          // 画面中央付近に表示 (フォールバック座標)
+          const sx = window.screenX + (ctxPos()?.x ?? 100);
+          const sy = window.screenY + (ctxPos()?.y ?? 100);
+          void shellMenuShow(fullSel, sx, sy).catch((err) => console.warn("shellMenuShow:", err));
+        },
       },
       {
         label: "プロパティ", icon: "ℹ", disabled: !single,
