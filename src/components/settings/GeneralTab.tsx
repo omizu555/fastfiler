@@ -1,5 +1,5 @@
 // 設定: 基本タブ (テーマ/アクセント/アイコン/タブ列数/隠しファイル/サムネ/ターミナル/ワークスペース配置)
-import { Show } from "solid-js";
+import { For, Show, createResource } from "solid-js";
 import {
   state,
   setTheme,
@@ -8,12 +8,15 @@ import {
   setTerminalShell,
   setTerminalFont,
   setTerminalFontSize,
+  setUiFont,
+  setUiFontSize,
   setPanelSlot,
   setWorkspaceTabsWidth,
   setWorkspaceTreeWidth,
   setSamePanelStack,
   setHidePaneToolbar,
 } from "../../store";
+import { loadSystemFonts, fallbackFonts } from "../../font-list";
 
 interface Props {
   columns: number;
@@ -25,6 +28,8 @@ interface Props {
 }
 
 export default function GeneralTab(props: Props) {
+  const [fonts] = createResource(() => loadSystemFonts());
+  const fontList = () => fonts() ?? fallbackFonts();
   return (
     <>
       <div class="setting-row">
@@ -140,6 +145,35 @@ export default function GeneralTab(props: Props) {
       </div>
 
       <hr />
+      <h3 class="settings-subhead">UI フォント</h3>
+      <datalist id="font-options">
+        <For each={fontList()}>{(f) => <option value={f} />}</For>
+      </datalist>
+      <div class="setting-row">
+        <label for="cfg-ui-font">UI フォント</label>
+        <input
+          id="cfg-ui-font"
+          type="text"
+          list="font-options"
+          placeholder="Yu Gothic UI"
+          value={state.uiFont ?? ""}
+          onChange={(e) => setUiFont(e.currentTarget.value.trim() || null)}
+          style={{ "min-width": "220px" }}
+        />
+        <label for="cfg-ui-fs" style={{ "margin-left": "12px" }}>サイズ</label>
+        <input
+          id="cfg-ui-fs"
+          type="number" min={9} max={24}
+          value={state.uiFontSize}
+          onInput={(e) => setUiFontSize(parseInt(e.currentTarget.value || "13", 10))}
+          style={{ "width": "60px" }}
+        />
+        <small class="muted">
+          {fonts.loading ? "システムフォント取得中…" : `候補 ${fontList().length} 件`}
+        </small>
+      </div>
+
+      <hr />
       <h3 class="settings-subhead">ターミナル</h3>
       <div class="setting-row">
         <label for="cfg-term-shell">既定シェル</label>
@@ -158,6 +192,7 @@ export default function GeneralTab(props: Props) {
         <input
           id="cfg-term-font"
           type="text"
+          list="font-options"
           placeholder="Cascadia Mono, Consolas, monospace"
           value={state.terminalFont ?? ""}
           onChange={(e) => setTerminalFont(e.currentTarget.value.trim() || null)}

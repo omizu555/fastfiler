@@ -16,8 +16,10 @@
   --accent: #4ea1ff;
   --border: #3a3b40;
   --selected: #2d4a6e;
-  font-family: "Yu Gothic UI", "Segoe UI", sans-serif;
-  font-size: 13px;
+  --ui-font: "Yu Gothic UI", "Segoe UI", sans-serif;
+  --ui-font-size: 13px;
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size);
   color-scheme: dark;
 }
 

@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onMount, For } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onMount, For } from "solid-js";
 import VerticalTabs from "./components/VerticalTabs";
 import PaneTree from "./components/PaneTree";
 import SettingsDialog from "./components/SettingsDialog";
@@ -173,6 +173,18 @@ export default function App() {
   });
 
   const showTabs = createMemo(() => state.workspace.panelDock?.tabs.slot !== "hidden");
+
+  // UI フォント設定を CSS 変数に反映
+  createEffect(() => {
+    const root = document.documentElement;
+    const f = state.uiFont;
+    if (f && f.trim()) {
+      root.style.setProperty("--ui-font", `"${f}", "Yu Gothic UI", "Segoe UI", sans-serif`);
+    } else {
+      root.style.removeProperty("--ui-font");
+    }
+    root.style.setProperty("--ui-font-size", `${state.uiFontSize}px`);
+  });
 
   return (
     <div class="app" classList={{ "hide-pane-toolbar": state.hidePaneToolbar }}>

@@ -85,6 +85,8 @@ export interface AppState {
   terminalShell: string | null;
   terminalFont: string | null;
   terminalFontSize: number;
+  uiFont: string | null;
+  uiFontSize: number;
   focusedPaneId: string | null;
 }
 
@@ -133,6 +135,8 @@ function loadInitial(): AppState | null {
     if (v.terminalShell === undefined) v.terminalShell = null;
     if (v.terminalFont === undefined) v.terminalFont = null;
     if (typeof v.terminalFontSize !== "number") v.terminalFontSize = 13;
+    if (v.uiFont === undefined) v.uiFont = null;
+    if (typeof v.uiFontSize !== "number") v.uiFontSize = 13;
     if (!v.plugins) v.plugins = { enabled: {} };
     if (!v.plugins.enabled) v.plugins.enabled = {};
     v.pluginContextMenu = [];
@@ -195,6 +199,8 @@ function freshState(initialPath: string): AppState {
     terminalShell: null,
     terminalFont: null,
     terminalFontSize: 13,
+    uiFont: null,
+    uiFontSize: 13,
     focusedPaneId: paneId,
   };
 }
