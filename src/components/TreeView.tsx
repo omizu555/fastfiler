@@ -41,6 +41,11 @@ export default function TreeView(props: Props) {
       class="treeview"
       classList={{ "pane-focused": state.focusedPaneId === props.paneId }}
       onPointerDown={() => setFocusedPane(props.paneId)}
+      onContextMenu={(e) => {
+        if (!state.hidePaneToolbar) return;
+        e.preventDefault();
+        setPaneView(props.paneId, "list");
+      }}
     >
       <div class="treeview-head">
         <span>📂 ツリー</span>

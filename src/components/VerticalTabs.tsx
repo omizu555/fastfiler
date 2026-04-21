@@ -63,6 +63,13 @@ export default function VerticalTabs() {
   return (
     <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()}>
       <VTabsSplitter slot={slot()} />
+      <button
+        class="vtabs-add-floating"
+        title="新規タブ"
+        onClick={async () => {
+          try { addTab(await homeDir()); } catch { addTab("C:\\"); }
+        }}
+      >＋</button>
       <PanelHeader panel="tabs" title="タブ" right={
         <button class="add" title="新規タブ" onClick={async () => {
           try { addTab(await homeDir()); } catch { addTab("C:\\"); }
