@@ -41,7 +41,8 @@ export default function TreeView(props: Props) {
     const isDown = e.key === "ArrowDown";
     const isLeft = e.key === "ArrowLeft";
     const isRight = e.key === "ArrowRight";
-    if (!isUp && !isDown && !isLeft && !isRight) return;
+    const isEnter = e.key === "Enter" || e.key === " ";
+    if (!isUp && !isDown && !isLeft && !isRight && !isEnter) return;
     const tgt = e.target as HTMLElement | null;
     if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return;
     e.preventDefault();
@@ -52,6 +53,8 @@ export default function TreeView(props: Props) {
     let idx = active && active.classList.contains("tree-row") ? rows.indexOf(active) : -1;
     if (idx < 0) idx = rows.findIndex((r) => r.classList.contains("current"));
     if (idx < 0) idx = 0;
+    const cur = rows[idx];
+    const path = cur.getAttribute("data-path");
     if (isDown) {
       const next = Math.min(rows.length - 1, idx + 1);
       rows[next].focus();
@@ -60,9 +63,7 @@ export default function TreeView(props: Props) {
       const next = Math.max(0, idx - 1);
       rows[next].focus();
       rows[next].click();
-    } else if (isRight) {
-      const cur = rows[idx];
-      const path = cur.getAttribute("data-path");
+    } else if (isRight || isEnter) {
       if (path && !expanded().has(normalizePath(path))) {
         toggle(path);
       } else if (idx < rows.length - 1) {
@@ -70,8 +71,6 @@ export default function TreeView(props: Props) {
         rows[idx + 1].click();
       }
     } else if (isLeft) {
-      const cur = rows[idx];
-      const path = cur.getAttribute("data-path");
       if (path && expanded().has(normalizePath(path))) {
         toggle(path);
       } else if (idx > 0) {

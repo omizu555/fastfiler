@@ -127,6 +127,8 @@ function TreeNode(props: NodeProps) {
           }
         }}
         title={props.title ?? props.path}
+        tabindex={0}
+        data-path={props.path}
       >
         <span
           class="tree-toggle"
@@ -281,8 +283,52 @@ export default function WorkspaceTreePanel() {
     window.addEventListener("pointerup", up);
   };
 
+  const onTreeKey = (e: KeyboardEvent) => {
+    const isUp = e.key === "ArrowUp";
+    const isDown = e.key === "ArrowDown";
+    const isLeft = e.key === "ArrowLeft";
+    const isRight = e.key === "ArrowRight";
+    const isEnter = e.key === "Enter" || e.key === " ";
+    if (!isUp && !isDown && !isLeft && !isRight && !isEnter) return;
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return;
+    e.preventDefault();
+    const root = (e.currentTarget as HTMLElement);
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(".tree-row"));
+    if (rows.length === 0) return;
+    const active = (document.activeElement as HTMLElement | null);
+    let idx = active && active.classList.contains("tree-row") ? rows.indexOf(active) : -1;
+    if (idx < 0) idx = rows.findIndex((r) => r.classList.contains("current"));
+    if (idx < 0) idx = 0;
+    const cur = rows[idx];
+    const path = cur.getAttribute("data-path");
+    if (isDown) {
+      const next = Math.min(rows.length - 1, idx + 1);
+      rows[next].focus();
+      rows[next].click();
+    } else if (isUp) {
+      const next = Math.max(0, idx - 1);
+      rows[next].focus();
+      rows[next].click();
+    } else if (isRight || isEnter) {
+      if (path && !expanded().has(normalizePath(path))) {
+        toggle(path);
+      } else if (idx < rows.length - 1) {
+        rows[idx + 1].focus();
+        rows[idx + 1].click();
+      }
+    } else if (isLeft) {
+      if (path && expanded().has(normalizePath(path))) {
+        toggle(path);
+      } else if (idx > 0) {
+        rows[idx - 1].focus();
+        rows[idx - 1].click();
+      }
+    }
+  };
+
   return (
-    <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()}>
+    <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()} tabindex={0} onKeyDown={onTreeKey}>
       <PanelHeader panel="tree" title="🌲 ツリー" right={
         <select
           class="apply-select"
@@ -319,6 +365,8 @@ export default function WorkspaceTreePanel() {
                     style={{ "padding-left": "0px" }}
                     onClick={() => toggle(srv.server)}
                     title={srv.server}
+                    tabindex={0}
+                    data-path={srv.server}
                   >
                     <span
                       class="tree-toggle"

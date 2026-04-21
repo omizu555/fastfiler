@@ -187,6 +187,8 @@ input, select {
 .app.hide-pane-toolbar .vtabs-add-floating:hover { background: var(--bg3); }
 .vtabs:focus, .vtabs:focus-visible { outline: none; }
 .tree-row:focus, .tree-row:focus-visible { outline: none; }
+.workspace-tree:focus, .workspace-tree:focus-visible,
+.treeview:focus, .treeview:focus-visible { outline: none; }
 .pane-path { flex: 1; min-width: 0; }
 .link-select { width: 90px; }
 .link-badge { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
