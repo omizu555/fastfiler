@@ -40,6 +40,7 @@ export interface Tab {
   id: string;
   title: string;
   rootPane: PaneNode;
+  locked?: boolean;
 }
 
 export type LinkChannel = "path" | "selection" | "scroll" | "sort";

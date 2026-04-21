@@ -27,6 +27,7 @@ export function addTab(path = "C:\\") {
 
 export function closeTab(tabId: string) {
   const tab = state.tabs.find((t) => t.id === tabId);
+  if (tab?.locked) return; // ロック中は全経路で閉じない
   const tabs = state.tabs.filter((t) => t.id !== tabId);
   if (tabs.length === 0) return;
   const ids: string[] = [];
@@ -100,5 +101,12 @@ export function cycleTab(delta: number) {
 export function setActiveTabIndex(index: number) {
   if (index < 0 || index >= state.tabs.length) return;
   setState("activeTabId", state.tabs[index].id);
+  persist();
+}
+
+export function toggleTabLock(tabId: string) {
+  const tab = state.tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  setState("tabs", (t) => t.id === tabId, "locked", !tab.locked);
   persist();
 }

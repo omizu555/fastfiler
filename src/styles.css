@@ -696,3 +696,14 @@ button.primary:hover { filter: brightness(1.1); }
   white-space: nowrap;
 }
 
+
+.vtab-lock {
+  font-size: 11px;
+  margin-right: 2px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.vtab.locked {
+  border-left: 2px solid #d4a017;
+}
+

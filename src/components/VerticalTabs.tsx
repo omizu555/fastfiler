@@ -8,6 +8,7 @@ import {
   reorderTab,
   setWorkspaceTabsWidth,
   panelsInSlot,
+  toggleTabLock,
 } from "../store";
 import { listDrives, homeDir } from "../fs";
 import { driveIcon, driveTitle } from "../drive-util";
@@ -130,10 +131,21 @@ export default function VerticalTabs() {
               classList={{
                 vtab: true,
                 active: state.activeTabId === t.id,
+                locked: !!t.locked,
                 dragging: dragId() === t.id,
                 "drop-before": overIdx() === i(),
               }}
               draggable={true}
+              onAuxClick={(ev) => {
+                if (ev.button !== 1) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                toggleTabLock(t.id);
+              }}
+              onMouseDown={(ev) => {
+                // 中ボタンクリック時のオートスクロール抑止
+                if (ev.button === 1) ev.preventDefault();
+              }}
               onDragStart={(ev) => {
                 setDragId(t.id);
                 ev.dataTransfer?.setData("application/x-fastfiler-tab", t.id);
@@ -158,13 +170,16 @@ export default function VerticalTabs() {
                 setOverIdx(null);
               }}
               onClick={() => setActiveTab(t.id)}
-              title={state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}
+              title={`${t.locked ? "🔒 ロック中 " : ""}${state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}\n(中クリックでロック切替)`}
             >
+              {t.locked && <span class="vtab-lock" title="ロック中">🔒</span>}
               <span class="vtab-title">{tabLabel(t)}</span>
-              <button
-                class="vtab-close"
-                onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}
-              >×</button>
+              {!t.locked && (
+                <button
+                  class="vtab-close"
+                  onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}
+                >×</button>
+              )}
             </div>
           )}
         </For>
