@@ -425,12 +425,20 @@ button.primary:hover { filter: brightness(1.1); }
   align-items: center;
   gap: 2px;
   min-width: 0;
-  overflow: hidden;
   padding: 2px 4px;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 3px;
   height: 24px;
+}
+.breadcrumbs .crumb-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  justify-content: flex-end;
 }
 .breadcrumbs .crumb {
   background: transparent;
@@ -452,12 +460,15 @@ button.primary:hover { filter: brightness(1.1); }
   user-select: none;
 }
 .breadcrumbs .crumb-edit {
-  margin-left: auto;
+  flex: 0 0 auto;
+  margin-left: 2px;
   background: transparent;
   border: none;
   color: inherit;
   cursor: pointer;
-  opacity: 0.6;
+  opacity: 0.75;
+  padding: 0 4px;
+  font-size: 13px;
 }
 .breadcrumbs .crumb-edit:hover { opacity: 1; }
 

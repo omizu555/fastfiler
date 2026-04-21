@@ -434,23 +434,25 @@ export default function FileList(props: Props) {
               if (t.tagName !== "BUTTON") { setPathError(null); setEditingPath(true); }
             }}
           >
-            <For each={breadcrumbs()}>
-              {(c, i) => (
-                <>
-                  <Show when={i() > 0}><span class="crumb-sep">›</span></Show>
-                  <button
-                    class="crumb"
-                    classList={{ "crumb-drop": crumbDropIdx() === i() }}
-                    onClick={() => setPanePath(props.paneId, c.path)}
-                    onDragOver={(ev) => onCrumbDragOver(ev, i())}
-                    onDragLeave={() => { if (crumbDropIdx() === i()) setCrumbDropIdx(null); }}
-                    onDrop={(ev) => onCrumbDrop(ev, c.path)}
-                    title={c.path}
-                  >{c.label}</button>
-                </>
-              )}
-            </For>
-            <button class="crumb-edit" title="パスを編集 (Ctrl+L)" onClick={() => { setPathError(null); setEditingPath(true); }}>✎</button>
+            <div class="crumb-list">
+              <For each={breadcrumbs()}>
+                {(c, i) => (
+                  <>
+                    <Show when={i() > 0}><span class="crumb-sep">›</span></Show>
+                    <button
+                      class="crumb"
+                      classList={{ "crumb-drop": crumbDropIdx() === i() }}
+                      onClick={() => setPanePath(props.paneId, c.path)}
+                      onDragOver={(ev) => onCrumbDragOver(ev, i())}
+                      onDragLeave={() => { if (crumbDropIdx() === i()) setCrumbDropIdx(null); }}
+                      onDrop={(ev) => onCrumbDrop(ev, c.path)}
+                      title={c.path}
+                    >{c.label}</button>
+                  </>
+                )}
+              </For>
+            </div>
+            <button class="crumb-edit" title="パスを編集 / コピー (Ctrl+L)" onClick={() => { setPathError(null); setEditingPath(true); }}>✎</button>
           </div>
         }>
           <input
