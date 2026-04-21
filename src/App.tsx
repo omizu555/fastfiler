@@ -172,8 +172,6 @@ export default function App() {
     window.addEventListener("contextmenu", onCtx);
   });
 
-  const showTabs = createMemo(() => state.workspace.panelDock?.tabs.slot !== "hidden");
-
   // UI フォント設定を CSS 変数に反映
   createEffect(() => {
     const root = document.documentElement;
@@ -188,23 +186,6 @@ export default function App() {
 
   return (
     <div class="app" classList={{ "hide-pane-toolbar": state.hidePaneToolbar }}>
-      <header class="app-header">
-        <span class="logo">⚡ FastFiler</span>
-        <span class="muted">v0.1.0</span>
-        <span class="spacer" />
-        <span class="muted">Ctrl+F:検索 ／ Ctrl+P:プレビュー ／ Ctrl+B:タブサイドバー ／ Ctrl+Shift+E:ツリー ／ Ctrl+,:設定</span>
-        <button class="header-btn" classList={{ active: showTabs() }}
-          title="タブパネルを次の dock へ (Ctrl+B)" onClick={cycleWorkspaceLayout}>📑</button>
-        <button class="header-btn" classList={{ active: state.workspace.panelDock?.tree.slot !== "hidden" }}
-          title="ツリーパネル切替 (Ctrl+Shift+E)" onClick={toggleWorkspaceTree}>🌲</button>
-        <button class="header-btn" classList={{ active: state.showPreview }}
-          title="プレビュー (Ctrl+P)" onClick={togglePreview}>👁</button>
-        <button class="header-btn" classList={{ active: state.showPluginPanel }}
-          title="プラグイン (Ctrl+Shift+P)" onClick={togglePluginPanel}>🧩</button>
-        <button class="header-btn" classList={{ active: state.showTerminal }}
-          title="ターミナル (Ctrl+`)" onClick={toggleTerminal}>⌨</button>
-        <button class="header-btn" title="設定 (Ctrl+,)" onClick={() => setSettingsOpen(true)}>⚙ 設定</button>
-      </header>
       <div class="app-body dock-grid">
         <DockArea slot="top" />
         <div class="dock-middle">
@@ -225,6 +206,14 @@ export default function App() {
         <DockArea slot="bottom" />
       </div>
       <TerminalPanel />
+      <footer class="app-statusbar">
+        <span class="muted statusbar-logo">⚡ FastFiler</span>
+        <span class="spacer" />
+        <button class="statusbar-btn" classList={{ active: state.showTerminal }}
+          title="ターミナル (Ctrl+`)" onClick={toggleTerminal}>⌨</button>
+        <button class="statusbar-btn" title="設定 (Ctrl+,)"
+          onClick={() => setSettingsOpen(true)}>⚙</button>
+      </footer>
       <SettingsDialog open={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       <PromptDialog />
       <ToastContainer />

@@ -717,3 +717,37 @@ button.primary:hover { filter: brightness(1.1); }
   opacity: 0.9;
 }
 
+
+.app-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  flex: 0 0 auto;
+  height: 22px;
+}
+.statusbar-logo {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.statusbar-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1;
+}
+.statusbar-btn:hover {
+  background: rgba(255,255,255,0.08);
+}
+.statusbar-btn.active {
+  background: #2d5fa3;
+  color: #fff;
+}
+
