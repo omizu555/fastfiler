@@ -75,7 +75,12 @@ export default function VerticalTabs() {
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
+    const aside = e.currentTarget as HTMLElement;
     setActiveTab(tabs[next].id);
+    // タブ切替で focusedPaneId が新タブの leaf に切替わるため、
+    // 連続矢印キー操作中はフォーカスを vtabs 自身に維持する
+    queueMicrotask(() => aside.focus());
   };
 
   return (
