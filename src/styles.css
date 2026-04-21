@@ -707,3 +707,11 @@ button.primary:hover { filter: brightness(1.1); }
   border-left: 2px solid #d4a017;
 }
 
+
+.vtab-icon {
+  font-size: 12px;
+  margin-right: 3px;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+

@@ -11,7 +11,7 @@ import {
   toggleTabLock,
 } from "../store";
 import { listDrives, homeDir } from "../fs";
-import { driveIcon, driveTitle } from "../drive-util";
+import { driveIcon, driveTitle, iconForPath } from "../drive-util";
 import PanelHeader from "./PanelHeader";
 
 export default function VerticalTabs() {
@@ -59,6 +59,11 @@ export default function VerticalTabs() {
     if (m) return m[0];
     // ドライブルート ("C:\" 等)
     return trimmed || p;
+  };
+
+  const tabPath = (tab: { rootPane: any }): string => {
+    const id = findLeaf(tab.rootPane);
+    return id ? state.panes[id]?.path ?? "" : "";
   };
 
   const onTabsKey = (e: KeyboardEvent) => {
@@ -173,6 +178,7 @@ export default function VerticalTabs() {
               title={`${t.locked ? "🔒 ロック中 " : ""}${state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}\n(中クリックでロック切替)`}
             >
               {t.locked && <span class="vtab-lock" title="ロック中">🔒</span>}
+              <span class="vtab-icon">{iconForPath(tabPath(t), drives())}</span>
               <span class="vtab-title">{tabLabel(t)}</span>
               {!t.locked && (
                 <button
