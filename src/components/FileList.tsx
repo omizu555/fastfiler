@@ -40,6 +40,7 @@ import {
 } from "../file-list/file-ops";
 import { buildContextMenu } from "../file-list/build-context-menu";
 import { createDnd, DRAG_MIME } from "../file-list/dnd";
+import { beginRightDragCandidate } from "../file-list/right-drag";
 
 interface Props {
   paneId: string;
@@ -407,6 +408,7 @@ export default function FileList(props: Props) {
       ref={paneRef}
       class="pane"
       data-pane-id={props.paneId}
+      data-rd-pane-path={pane().path}
       classList={{ "drop-target": paneDragOver(), "pane-focused": state.focusedPaneId === props.paneId }}
       tabIndex={0}
       onPointerDown={() => setFocusedPane(props.paneId)}
@@ -597,6 +599,23 @@ export default function FileList(props: Props) {
                       "drag-over-row": dragOverRow() === e.name,
                     }}
                     draggable={true}
+                    data-rd-pane-path={pane().path}
+                    data-rd-name={e.name}
+                    data-rd-folder={e.kind === "dir" ? "1" : undefined}
+                    onMouseDown={(ev) => {
+                      if (ev.button !== 2) return;
+                      let sel = pane().selection;
+                      if (!sel.includes(e.name)) {
+                        setPaneSelection(props.paneId, [e.name]);
+                        sel = [e.name];
+                      }
+                      const paths = sel.map((n) => joinPath(pane().path, n));
+                      beginRightDragCandidate(
+                        { paths, sourcePath: pane().path, label: paths.length === 1 ? (paths[0].split(/[\\/]/).pop() ?? "") : `${paths.length} 件` },
+                        ev.clientX,
+                        ev.clientY,
+                      );
+                    }}
                     onDragStart={(ev) => onRowDragStart(ev, e.name)}
                     onDragOver={(ev) => onRowDragOver(ev, e)}
                     onDragLeave={() => onRowDragLeave(e)}

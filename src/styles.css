@@ -678,3 +678,21 @@ button.primary:hover { filter: brightness(1.1); }
 .terminal-new, .terminal-close { background: transparent; border: none; color: var(--fg); font-size: 14px; padding: 2px 8px; cursor: pointer; border-radius: 3px; }
 .terminal-new:hover, .terminal-close:hover { background: var(--hover); }
 .terminal-host { flex: 1; min-height: 0; padding: 4px; }
+
+.rdrag-ghost {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  background: rgba(40, 40, 40, 0.85);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

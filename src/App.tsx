@@ -6,6 +6,8 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import TerminalPanel from "./components/TerminalPanel";
 import ToastContainer from "./components/ToastContainer";
+import RightDragOverlay from "./components/RightDragOverlay";
+import { ensureRightDragInstalled } from "./file-list/right-drag";
 import JobsPanel from "./components/JobsPanel";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
 import PromptDialog from "./components/PromptDialog";
@@ -88,6 +90,7 @@ export default function App() {
   });
 
   onMount(async () => {
+    ensureRightDragInstalled();
     try {
       const home = await homeDir();
       setInitialPath(home);
@@ -214,6 +217,7 @@ export default function App() {
       <PromptDialog />
       <ToastContainer />
       <JobsPanel />
+      <RightDragOverlay />
     </div>
   );
 }
