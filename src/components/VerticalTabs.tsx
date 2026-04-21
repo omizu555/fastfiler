@@ -177,10 +177,15 @@ export default function VerticalTabs() {
               onClick={() => setActiveTab(t.id)}
               title={`${t.locked ? "🔒 ロック中 " : ""}${state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}\n(中クリックでロック切替)`}
             >
-              {t.locked && <span class="vtab-lock" title="ロック中">🔒</span>}
               <span class="vtab-icon">{iconForPath(tabPath(t), drives())}</span>
               <span class="vtab-title">{tabLabel(t)}</span>
-              {!t.locked && (
+              {t.locked ? (
+                <button
+                  class="vtab-close vtab-locked-btn"
+                  title="ロック解除 (中ボタンクリックでも切替)"
+                  onClick={(e) => { e.stopPropagation(); toggleTabLock(t.id); }}
+                >🔒</button>
+              ) : (
                 <button
                   class="vtab-close"
                   onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}

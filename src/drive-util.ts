@@ -32,16 +32,12 @@ export function driveDisplayLabel(d: DriveInfo): string {
   return d.letter;
 }
 
-// パスからアイコンを推定 (タブ等の先頭表示用)
-export function iconForPath(path: string, drives: DriveInfo[] | undefined | null): string {
-  if (!path) return "💽";
-  // UNC: \\server\share or //server/share
+// パスからアイコン (またはドライブ文字) を推定 (タブ等の先頭表示用)
+// ドライブレターがある場合は文字そのものを返し、UNC のみネットワークアイコン
+export function iconForPath(path: string, _drives?: DriveInfo[] | null): string {
+  if (!path) return "";
   if (/^[\\/]{2}[^\\/]/.test(path)) return "🌐";
   const m = path.match(/^([A-Za-z]):/);
-  if (m) {
-    const letter = `${m[1].toUpperCase()}:\\`;
-    const d = drives?.find((x) => x.letter.toUpperCase() === letter);
-    if (d) return driveIcon(d.kind);
-  }
-  return "💽";
+  if (m) return `${m[1].toUpperCase()}:`;
+  return "";
 }
