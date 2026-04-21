@@ -24,6 +24,14 @@
 html, body, #root {
   height: 100%; margin: 0; background: var(--bg); color: var(--fg);
   overflow: hidden;
+  /* ドラッグでの範囲選択 (青反転) を全体的に無効化 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 入力系はテキスト選択可能に戻す */
+input, textarea, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button {
