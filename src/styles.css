@@ -161,6 +161,9 @@ input, select {
   background: var(--bg2); border-bottom: 1px solid var(--border);
   align-items: center;
 }
+.app.hide-pane-toolbar .pane-toolbar,
+.app.hide-pane-toolbar .treeview-head,
+.app.hide-pane-toolbar .vtabs-head { display: none; }
 .pane-path { flex: 1; min-width: 0; }
 .link-select { width: 90px; }
 .link-badge { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }

@@ -63,6 +63,7 @@ export interface AppState {
   showThumbnails: boolean;
   showPreview: boolean;
   showPluginPanel: boolean;
+  hidePaneToolbar: boolean;
   hotkeys: HotkeyMap;
   searchBackend: "builtin" | "everything";
   everythingPort: number;
@@ -98,6 +99,7 @@ function loadInitial(): AppState | null {
     if (v.showThumbnails === undefined) v.showThumbnails = true;
     if (v.showPreview === undefined) v.showPreview = false;
     if (v.showPluginPanel === undefined) v.showPluginPanel = false;
+    if (v.hidePaneToolbar === undefined) v.hidePaneToolbar = false;
     if (v.clipboard === undefined) v.clipboard = null;
     if (!v.hotkeys) v.hotkeys = { ...defaultHotkeys };
     else v.hotkeys = { ...defaultHotkeys, ...v.hotkeys };
@@ -171,6 +173,7 @@ function freshState(initialPath: string): AppState {
     showThumbnails: true,
     showPreview: false,
     showPluginPanel: false,
+    hidePaneToolbar: false,
     hotkeys: { ...defaultHotkeys },
     searchBackend: "builtin",
     everythingPort: 80,

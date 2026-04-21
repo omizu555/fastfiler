@@ -172,7 +172,7 @@ export default function App() {
   const showTabs = createMemo(() => state.workspace.panelDock?.tabs.slot !== "hidden");
 
   return (
-    <div class="app">
+    <div class="app" classList={{ "hide-pane-toolbar": state.hidePaneToolbar }}>
       <header class="app-header">
         <span class="logo">⚡ FastFiler</span>
         <span class="muted">v0.1.0</span>

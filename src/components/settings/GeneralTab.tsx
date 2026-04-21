@@ -12,6 +12,7 @@ import {
   setWorkspaceTabsWidth,
   setWorkspaceTreeWidth,
   setSamePanelStack,
+  setHidePaneToolbar,
 } from "../../store";
 
 interface Props {
@@ -117,6 +118,19 @@ export default function GeneralTab(props: Props) {
             onChange={(e) => props.onThumbsChange(e.currentTarget.checked)}
           />
           画像/動画/PDF などをサムネイル表示する
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="cfg-hide-toolbar">ペイン上部</label>
+        <label class="inline">
+          <input
+            id="cfg-hide-toolbar"
+            type="checkbox"
+            checked={state.hidePaneToolbar}
+            onChange={(e) => setHidePaneToolbar(e.currentTarget.checked)}
+          />
+          ツールバー (パンくず / 分割 / 検索など) を非表示にする
         </label>
       </div>
 
