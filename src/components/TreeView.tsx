@@ -36,11 +36,57 @@ export default function TreeView(props: Props) {
     });
   };
 
+  const onTreeKey = (e: KeyboardEvent) => {
+    const isUp = e.key === "ArrowUp";
+    const isDown = e.key === "ArrowDown";
+    const isLeft = e.key === "ArrowLeft";
+    const isRight = e.key === "ArrowRight";
+    if (!isUp && !isDown && !isLeft && !isRight) return;
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return;
+    e.preventDefault();
+    const root = (e.currentTarget as HTMLElement);
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(".tree-row"));
+    if (rows.length === 0) return;
+    const active = (document.activeElement as HTMLElement | null);
+    let idx = active && active.classList.contains("tree-row") ? rows.indexOf(active) : -1;
+    if (idx < 0) idx = rows.findIndex((r) => r.classList.contains("current"));
+    if (idx < 0) idx = 0;
+    if (isDown) {
+      const next = Math.min(rows.length - 1, idx + 1);
+      rows[next].focus();
+      rows[next].click();
+    } else if (isUp) {
+      const next = Math.max(0, idx - 1);
+      rows[next].focus();
+      rows[next].click();
+    } else if (isRight) {
+      const cur = rows[idx];
+      const path = cur.getAttribute("data-path");
+      if (path && !expanded().has(normalizePath(path))) {
+        toggle(path);
+      } else if (idx < rows.length - 1) {
+        rows[idx + 1].focus();
+        rows[idx + 1].click();
+      }
+    } else if (isLeft) {
+      const cur = rows[idx];
+      const path = cur.getAttribute("data-path");
+      if (path && expanded().has(normalizePath(path))) {
+        toggle(path);
+      } else if (idx > 0) {
+        rows[idx - 1].focus();
+        rows[idx - 1].click();
+      }
+    }
+  };
+
   return (
     <div
       class="treeview"
       classList={{ "pane-focused": state.focusedPaneId === props.paneId }}
       onPointerDown={() => setFocusedPane(props.paneId)}
+      onKeyDown={onTreeKey}
       onContextMenu={(e) => {
         if (!state.hidePaneToolbar) return;
         e.preventDefault();
@@ -101,6 +147,8 @@ function TreeNode(props: NodeProps) {
         style={{ "padding-left": `${props.depth * 14}px` }}
         onClick={onClick}
         title={props.path}
+        tabindex={0}
+        data-path={props.path}
       >
         <span
           class="tree-toggle"

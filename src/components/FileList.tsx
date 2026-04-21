@@ -211,6 +211,45 @@ export default function FileList(props: Props) {
       ev.preventDefault();
       togglePaneSearchFocused(props.paneId);
     } else if (
+      ev.key === "ArrowUp" || ev.key === "ArrowDown"
+      || ev.key === "PageUp" || ev.key === "PageDown"
+      || ev.key === "Home" || ev.key === "End"
+    ) {
+      const items = visible();
+      if (items.length === 0) return;
+      ev.preventDefault();
+      const cursor = sel.length > 0
+        ? items.findIndex((e) => e.name === sel[sel.length - 1])
+        : -1;
+      const pageSize = listRef
+        ? Math.max(1, Math.floor(listRef.clientHeight / ROW_H) - 1)
+        : 10;
+      let next = cursor;
+      switch (ev.key) {
+        case "ArrowUp":   next = cursor < 0 ? items.length - 1 : Math.max(0, cursor - 1); break;
+        case "ArrowDown": next = cursor < 0 ? 0 : Math.min(items.length - 1, cursor + 1); break;
+        case "PageUp":   next = Math.max(0, (cursor < 0 ? 0 : cursor) - pageSize); break;
+        case "PageDown": next = Math.min(items.length - 1, (cursor < 0 ? 0 : cursor) + pageSize); break;
+        case "Home": next = 0; break;
+        case "End":  next = items.length - 1; break;
+      }
+      if (ev.shiftKey && sel.length > 0) {
+        const anchorIdx = items.findIndex((e) => e.name === sel[0]);
+        const a = anchorIdx >= 0 ? anchorIdx : (cursor >= 0 ? cursor : next);
+        const lo = Math.min(a, next), hi = Math.max(a, next);
+        setPaneSelection(props.paneId, items.slice(lo, hi + 1).map((e) => e.name));
+      } else {
+        setPaneSelection(props.paneId, [items[next].name]);
+      }
+      if (listRef) {
+        const top = next * ROW_H;
+        const bottom = top + ROW_H;
+        if (top < listRef.scrollTop) listRef.scrollTop = top;
+        else if (bottom > listRef.scrollTop + listRef.clientHeight) {
+          listRef.scrollTop = bottom - listRef.clientHeight;
+        }
+      }
+    } else if (
       ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey
       && /[\p{L}\p{N}._\-\s]/u.test(ev.key)
     ) {

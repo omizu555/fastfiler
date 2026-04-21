@@ -60,8 +60,26 @@ export default function VerticalTabs() {
     return trimmed || p;
   };
 
+  const onTabsKey = (e: KeyboardEvent) => {
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return;
+    const tabs = state.tabs;
+    if (tabs.length === 0) return;
+    const cur = tabs.findIndex((t) => t.id === state.activeTabId);
+    let next = cur;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      next = (cur < 0 ? 0 : (cur + 1) % tabs.length);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      next = (cur < 0 ? tabs.length - 1 : (cur - 1 + tabs.length) % tabs.length);
+    } else {
+      return;
+    }
+    e.preventDefault();
+    setActiveTab(tabs[next].id);
+  };
+
   return (
-    <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()}>
+    <aside class="vtabs" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()} tabindex={0} onKeyDown={onTabsKey}>
       <VTabsSplitter slot={slot()} />
       <button
         class="vtabs-add-floating"
