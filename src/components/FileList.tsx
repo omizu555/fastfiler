@@ -351,6 +351,13 @@ export default function FileList(props: Props) {
   const [crumbDropIdx, setCrumbDropIdx] = createSignal<number | null>(null);
 
   const breadcrumbs = createMemo(() => breadcrumbsOf(pane().path));
+  let crumbListRef: HTMLDivElement | undefined;
+  createEffect(() => {
+    breadcrumbs();
+    queueMicrotask(() => {
+      if (crumbListRef) crumbListRef.scrollLeft = crumbListRef.scrollWidth;
+    });
+  });
 
   const onCrumbDragOver = (ev: DragEvent, idx: number) => {
     if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
@@ -434,7 +441,7 @@ export default function FileList(props: Props) {
               if (t.tagName !== "BUTTON") { setPathError(null); setEditingPath(true); }
             }}
           >
-            <div class="crumb-list">
+            <div class="crumb-list" ref={crumbListRef}>
               <For each={breadcrumbs()}>
                 {(c, i) => (
                   <>

@@ -438,7 +438,6 @@ button.primary:hover { filter: brightness(1.1); }
   align-items: center;
   gap: 2px;
   overflow: hidden;
-  justify-content: flex-end;
 }
 .breadcrumbs .crumb {
   background: transparent;
