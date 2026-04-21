@@ -8,14 +8,16 @@ import {
   clearClipboard,
   pushUndo,
   pushToast,
+  bumpRefreshPaths,
+  bumpRefreshPath,
 } from "../store";
+import { joinPath, parentPath } from "../path-util";
 import {
   deletePath,
   deleteToTrash,
   renamePath,
   createDir,
 } from "../fs";
-import { joinPath } from "../path-util";
 import { runFileJob } from "../jobs";
 import { performUndo } from "../undo";
 import { openPrompt } from "../components/PromptDialog";
@@ -57,6 +59,8 @@ export async function pasteHere(ctx: FileOpsCtx) {
       isCut ? { kind: "move", from: it.from, to: it.to } : { kind: "copy", created: it.to });
     pushUndo(label, ops);
     pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+    const sources = isCut ? cb.paths.map((p) => parentPath(p)) : [];
+    bumpRefreshPaths([dst, ...sources]);
   } else if (!r.canceled) {
     pushToast(`${label} 失敗`, "error");
   }
@@ -82,6 +86,7 @@ export async function doDelete(ctx: FileOpsCtx, permanent: boolean) {
   } catch (e) {
     alert(`削除失敗: ${e}`);
   }
+  bumpRefreshPath(ctx.pane().path);
   ctx.refetch();
 }
 
@@ -106,6 +111,7 @@ export async function doRename(ctx: FileOpsCtx) {
       pushUndo(`名前変更: ${oldName} → ${newName}`, [{ kind: "rename", from, to }]);
       pushToast(`名前変更: ${oldName} → ${newName}`, "info",
         { label: "↶取り消し", onClick: () => { void performUndo(); } });
+      bumpRefreshPath(ctx.pane().path);
       ctx.refetch();
     } catch (e) { alert(`リネーム失敗: ${e}`); }
   }
@@ -124,6 +130,7 @@ export async function doNewFolder(ctx: FileOpsCtx) {
   if (!name) return;
   try {
     await createDir(joinPath(ctx.pane().path, name.trim()));
+    bumpRefreshPath(ctx.pane().path);
     ctx.refetch();
   } catch (e) { alert(`作成失敗: ${e}`); }
 }

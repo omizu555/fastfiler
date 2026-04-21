@@ -19,6 +19,7 @@ import {
   setPaneSort,
   setFocusedPane,
   state,
+  refreshTickFor,
 } from "../store";
 import type { FileEntry, SortKey } from "../types";
 import ContextMenu from "./ContextMenu";
@@ -54,7 +55,7 @@ export default function FileList(props: Props) {
   })();
 
   const [entries, { refetch }] = createResource(
-    () => ({ path: pane().path, k: refreshKey() }),
+    () => ({ path: pane().path, k: refreshKey(), g: refreshTickFor(pane().path) }),
     async (s) => {
       const list = await listDir(s.path);
       return state.showHidden ? list : list.filter((e) => !e.hidden);

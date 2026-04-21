@@ -2,7 +2,7 @@
 // 状態 (dragOverRow / paneDragOver) と handler を作るファクトリ。
 import { createSignal, onCleanup } from "solid-js";
 import type { FileEntry, PaneState, UndoOp } from "../types";
-import { setPanePath, setPaneSelection, pushUndo, pushToast } from "../store";
+import { setPanePath, setPaneSelection, pushUndo, pushToast, bumpRefreshPaths } from "../store";
 import { oleStartDrag } from "../fs";
 import { joinPath } from "../path-util";
 import { runFileJob } from "../jobs";
@@ -76,6 +76,7 @@ export function createDnd(ctx: DndCtx) {
         isCopy ? { kind: "copy", created: it.to } : { kind: "move", from: it.from, to: it.to });
       pushUndo(label, ops);
       pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+      bumpRefreshPaths([destPath, payload.sourcePath]);
     } else if (!r.canceled) {
       pushToast(`${label} 失敗`, "error");
     }
