@@ -163,7 +163,8 @@ input, select {
 }
 .app.hide-pane-toolbar .treeview-head,
 .app.hide-pane-toolbar .vtabs-head,
-.app.hide-pane-toolbar .vtabs > .panel-header { display: none; }
+.app.hide-pane-toolbar .vtabs > .panel-header,
+.app.hide-pane-toolbar .workspace-tree > .panel-header { display: none; }
 .app.hide-pane-toolbar .vtabs { position: relative; }
 .vtabs-add-floating {
   display: none;
