@@ -122,7 +122,7 @@ export default function GeneralTab(props: Props) {
       </div>
 
       <div class="setting-row">
-        <label for="cfg-hide-toolbar">ペイン上部</label>
+        <label for="cfg-hide-toolbar">タブ/ツリー上部</label>
         <label class="inline">
           <input
             id="cfg-hide-toolbar"
@@ -130,7 +130,7 @@ export default function GeneralTab(props: Props) {
             checked={state.hidePaneToolbar}
             onChange={(e) => setHidePaneToolbar(e.currentTarget.checked)}
           />
-          ツールバー (パンくず / 分割 / 検索など) を非表示にする
+          タブバー / ツリーのヘッダ部分を非表示にする
         </label>
       </div>
 
