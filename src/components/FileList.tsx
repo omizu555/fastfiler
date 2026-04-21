@@ -1,10 +1,7 @@
 import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
-import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, revealInExplorer, showProperties, deletePath, deleteToTrash, renamePath, createDir, copyPath, movePath, diskFree, shellMenuShow, oleStartDrag } from "../fs";
+import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, diskFree, shellMenuShow } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
-import { openPrompt } from "./PromptDialog";
 import { sortFileEntries } from "../file-list/sort";
-import { buildAsciiTree, parseDepthInput } from "../file-list/ascii-tree";
-import { invalidNameMessage, uniqueName } from "../file-list/name-utils";
 import {
   setPanePath,
   setPaneSelection,
@@ -12,8 +9,6 @@ import {
   setPaneLinkGroup,
   splitPane,
   closePane,
-  setClipboard,
-  clearClipboard,
   addTab,
   setPaneView,
   focusPaneSearch,
@@ -23,29 +18,31 @@ import {
   getPaneUi,
   setPaneSort,
   setFocusedPane,
-  pushUndo,
-  pushToast,
   state,
 } from "../store";
-import { performUndo } from "../undo";
-import { runFileJob } from "../jobs";
 import type { FileEntry, SortKey } from "../types";
-import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
+import ContextMenu from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
-import { iconForEntryWith } from "../icons";
 import SearchPanel from "./SearchPanel";
 import { PaneNameLabel } from "./DriveListView";
+import { iconForEntryWith } from "../icons";
 import { matchKey } from "../hotkeys";
-import { invokePluginContextMenuItem } from "../plugin-host";
+import {
+  cutSelection as opCut,
+  copySelection as opCopy,
+  pasteHere as opPaste,
+  doDelete as opDelete,
+  doRename as opRename,
+  doNewFolder as opNewFolder,
+  exportAsciiTree as opExportAsciiTree,
+  type FileOpsCtx,
+} from "../file-list/file-ops";
+import { buildContextMenu } from "../file-list/build-context-menu";
+import { createDnd, DRAG_MIME } from "../file-list/dnd";
 
 interface Props {
   paneId: string;
   tabId: string;
-}
-
-interface DragPayload {
-  paths: string[];
-  sourcePath: string;
 }
 
 export default function FileList(props: Props) {
@@ -146,128 +143,19 @@ export default function FileList(props: Props) {
     }
   };
 
-  // ----- ASCII ツリーエクスポート -----
-  const exportAsciiTree = async (rootPath: string) => {
-    const depthStr = await openPrompt({
-      title: "ツリーをコピー (ASCII)",
-      label: "再帰の深さ (1〜8) / ファイル含む場合は末尾に f を付与 (例: 4f)",
-      initial: "4",
-      confirmLabel: "コピー",
-      validate: (v) => parseDepthInput(v) ? null : "数字 (1-8) を入力 (例: 4 または 4f)",
-    });
-    if (!depthStr) return;
-    const opts = parseDepthInput(depthStr)!;
-    const text = await buildAsciiTree(rootPath, {
-      ...opts,
-      includeHidden: state.showHidden,
-    });
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (e) {
-      alert(`クリップボードコピー失敗: ${e}\n\n${text}`);
-    }
+  // ----- ファイル操作 ctx + 薄いラッパー (詳細は file-list/file-ops.ts) -----
+  const fopsCtx: FileOpsCtx = {
+    pane,
+    visible,
+    refetch: () => refetch(),
   };
-
-
-  // ----- クリップボード操作 -----
-  const cutSelection = () => {
-    const sel = pane().selection;
-    if (!sel.length) return;
-    setClipboard(sel.map((n) => joinPath(pane().path, n)), "cut");
-  };
-  const copySelection = () => {
-    const sel = pane().selection;
-    if (!sel.length) return;
-    setClipboard(sel.map((n) => joinPath(pane().path, n)), "copy");
-  };
-  const pasteHere = async () => {
-    const cb = state.clipboard;
-    if (!cb) return;
-    const dst = pane().path;
-    const items = cb.paths.map((src) => ({
-      from: src,
-      to: joinPath(dst, src.split(/[\\/]/).pop() ?? "untitled"),
-    }));
-    const isCut = cb.op === "cut";
-    if (isCut) clearClipboard();
-    const label = `${isCut ? "移動" : "コピー"} ${items.length}件 → ${dst}`;
-    const r = await runFileJob(isCut ? "move" : "copy", items, { label });
-    if (r.ok) {
-      const ops: import("../types").UndoOp[] = items.map((it) =>
-        isCut ? { kind: "move", from: it.from, to: it.to } : { kind: "copy", created: it.to });
-      pushUndo(label, ops);
-      pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
-    } else if (!r.canceled) {
-      pushToast(`${label} 失敗`, "error");
-    }
-    refetch();
-  };
-
-  // ----- 削除 (Trash / 完全削除) -----
-  const doDelete = async (permanent: boolean) => {
-    const sel = pane().selection;
-    if (!sel.length) return;
-    const msg = permanent
-      ? `${sel.length} 件を完全削除しますか？（元に戻せません）`
-      : `${sel.length} 件をゴミ箱へ移動しますか？`;
-    if (!confirm(msg)) return;
-    const full = sel.map((n) => joinPath(pane().path, n));
-    try {
-      if (permanent) {
-        for (const p of full) {
-          try { await deletePath(p, true); } catch (e) { console.error(e); }
-        }
-      } else {
-        await deleteToTrash(full);
-      }
-    } catch (e) {
-      alert(`削除失敗: ${e}`);
-    }
-    refetch();
-  };
-
-  const doRename = async () => {
-    const sel = pane().selection;
-    if (sel.length !== 1) return;
-    const oldName = sel[0];
-    const existing = new Set(visible().map((e) => e.name));
-    existing.delete(oldName);
-    const newName = await openPrompt({
-      title: "名前の変更",
-      label: oldName,
-      initial: oldName,
-      confirmLabel: "変更",
-      validate: (v) => invalidNameMessage(v, existing),
-    });
-    if (newName && newName !== oldName) {
-      const from = joinPath(pane().path, oldName);
-      const to = joinPath(pane().path, newName);
-      try {
-        await renamePath(from, to);
-        pushUndo(`名前変更: ${oldName} → ${newName}`, [{ kind: "rename", from, to }]);
-        pushToast(`名前変更: ${oldName} → ${newName}`, "info",
-          { label: "↶取り消し", onClick: () => { void performUndo(); } });
-        refetch();
-      } catch (e) { alert(`リネーム失敗: ${e}`); }
-    }
-  };
-
-  const doNewFolder = async () => {
-    const existing = new Set(visible().map((e) => e.name));
-    const initial = uniqueName("新しいフォルダー", existing);
-    const name = await openPrompt({
-      title: "新しいフォルダー",
-      label: "フォルダー名",
-      initial,
-      confirmLabel: "作成",
-      validate: (v) => invalidNameMessage(v, existing),
-    });
-    if (!name) return;
-    try {
-      await createDir(joinPath(pane().path, name.trim()));
-      refetch();
-    } catch (e) { alert(`作成失敗: ${e}`); }
-  };
+  const cutSelection = () => opCut(fopsCtx);
+  const copySelection = () => opCopy(fopsCtx);
+  const pasteHere = () => opPaste(fopsCtx);
+  const doDelete = (permanent: boolean) => opDelete(fopsCtx, permanent);
+  const doRename = () => opRename(fopsCtx);
+  const doNewFolder = () => opNewFolder(fopsCtx);
+  const exportAsciiTree = (rootPath: string) => opExportAsciiTree(rootPath);
 
   // ----- インクリメンタルサーチ (英数キーで先頭一致選択) -----
   let typingBuffer = "";
@@ -375,102 +263,12 @@ export default function FileList(props: Props) {
     setCtxPos({ x: e.clientX, y: e.clientY });
   };
 
-  const buildMenu = (): ContextMenuItem[] => {
-    const sel = pane().selection;
-    const target = ctxTarget().entry;
-    const hasSel = sel.length > 0;
-    const single = sel.length === 1;
-    const cb = state.clipboard;
-    const fullSel = sel.map((n) => joinPath(pane().path, n));
-    const firstPath = fullSel[0];
-    const base: ContextMenuItem[] = [
-      {
-        label: "開く", icon: "▶", disabled: !single,
-        onClick: () => { if (target) enter(target); },
-      },
-      {
-        label: "新しいタブで開く", icon: "🗂", disabled: !single || (target && target.kind !== "dir") === true,
-        onClick: () => { if (target?.kind === "dir") addTab(joinPath(pane().path, target.name)); },
-      },
-      {
-        label: "既定のアプリで開く", icon: "📤", disabled: !single,
-        onClick: () => { if (firstPath) void openWithShell(firstPath); },
-      },
-      { separator: true },
-      { label: "切り取り", icon: "✂", shortcut: "Ctrl+X", disabled: !hasSel, onClick: cutSelection },
-      { label: "コピー", icon: "📋", shortcut: "Ctrl+C", disabled: !hasSel, onClick: copySelection },
-      {
-        label: cb ? `貼り付け (${cb.paths.length}件 / ${cb.op === "cut" ? "切り取り" : "コピー"})` : "貼り付け",
-        icon: "📥", shortcut: "Ctrl+V", disabled: !cb, onClick: pasteHere,
-      },
-      { separator: true },
-      { label: "名前の変更", icon: "✎", shortcut: "F2", disabled: !single, onClick: doRename },
-      { label: "新規フォルダ", icon: "📁", shortcut: "Ctrl+Shift+N", onClick: doNewFolder },
-      { separator: true },
-      {
-        label: "ツリーをコピー (ASCII)", icon: "🌳",
-        disabled: !single || (target?.kind !== "dir"),
-        onClick: () => { if (target?.kind === "dir") void exportAsciiTree(joinPath(pane().path, target.name)); },
-      },
-      { separator: true },
-      { label: "ゴミ箱へ", icon: "🗑", shortcut: "Del", disabled: !hasSel, onClick: () => doDelete(false) },
-      { label: "完全削除", icon: "✖", shortcut: "Shift+Del", disabled: !hasSel, danger: true, onClick: () => doDelete(true) },
-      { separator: true },
-      {
-        label: "エクスプローラで表示", icon: "🪟", disabled: !single,
-        onClick: () => { if (firstPath) void revealInExplorer(firstPath); },
-      },
-      {
-        label: "Windows メニュー…", icon: "🪄", shortcut: "Shift+右クリック", disabled: !hasSel,
-        onClick: () => {
-          if (!fullSel.length) return;
-          // 画面中央付近に表示 (フォールバック座標)
-          const sx = window.screenX + (ctxPos()?.x ?? 100);
-          const sy = window.screenY + (ctxPos()?.y ?? 100);
-          void shellMenuShow(fullSel, sx, sy).catch((err) => console.warn("shellMenuShow:", err));
-        },
-      },
-      {
-        label: "プロパティ", icon: "ℹ", disabled: !single,
-        onClick: () => { if (firstPath) void showProperties(firstPath); },
-      },
-    ];
-    // v2.0: プラグイン提供のコンテキストメニュー項目を末尾に追加
-    // 右クリック対象 (target) を基準に判定する。選択数は問わない。
-    const pluginItems = state.pluginContextMenu.filter((item) => {
-      if (!target) return false;
-      const isDir = target.kind === "dir";
-      if (item.when === "file" && isDir) return false;
-      if (item.when === "dir" && !isDir) return false;
-      if (item.extensions && item.extensions.length > 0) {
-        if (isDir) return false;
-        const ext = target.name.includes(".")
-          ? target.name.split(".").pop()!.toLowerCase()
-          : "";
-        if (!item.extensions.includes(ext)) return false;
-      }
-      return true;
-    });
-    if (pluginItems.length > 0) {
-      base.push({ separator: true });
-      for (const it of pluginItems) {
-        base.push({
-          label: it.label,
-          icon: it.icon ?? "🧩",
-          onClick: () => {
-            if (!target) return;
-            const tgtPath = joinPath(pane().path, target.name);
-            invokePluginContextMenuItem(it, {
-              path: tgtPath,
-              isDir: target.kind === "dir",
-              name: target.name,
-            });
-          },
-        });
-      }
-    }
-    return base;
-  };
+  const buildMenu = () => buildContextMenu({
+    ...fopsCtx,
+    target: ctxTarget().entry,
+    ctxPos,
+    enter,
+  });
 
   // ----- 検索モード (タブ切替で保持される: store.paneUi) -----
   const searchMode = () => getPaneUi(props.paneId).searchOpen;
@@ -486,103 +284,19 @@ export default function FileList(props: Props) {
     { defer: true }
   ));
 
-  // ----- D&D -----
-  const [dragOverRow, setDragOverRow] = createSignal<string | null>(null);
-  const [paneDragOver, setPaneDragOver] = createSignal(false);
-  const DRAG_MIME = "application/x-fastfiler";
-
-  const onRowDragStart = (ev: DragEvent, name: string) => {
-    if (!ev.dataTransfer) return;
-    let sel = pane().selection;
-    if (!sel.includes(name)) {
-      setPaneSelection(props.paneId, [name]);
-      sel = [name];
-    }
-    // Alt+ドラッグ: Windows ネイティブ OS ドラッグ (エクスプローラ等へ drag-out 可能)
-    if (ev.altKey) {
-      ev.preventDefault();
-      const fullSel = sel.map((n) => joinPath(pane().path, n));
-      void oleStartDrag(fullSel, 0x7).catch((err) => console.warn("oleStartDrag:", err));
-      return;
-    }
-    const payload: DragPayload = {
-      paths: sel.map((n) => joinPath(pane().path, n)),
-      sourcePath: pane().path,
-    };
-    ev.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
-    ev.dataTransfer.effectAllowed = "copyMove";
-  };
-
-  const onPaneDragOver = (ev: DragEvent) => {
-    if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
-    ev.preventDefault();
-    ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
-    setPaneDragOver(true);
-  };
-  const onPaneDragLeave = () => setPaneDragOver(false);
-
-  const handleDrop = async (ev: DragEvent, destPath: string) => {
-    ev.preventDefault();
-    setPaneDragOver(false);
-    setDragOverRow(null);
-    const raw = ev.dataTransfer?.getData(DRAG_MIME);
-    if (!raw) return;
-    let payload: DragPayload;
-    try { payload = JSON.parse(raw); } catch { return; }
-    if (payload.sourcePath === destPath && !ev.ctrlKey) return; // 同フォルダへの移動は無意味
-    const isCopy = ev.ctrlKey;
-    const items = payload.paths.map((src) => ({
-      from: src,
-      to: joinPath(destPath, src.split(/[\\/]/).pop() ?? "untitled"),
-    }));
-    const label = `${isCopy ? "コピー" : "移動"} ${items.length}件 → ${destPath}`;
-    const r = await runFileJob(isCopy ? "copy" : "move", items, { label });
-    if (r.ok) {
-      const ops: import("../types").UndoOp[] = items.map((it) =>
-        isCopy ? { kind: "copy", created: it.to } : { kind: "move", from: it.from, to: it.to });
-      pushUndo(label, ops);
-      pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
-    } else if (!r.canceled) {
-      pushToast(`${label} 失敗`, "error");
-    }
-    refetch();
-  };
-
-  // v3.4: Spring-loaded folder (ホバー長押しで自動展開)
-  let springTimer: number | null = null;
-  let springName: string | null = null;
-  const SPRING_DELAY = 800;
-  const cancelSpring = () => {
-    if (springTimer != null) { clearTimeout(springTimer); springTimer = null; }
-    springName = null;
-  };
-  onCleanup(cancelSpring);
-
-  const onRowDragOver = (ev: DragEvent, entry: FileEntry) => {
-    if (entry.kind !== "dir") return;
-    if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
-    setDragOverRow(entry.name);
-    // ホバー継続をスプリングタイマーで監視
-    if (springName !== entry.name) {
-      cancelSpring();
-      springName = entry.name;
-      springTimer = window.setTimeout(() => {
-        // タイマー発火時もまだホバー中ならフォルダへ navigate
-        if (dragOverRow() === entry.name) {
-          setPanePath(props.paneId, joinPath(pane().path, entry.name));
-        }
-        cancelSpring();
-      }, SPRING_DELAY);
-    }
-  };
-  const onRowDrop = (ev: DragEvent, entry: FileEntry) => {
-    if (entry.kind !== "dir") return;
-    ev.stopPropagation();
-    void handleDrop(ev, joinPath(pane().path, entry.name));
-  };
+  // ----- D&D (詳細は file-list/dnd.ts) -----
+  const dnd = createDnd({ paneId: props.paneId, pane, refetch: () => refetch() });
+  const {
+    dragOverRow,
+    paneDragOver,
+    onRowDragStart,
+    onPaneDragOver,
+    onPaneDragLeave,
+    handleDrop,
+    onRowDragOver,
+    onRowDrop,
+    onRowDragLeave,
+  } = dnd;
 
   const isCut = (name: string) => {
     const cb = state.clipboard;
@@ -845,8 +559,8 @@ export default function FileList(props: Props) {
                     draggable={true}
                     onDragStart={(ev) => onRowDragStart(ev, e.name)}
                     onDragOver={(ev) => onRowDragOver(ev, e)}
-                    onDragLeave={() => { if (dragOverRow() === e.name) { setDragOverRow(null); cancelSpring(); } }}
-                    onDrop={(ev) => { cancelSpring(); onRowDrop(ev, e); }}
+                    onDragLeave={() => onRowDragLeave(e)}
+                    onDrop={(ev) => onRowDrop(ev, e)}
                     onClick={(ev) => onRowClick(e.name, idx(), ev)}
                     onDblClick={() => enter(e)}
                     onContextMenu={(ev) => openContextMenu(ev, e)}
