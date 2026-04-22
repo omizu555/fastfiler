@@ -17,6 +17,7 @@ import {
   deleteToTrash,
   renamePath,
   createDir,
+  writeClipboardPaths, // ← 追加
 } from "../fs";
 import { runFileJob } from "../jobs";
 import { performUndo } from "../undo";
@@ -33,13 +34,17 @@ export interface FileOpsCtx {
 export function cutSelection(ctx: FileOpsCtx) {
   const sel = ctx.pane().selection;
   if (!sel.length) return;
-  setClipboard(sel.map((n) => joinPath(ctx.pane().path, n)), "cut");
+  const paths = sel.map((n) => joinPath(ctx.pane().path, n));
+  setClipboard(paths, "cut");
+  void writeClipboardPaths(paths, "cut"); // ← 追加
 }
 
 export function copySelection(ctx: FileOpsCtx) {
   const sel = ctx.pane().selection;
   if (!sel.length) return;
-  setClipboard(sel.map((n) => joinPath(ctx.pane().path, n)), "copy");
+  const paths = sel.map((n) => joinPath(ctx.pane().path, n));
+  setClipboard(paths, "copy");
+  void writeClipboardPaths(paths, "copy"); // ← 追加
 }
 
 export async function pasteHere(ctx: FileOpsCtx) {
@@ -56,9 +61,17 @@ export async function pasteHere(ctx: FileOpsCtx) {
   const r = await runFileJob(isCut ? "move" : "copy", items, { label });
   if (r.ok) {
     const ops: UndoOp[] = items.map((it) =>
-      isCut ? { kind: "move", from: it.from, to: it.to } : { kind: "copy", created: it.to });
+      isCut
+        ? { kind: "move", from: it.from, to: it.to }
+        : { kind: "copy", created: it.to },
+    );
     pushUndo(label, ops);
-    pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
+    pushToast(label, "info", {
+      label: "↶取り消し",
+      onClick: () => {
+        void performUndo();
+      },
+    });
     const sources = isCut ? cb.paths.map((p) => parentPath(p)) : [];
     bumpRefreshPaths([dst, ...sources]);
   } else if (!r.canceled) {
@@ -78,7 +91,11 @@ export async function doDelete(ctx: FileOpsCtx, permanent: boolean) {
   try {
     if (permanent) {
       for (const p of full) {
-        try { await deletePath(p, true); } catch (e) { console.error(e); }
+        try {
+          await deletePath(p, true);
+        } catch (e) {
+          console.error(e);
+        }
       }
     } else {
       await deleteToTrash(full);
@@ -108,12 +125,20 @@ export async function doRename(ctx: FileOpsCtx) {
     const to = joinPath(ctx.pane().path, newName);
     try {
       await renamePath(from, to);
-      pushUndo(`名前変更: ${oldName} → ${newName}`, [{ kind: "rename", from, to }]);
-      pushToast(`名前変更: ${oldName} → ${newName}`, "info",
-        { label: "↶取り消し", onClick: () => { void performUndo(); } });
+      pushUndo(`名前変更: ${oldName} → ${newName}`, [
+        { kind: "rename", from, to },
+      ]);
+      pushToast(`名前変更: ${oldName} → ${newName}`, "info", {
+        label: "↶取り消し",
+        onClick: () => {
+          void performUndo();
+        },
+      });
       bumpRefreshPath(ctx.pane().path);
       ctx.refetch();
-    } catch (e) { alert(`リネーム失敗: ${e}`); }
+    } catch (e) {
+      alert(`リネーム失敗: ${e}`);
+    }
   }
 }
 
@@ -132,7 +157,9 @@ export async function doNewFolder(ctx: FileOpsCtx) {
     await createDir(joinPath(ctx.pane().path, name.trim()));
     bumpRefreshPath(ctx.pane().path);
     ctx.refetch();
-  } catch (e) { alert(`作成失敗: ${e}`); }
+  } catch (e) {
+    alert(`作成失敗: ${e}`);
+  }
 }
 
 export async function exportAsciiTree(rootPath: string) {
@@ -141,7 +168,8 @@ export async function exportAsciiTree(rootPath: string) {
     label: "再帰の深さ (1〜8) / ファイル含む場合は末尾に f を付与 (例: 4f)",
     initial: "4",
     confirmLabel: "コピー",
-    validate: (v) => parseDepthInput(v) ? null : "数字 (1-8) を入力 (例: 4 または 4f)",
+    validate: (v) =>
+      parseDepthInput(v) ? null : "数字 (1-8) を入力 (例: 4 または 4f)",
   });
   if (!depthStr) return;
   const opts = parseDepthInput(depthStr)!;

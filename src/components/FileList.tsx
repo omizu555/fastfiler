@@ -39,7 +39,7 @@ import {
   type FileOpsCtx,
 } from "../file-list/file-ops";
 import { buildContextMenu } from "../file-list/build-context-menu";
-import { createDnd, DRAG_MIME } from "../file-list/dnd";
+import { createDnd, DRAG_MIME, extDragPaneId, extDragRowName } from "../file-list/dnd";
 import { beginRightDragCandidate } from "../file-list/right-drag";
 
 interface Props {
@@ -416,7 +416,11 @@ export default function FileList(props: Props) {
       class="pane"
       data-pane-id={props.paneId}
       data-rd-pane-path={pane().path}
-      classList={{ "drop-target": paneDragOver(), "pane-focused": state.focusedPaneId === props.paneId }}
+      classList={{
+        "drop-target": paneDragOver(),
+        "pane-ext-drag-over": extDragPaneId() === props.paneId,
+        "pane-focused": state.focusedPaneId === props.paneId,
+      }}
       tabIndex={0}
       onPointerDown={() => setFocusedPane(props.paneId)}
       onFocusIn={() => setFocusedPane(props.paneId)}
@@ -605,7 +609,9 @@ export default function FileList(props: Props) {
                       selected: pane().selection.includes(e.name),
                       hidden: !!e.hidden,
                       cut: isCut(e.name),
-                      "drag-over-row": dragOverRow() === e.name,
+                      "drag-over-row":
+                        dragOverRow() === e.name ||
+                        (extDragPaneId() === props.paneId && extDragRowName() === e.name && e.kind === "dir"),
                     }}
                     draggable={true}
                     data-rd-pane-path={pane().path}

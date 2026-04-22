@@ -10,6 +10,24 @@ import { performUndo } from "../undo";
 
 export const DRAG_MIME = "application/x-fastfiler";
 
+// ---- 外部D&D (エクスプローラ等からのドラッグ) グローバル状態 ----
+// App.tsx の OLE イベントリスナーが更新し、FileList.tsx が読み取る。
+const [_extDragPaneId, _setExtDragPaneId] = createSignal<string | null>(null);
+const [_extDragRowName, _setExtDragRowName] = createSignal<string | null>(null);
+
+export const extDragPaneId = _extDragPaneId;
+export const extDragRowName = _extDragRowName;
+
+export function setExtDragOver(paneId: string, rowName: string | null): void {
+  _setExtDragPaneId(paneId);
+  _setExtDragRowName(rowName);
+}
+
+export function clearExtDragOver(): void {
+  _setExtDragPaneId(null);
+  _setExtDragRowName(null);
+}
+
 export interface DragPayload {
   paths: string[];
   sourcePath: string;

@@ -23,9 +23,28 @@ use std::sync::OnceLock;
 #[cfg(windows)]
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
+// ウィンドウ HWND (座標変換用)
+#[cfg(windows)]
+static APP_HWND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+// DragEnter で CF_HDROP を受け付けられるか記録
+#[cfg(windows)]
+static DROP_ACCEPTS_HDROP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// DragOver スロットリング用タイムスタンプ (ms)
+#[cfg(windows)]
+static LAST_DRAG_OVER_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
 #[derive(Serialize, Clone, Debug)]
 pub struct OleDropPayload {
     pub paths: Vec<String>,
+    pub effect: u32, // 1=COPY, 2=MOVE, 4=LINK
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct OleDragOverPayload {
     pub effect: u32, // 1=COPY, 2=MOVE, 4=LINK
     pub x: i32,
     pub y: i32,
@@ -40,18 +59,23 @@ pub fn register(app: &tauri::AppHandle) {
     std::thread::Builder::new()
         .name("ole-dnd-register".into())
         .spawn(move || {
-            // 少し待ってウィンドウ作成完了を確実に
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            // 少し待ってウィンドウ作成完了 + WebView2 の自動登録完了後に上書きする
+            std::thread::sleep(std::time::Duration::from_millis(800));
             if let Some(window) = app2.get_webview_window("main") {
                 if let Ok(hwnd) = window.hwnd() {
-                    unsafe {
-                        // tauri は別バージョンの windows crate の HWND を返すので raw ポインタ経由で変換
-                        let hwnd_local = windows::Win32::Foundation::HWND(hwnd.0 as *mut _);
+                    let hwnd_val = hwnd.0 as usize;
+                    // メインスレッド (UIスレッド) で登録する
+                    let _ = app2.run_on_main_thread(move || unsafe {
+                        let hwnd_local = windows::Win32::Foundation::HWND(hwnd_val as *mut _);
                         if let Err(e) = ole_register_for_hwnd(hwnd_local) {
                             eprintln!("[ole-dnd] register failed: {e:?}");
                         }
-                    }
+                    });
+                } else {
+                    eprintln!("[ole-dnd] register: window.hwnd() failed");
                 }
+            } else {
+                eprintln!("[ole-dnd] register: get_webview_window(\"main\") returned None");
             }
         })
         .ok();
@@ -64,19 +88,60 @@ pub fn register(_app: &tauri::AppHandle) {}
 unsafe fn ole_register_for_hwnd(hwnd: windows::Win32::Foundation::HWND) -> windows::core::Result<()> {
     use windows::Win32::System::Com::CoInitializeEx;
     use windows::Win32::System::Com::COINIT_APARTMENTTHREADED;
-    use windows::Win32::System::Ole::{OleInitialize, RegisterDragDrop};
+    use windows::Win32::System::Ole::{OleInitialize, RegisterDragDrop, RevokeDragDrop};
     use windows::core::ComObject;
 
     // STA を確保
     let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     let _ = OleInitialize(None);
 
+    // 座標変換用に HWND を保存
+    APP_HWND.store(hwnd.0 as usize, std::sync::atomic::Ordering::Relaxed);
+
     let target: ComObject<DropTarget> = DropTarget::new().into();
     let idt: windows::Win32::System::Ole::IDropTarget = target.to_interface();
-    RegisterDragDrop(hwnd, &idt)?;
-    // メッセージループはアプリ本体に任せる (このスレッドはここで終了して OK。
-    // RegisterDragDrop は HWND の所属スレッドのループで処理されるため)
+
+    // WebView2 / Tauri が先に登録している場合があるので一旦解除してから再登録
+    // (Tauri の dragDropEnabled=false でも WebView2 ランタイムが内部で登録するケースあり)
+    let _ = RevokeDragDrop(hwnd);
+    if let Err(e) = RegisterDragDrop(hwnd, &idt) {
+        eprintln!("[ole-dnd] RegisterDragDrop on main hwnd failed: {e:?}");
+        return Err(e);
+    }
+    eprintln!("[ole-dnd] RegisterDragDrop on main hwnd OK (hwnd={:?})", hwnd.0);
+
+    // メインウィンドウ配下の子ウィンドウ (WebView2 のホスト/コンテンツ) も
+    // それぞれ独自に IDropTarget を登録している可能性があるので、再帰的に解除し
+    // 同じ DropTarget インスタンスを登録しなおす。これでドロップが
+    // 子ウィンドウに吸われてもイベントを取得できる。
+    register_children_recursive(hwnd, &idt);
     Ok(())
+}
+
+#[cfg(windows)]
+unsafe fn register_children_recursive(parent: windows::Win32::Foundation::HWND, idt: &windows::Win32::System::Ole::IDropTarget) {
+    use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GetClassNameW};
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::System::Ole::{RegisterDragDrop, RevokeDragDrop};
+
+    struct Ctx<'a> { idt: &'a windows::Win32::System::Ole::IDropTarget }
+    let ctx = Ctx { idt };
+    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let ctx = &*(lparam.0 as *const Ctx);
+        let mut buf = [0u16; 128];
+        let n = GetClassNameW(hwnd, &mut buf);
+        let cls = String::from_utf16_lossy(&buf[..n as usize]);
+        // WebView2 の関連クラスのみ対象 (誤って無関係な子に登録しない)
+        if cls.contains("Chrome") || cls.contains("WebView") || cls.contains("Intermediate") {
+            let _ = RevokeDragDrop(hwnd);
+            match RegisterDragDrop(hwnd, ctx.idt) {
+                Ok(_) => eprintln!("[ole-dnd] child registered: {} (hwnd={:?})", cls, hwnd.0),
+                Err(e) => eprintln!("[ole-dnd] child register failed: {} ({:?}): {e:?}", cls, hwnd.0),
+            }
+        }
+        BOOL(1)
+    }
+    let _ = EnumChildWindows(parent, Some(cb), LPARAM(&ctx as *const _ as isize));
 }
 
 // ---------------- IDropTarget 実装 ----------------
@@ -96,6 +161,33 @@ mod impl_target {
     use windows::Win32::System::Memory::GlobalUnlock;
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
     use windows::Win32::System::Ole::CF_HDROP;
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+
+    /// スクリーン座標をウィンドウクライアント座標へ変換
+    fn screen_to_client(screen_x: i32, screen_y: i32) -> (i32, i32) {
+        let hwnd_val = APP_HWND.load(std::sync::atomic::Ordering::Relaxed);
+        if hwnd_val == 0 { return (screen_x, screen_y); }
+        let hwnd = windows::Win32::Foundation::HWND(hwnd_val as *mut _);
+        let mut pt = POINT { x: screen_x, y: screen_y };
+        unsafe { let _ = ScreenToClient(hwnd, &mut pt); }
+        (pt.x, pt.y)
+    }
+
+    /// CF_HDROP を受け付け可能か確認 (GetData を呼ばず QueryGetData のみ)
+    fn query_accepts_hdrop(pdataobj: Option<&IDataObject>) -> bool {
+        let Some(d) = pdataobj else { return false; };
+        unsafe {
+            let fmt = FORMATETC {
+                cfFormat: CF_HDROP.0 as u16,
+                ptd: std::ptr::null_mut(),
+                dwAspect: DVASPECT_CONTENT.0,
+                lindex: -1,
+                tymed: TYMED_HGLOBAL.0 as u32,
+            };
+            d.QueryGetData(&fmt as *const _).is_ok()
+        }
+    }
 
     #[implement(windows::Win32::System::Ole::IDropTarget)]
     pub struct DropTarget;
@@ -166,15 +258,35 @@ mod impl_target {
     impl IDropTarget_Impl for DropTarget_Impl {
         fn DragEnter(
             &self,
-            _pdataobj: Option<&IDataObject>,
+            pdataobj: Option<&IDataObject>,
             grfkeystate: MODIFIERKEYS_FLAGS,
-            _pt: &POINTL,
+            pt: &POINTL,
             pdweffect: *mut DROPEFFECT,
         ) -> windows::core::Result<()> {
-            unsafe {
+            let accepts = query_accepts_hdrop(pdataobj);
+            DROP_ACCEPTS_HDROP.store(accepts, std::sync::atomic::Ordering::Relaxed);
+            let chosen = unsafe {
                 if !pdweffect.is_null() {
                     let cur = *pdweffect;
-                    *pdweffect = DropTarget::pick_effect(grfkeystate, cur);
+                    let c = if accepts {
+                        DropTarget::pick_effect(grfkeystate, cur)
+                    } else {
+                        DROPEFFECT_NONE
+                    };
+                    *pdweffect = c;
+                    c.0
+                } else { 0 }
+            };
+            eprintln!(
+                "[ole-dnd] DragEnter screen=({},{}) accepts={} effect=0x{:x} keys=0x{:x}",
+                pt.x, pt.y, accepts, chosen, grfkeystate.0
+            );
+            if accepts {
+                let (cx, cy) = screen_to_client(pt.x, pt.y);
+                eprintln!("[ole-dnd] DragEnter -> client=({},{})", cx, cy);
+                if let Some(app) = APP_HANDLE.get() {
+                    use tauri::Emitter;
+                    let _ = app.emit("ole-drag-over", OleDragOverPayload { effect: chosen, x: cx, y: cy });
                 }
             }
             Ok(())
@@ -182,18 +294,48 @@ mod impl_target {
         fn DragOver(
             &self,
             grfkeystate: MODIFIERKEYS_FLAGS,
-            _pt: &POINTL,
+            pt: &POINTL,
             pdweffect: *mut DROPEFFECT,
         ) -> windows::core::Result<()> {
-            unsafe {
+            let accepts = DROP_ACCEPTS_HDROP.load(std::sync::atomic::Ordering::Relaxed);
+            let chosen = unsafe {
                 if !pdweffect.is_null() {
                     let cur = *pdweffect;
-                    *pdweffect = DropTarget::pick_effect(grfkeystate, cur);
+                    let c = if accepts {
+                        DropTarget::pick_effect(grfkeystate, cur)
+                    } else {
+                        DROPEFFECT_NONE
+                    };
+                    *pdweffect = c;
+                    c.0
+                } else { 0 }
+            };
+            if accepts {
+                // 50ms スロットリング: 頻繁な emit を抑える
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                if now - LAST_DRAG_OVER_MS.load(std::sync::atomic::Ordering::Relaxed) >= 50 {
+                    LAST_DRAG_OVER_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+                    let (cx, cy) = screen_to_client(pt.x, pt.y);
+                    if let Some(app) = APP_HANDLE.get() {
+                        use tauri::Emitter;
+                        let _ = app.emit("ole-drag-over", OleDragOverPayload { effect: chosen, x: cx, y: cy });
+                    }
                 }
             }
             Ok(())
         }
-        fn DragLeave(&self) -> windows::core::Result<()> { Ok(()) }
+        fn DragLeave(&self) -> windows::core::Result<()> {
+            DROP_ACCEPTS_HDROP.store(false, std::sync::atomic::Ordering::Relaxed);
+            LAST_DRAG_OVER_MS.store(0, std::sync::atomic::Ordering::Relaxed);
+            if let Some(app) = APP_HANDLE.get() {
+                use tauri::Emitter;
+                let _ = app.emit("ole-drag-leave", ());
+            }
+            Ok(())
+        }
         fn Drop(
             &self,
             pdataobj: Option<&IDataObject>,
@@ -208,14 +350,29 @@ mod impl_target {
                 if !pdweffect.is_null() { *pdweffect = chosen; }
                 chosen.0
             };
+            let (cx, cy) = screen_to_client(pt.x, pt.y);
+            eprintln!(
+                "[ole-dnd] Drop screen=({},{}) client=({},{}) paths={} effect=0x{:x}",
+                pt.x, pt.y, cx, cy, paths.len(), effect
+            );
+            for (i, p) in paths.iter().enumerate().take(5) {
+                eprintln!("[ole-dnd]   path[{}]={}", i, p);
+            }
             if !paths.is_empty() {
                 if let Some(app) = APP_HANDLE.get() {
                     use tauri::Emitter;
                     let _ = app.emit("ole-drop", OleDropPayload {
-                        paths, effect, x: pt.x, y: pt.y,
+                        paths, effect, x: cx, y: cy,
                     });
+                } else {
+                    eprintln!("[ole-dnd] APP_HANDLE not initialized!");
                 }
+            } else {
+                eprintln!("[ole-dnd] Drop with empty paths (CF_HDROP extraction failed?)");
             }
+            // Drop 後も状態をリセット
+            DROP_ACCEPTS_HDROP.store(false, std::sync::atomic::Ordering::Relaxed);
+            LAST_DRAG_OVER_MS.store(0, std::sync::atomic::Ordering::Relaxed);
             Ok(())
         }
     }

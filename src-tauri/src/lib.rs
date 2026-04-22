@@ -15,6 +15,7 @@ mod plugin;
 mod term;
 mod win_shell;
 mod ole_dnd;
+mod win_clipboard;
 mod error;
 
 pub use error::AppError;
@@ -93,6 +94,7 @@ pub fn run() {
             win_shell::shell_menu_invoke,
             ole_dnd::ole_dnd_register,
             ole_dnd::ole_dnd_start_drag,
+            win_clipboard::clipboard_write_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");
