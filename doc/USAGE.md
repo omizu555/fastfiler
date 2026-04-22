@@ -710,16 +710,16 @@ ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, is
 
 ## 付録 A. ビルド
 
-開発モード:
+ビルド・インストール手順の詳細は [`doc/BUILD.md`](./BUILD.md) を参照してください。
+
+クイックリファレンス:
 
 ```powershell
+# 開発モード (ホットリロード)
 npm install
 npm run tauri:dev
-```
 
-リリースビルド:
-
-```powershell
+# リリースビルド
 npm run tauri:build
 ```
 
