@@ -15,6 +15,7 @@ import {
   setWorkspaceTreeWidth,
   setSamePanelStack,
   setHidePaneToolbar,
+  setToastPosition,
 } from "../../store";
 import { loadSystemFonts, fallbackFonts } from "../../font-list";
 
@@ -137,6 +138,18 @@ export default function GeneralTab(props: Props) {
           />
           タブバー / ツリーのヘッダ部分を非表示にする
         </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="cfg-toast-pos">通知の表示位置</label>
+        <select
+          id="cfg-toast-pos"
+          value={state.toastPosition}
+          onChange={(e) => setToastPosition(e.currentTarget.value as "popup" | "statusbar")}
+        >
+          <option value="popup">右下にポップアップ (既定)</option>
+          <option value="statusbar">ステータスバー内</option>
+        </select>
       </div>
 
       <div class="setting-row">

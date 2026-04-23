@@ -1768,3 +1768,38 @@ button.primary:hover {
     background: #2d5fa3;
     color: #fff;
 }
+/* v1.6 (16.3): ステータスバー内のトースト */
+.statusbar-toast {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 12px;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    max-width: 60%;
+    overflow: hidden;
+}
+.statusbar-toast-msg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.statusbar-toast-info { background: rgba(45, 95, 163, 0.18); }
+.statusbar-toast-warn { background: rgba(220, 160, 0, 0.22); }
+.statusbar-toast-error { background: rgba(200, 60, 60, 0.25); }
+.statusbar-toast-action,
+.statusbar-toast-close {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 11px;
+    line-height: 1;
+}
+.statusbar-toast-action:hover,
+.statusbar-toast-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}

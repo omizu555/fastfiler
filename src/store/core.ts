@@ -88,6 +88,8 @@ export interface AppState {
   uiFont: string | null;
   uiFontSize: number;
   focusedPaneId: string | null;
+  /** v1.6 (16.3): 通知の表示位置 */
+  toastPosition: "popup" | "statusbar";
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -146,6 +148,7 @@ function loadInitial(): AppState | null {
     if (!v.toasts) v.toasts = [];
     if (!v.undoStack) v.undoStack = [];
     v.activeJobs = [];
+    if (v.toastPosition !== "popup" && v.toastPosition !== "statusbar") v.toastPosition = "popup";
     return v;
   } catch {
     return null;
@@ -204,9 +207,9 @@ function freshState(initialPath: string): AppState {
     uiFont: null,
     uiFontSize: 13,
     focusedPaneId: paneId,
+    toastPosition: "popup",
   };
 }
-
 export const loaded = loadInitial();
 export const [state, setState] = createStore<AppState>(loaded ?? freshState("C:\\"));
 

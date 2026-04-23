@@ -14,6 +14,7 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import TerminalPanel from "./components/TerminalPanel";
 import ToastContainer from "./components/ToastContainer";
+import StatusBarToast from "./components/StatusBarToast";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
 import JobsPanel from "./components/JobsPanel";
@@ -444,6 +445,7 @@ export default function App() {
       <TerminalPanel />
       <footer class="app-statusbar">
         <span class="muted statusbar-logo">⚡ FastFiler</span>
+        <StatusBarToast />
         <span class="spacer" />
         <button
           class="statusbar-btn"
