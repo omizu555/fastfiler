@@ -165,6 +165,8 @@ function freshState(initialPath: string): AppState {
     selection: [],
     scrollTop: 0,
     linkGroupId: null,
+    history: [initialPath],
+    historyIndex: 0,
   };
   return {
     tabs: [tab],

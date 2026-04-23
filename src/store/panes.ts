@@ -13,17 +13,94 @@ import {
   ensurePaneUi,
 } from "./core";
 
-export function setPanePath(paneId: string, path: string) {
+export function setPanePath(paneId: string, path: string, opts?: { fromHistory?: boolean }) {
   const pane = state.panes[paneId];
   if (!pane) return;
+  const fromHistory = !!opts?.fromHistory;
   batch(() => {
     setState("panes", paneId, { path, selection: [], scrollTop: 0 });
-    propagate(pane, "path", (other) =>
-      setState("panes", other.id, { path, selection: [], scrollTop: 0 }),
-    );
+    if (!fromHistory) {
+      // 履歴を更新: 現在位置以降を切り捨ててから push
+      const cur = pane.history ?? [pane.path];
+      const idx = pane.historyIndex ?? cur.length - 1;
+      // 連続する同一 path は重複させない
+      const trimmed = cur.slice(0, idx + 1);
+      if (trimmed[trimmed.length - 1] !== path) {
+        trimmed.push(path);
+      }
+      // 上限 64 件 (古いものから破棄)
+      const HISTORY_MAX = 64;
+      const overflow = Math.max(0, trimmed.length - HISTORY_MAX);
+      const next = overflow > 0 ? trimmed.slice(overflow) : trimmed;
+      setState("panes", paneId, { history: next, historyIndex: next.length - 1 });
+    }
+    propagate(pane, "path", (other) => {
+      if (fromHistory) {
+        // 履歴ナビゲーションは伝搬しない (各ペイン独立)
+        return;
+      }
+      setState("panes", other.id, { path, selection: [], scrollTop: 0 });
+      // 連動先ペインの履歴も同様に更新 (連動操作はユーザー操作扱いとする)
+      const ocur = other.history ?? [other.path];
+      const oidx = other.historyIndex ?? ocur.length - 1;
+      const otrim = ocur.slice(0, oidx + 1);
+      if (otrim[otrim.length - 1] !== path) otrim.push(path);
+      const HISTORY_MAX = 64;
+      const ov = Math.max(0, otrim.length - HISTORY_MAX);
+      const onext = ov > 0 ? otrim.slice(ov) : otrim;
+      setState("panes", other.id, { history: onext, historyIndex: onext.length - 1 });
+    });
     setState("focusedPaneId", paneId);
   });
   persist();
+}
+
+/** 履歴ナビゲーション可否 */
+export function canGoBack(paneId: string): boolean {
+  const p = state.panes[paneId];
+  if (!p) return false;
+  const idx = p.historyIndex ?? 0;
+  return idx > 0;
+}
+
+export function canGoForward(paneId: string): boolean {
+  const p = state.panes[paneId];
+  if (!p) return false;
+  const hist = p.history ?? [p.path];
+  const idx = p.historyIndex ?? hist.length - 1;
+  return idx < hist.length - 1;
+}
+
+/** 履歴を 1 つ前へ */
+export function navigateBack(paneId: string): boolean {
+  const p = state.panes[paneId];
+  if (!p) return false;
+  const hist = p.history ?? [p.path];
+  const idx = p.historyIndex ?? hist.length - 1;
+  if (idx <= 0) return false;
+  const newIdx = idx - 1;
+  const target = hist[newIdx];
+  batch(() => {
+    setState("panes", paneId, "historyIndex", newIdx);
+    setPanePath(paneId, target, { fromHistory: true });
+  });
+  return true;
+}
+
+/** 履歴を 1 つ後へ */
+export function navigateForward(paneId: string): boolean {
+  const p = state.panes[paneId];
+  if (!p) return false;
+  const hist = p.history ?? [p.path];
+  const idx = p.historyIndex ?? hist.length - 1;
+  if (idx >= hist.length - 1) return false;
+  const newIdx = idx + 1;
+  const target = hist[newIdx];
+  batch(() => {
+    setState("panes", paneId, "historyIndex", newIdx);
+    setPanePath(paneId, target, { fromHistory: true });
+  });
+  return true;
 }
 
 export function setPaneSelection(paneId: string, selection: string[]) {
@@ -98,6 +175,8 @@ export function splitPane(tabId: string, paneId: string, dir: "h" | "v") {
       selection: [],
       scrollTop: 0,
       linkGroupId: null,
+      history: [sourcePane.path],
+      historyIndex: 0,
     });
     setState("paneUi", newPaneId, defaultPaneUi());
     setState(

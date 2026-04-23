@@ -17,6 +17,8 @@ export function addTab(path = "C:\\") {
       selection: [],
       scrollTop: 0,
       linkGroupId: null,
+      history: [path],
+      historyIndex: 0,
     });
     setState("paneUi", paneId, defaultPaneUi());
     setState("tabs", (t) => [...t, tab]);

@@ -28,6 +28,8 @@ export interface PaneState {
   linkGroupId: string | null;
   view?: "list" | "tree"; // v1.1: ペイン表示モード
   name?: string | null; // v1.5: ユーザー設定のペイン名
+  history?: string[]; // v1.6: ナビゲーション履歴 (古→新)
+  historyIndex?: number; // v1.6: history 内の現在位置
 }
 
 export type SplitDir = "h" | "v";
@@ -231,7 +233,9 @@ export type HotkeyAction =
   | "toggle-tree"
   | "address-bar"
   | "undo"
-  | "toggle-terminal";
+  | "toggle-terminal"
+  | "pane-back"
+  | "pane-forward";
 
 export type HotkeyMap = Record<HotkeyAction, string>;
 

@@ -18,6 +18,10 @@ import {
   getPaneUi,
   setPaneSort,
   setFocusedPane,
+  navigateBack,
+  navigateForward,
+  canGoBack,
+  canGoForward,
   state,
   refreshTickFor,
 } from "../store";
@@ -432,6 +436,12 @@ export default function FileList(props: Props) {
     >
       <div class="pane-toolbar">
         <PaneNameLabel paneId={props.paneId} />
+        <button title="戻る (Alt+← / マウス戻るボタン)"
+          disabled={!canGoBack(props.paneId)}
+          onClick={() => navigateBack(props.paneId)}>←</button>
+        <button title="進む (Alt+→ / マウス進むボタン)"
+          disabled={!canGoForward(props.paneId)}
+          onClick={() => navigateForward(props.paneId)}>→</button>
         <button title="親フォルダへ (Backspace)"
           onClick={() => setPanePath(props.paneId, parentPath(pane().path))}>↑</button>
         <Show when={editingPath()} fallback={

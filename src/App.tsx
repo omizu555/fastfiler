@@ -37,6 +37,8 @@ import {
   pushUndo,
   pushToast,
   bumpRefreshPaths,
+  navigateBack,
+  navigateForward,
 } from "./store";
 import { homeDir } from "./fs";
 import { joinPath, parentPath } from "./path-util";
@@ -340,6 +342,14 @@ export default function App() {
         const n = parseInt(e.key, 10);
         if (n === 9) setActiveTabIndex(state.tabs.length - 1);
         else setActiveTabIndex(n - 1);
+      } else if (matchKey(hk["pane-back"], e)) {
+        e.preventDefault();
+        const pid = focusedLeafPaneId();
+        if (pid) navigateBack(pid);
+      } else if (matchKey(hk["pane-forward"], e)) {
+        e.preventDefault();
+        const pid = focusedLeafPaneId();
+        if (pid) navigateForward(pid);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -356,9 +366,39 @@ export default function App() {
       e.preventDefault();
     };
     window.addEventListener("contextmenu", onCtx);
+    // v1.6 (16.4): マウスのサイドボタン (XButton1=戻る / XButton2=進む)
+    const onMouseDown = (e: MouseEvent) => {
+      // 入力要素上でのサイドボタンは無視 (誤動作防止)
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      )
+        return;
+      // Mouse 4 (XButton1) = 戻る, Mouse 5 (XButton2) = 進む
+      if (e.button === 3) {
+        e.preventDefault();
+        const pid = focusedLeafPaneId();
+        if (pid) navigateBack(pid);
+      } else if (e.button === 4) {
+        e.preventDefault();
+        const pid = focusedLeafPaneId();
+        if (pid) navigateForward(pid);
+      }
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    // ブラウザ既定の戻る/進むナビゲーションを auxclick でも抑止
+    const onAuxClick = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    };
+    window.addEventListener("auxclick", onAuxClick);
     unlistens.push(() => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("contextmenu", onCtx);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("auxclick", onAuxClick);
     });
   });
 

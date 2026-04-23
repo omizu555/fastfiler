@@ -25,6 +25,8 @@ export const defaultHotkeys: HotkeyMap = {
   "address-bar": "Ctrl+L",
   "undo": "Ctrl+Z",
   "toggle-terminal": "Ctrl+`",
+  "pane-back": "Alt+Left",
+  "pane-forward": "Alt+Right",
 };
 
 export const hotkeyLabels: Record<HotkeyAction, string> = {
@@ -52,6 +54,8 @@ export const hotkeyLabels: Record<HotkeyAction, string> = {
   "address-bar": "アドレスバーを編集",
   "undo": "操作を取り消す",
   "toggle-terminal": "ターミナル表示切替",
+  "pane-back": "ペイン履歴: 戻る",
+  "pane-forward": "ペイン履歴: 進む",
 };
 
 // "Ctrl+Shift+N" -> { ctrl, shift, alt, meta, key: "N" }
