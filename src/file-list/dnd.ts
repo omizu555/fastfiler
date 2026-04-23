@@ -42,6 +42,22 @@ export interface DndCtx {
 export function createDnd(ctx: DndCtx) {
   const [dragOverRow, setDragOverRow] = createSignal<string | null>(null);
   const [paneDragOver, setPaneDragOver] = createSignal(false);
+  // v1.6 (16.2): ドラッグ中の選択パスを保持し、自己/親→子へのドロップを抑止
+  let dragSourcePaths: string[] | null = null;
+
+  // パスを正規化 (末尾セパレータ除去 + 小文字化)
+  const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
+  // dest が src と同じか、src の子孫か?
+  const isSelfOrDescendant = (src: string, dest: string): boolean => {
+    const a = norm(src);
+    const b = norm(dest);
+    if (a === b) return true;
+    return b.startsWith(a + "\\") || b.startsWith(a + "/");
+  };
+  const isInvalidDrop = (paths: string[] | null, destPath: string): boolean => {
+    if (!paths || paths.length === 0) return false;
+    return paths.some((p) => isSelfOrDescendant(p, destPath));
+  };
 
   const onRowDragStart = (ev: DragEvent, name: string) => {
     if (!ev.dataTransfer) return;
@@ -61,12 +77,18 @@ export function createDnd(ctx: DndCtx) {
       paths: sel.map((n) => joinPath(ctx.pane().path, n)),
       sourcePath: ctx.pane().path,
     };
+    dragSourcePaths = payload.paths;
     ev.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
     ev.dataTransfer.effectAllowed = "copyMove";
   };
 
   const onPaneDragOver = (ev: DragEvent) => {
     if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
+    // 自己/親→子へのドロップは禁止
+    if (isInvalidDrop(dragSourcePaths, ctx.pane().path)) {
+      ev.dataTransfer.dropEffect = "none";
+      return;
+    }
     ev.preventDefault();
     ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
     setPaneDragOver(true);
@@ -78,10 +100,19 @@ export function createDnd(ctx: DndCtx) {
     setPaneDragOver(false);
     setDragOverRow(null);
     const raw = ev.dataTransfer?.getData(DRAG_MIME);
-    if (!raw) return;
+    if (!raw) { dragSourcePaths = null; return; }
     let payload: DragPayload;
-    try { payload = JSON.parse(raw); } catch { return; }
-    if (payload.sourcePath === destPath && !ev.ctrlKey) return; // 同フォルダ移動は無意味
+    try { payload = JSON.parse(raw); } catch { dragSourcePaths = null; return; }
+    // v1.6 (16.2): 自己 / 親→子 へのドロップを拒否
+    if (isInvalidDrop(payload.paths, destPath)) {
+      pushToast("自分自身または配下フォルダへは移動/コピーできません", "warn");
+      dragSourcePaths = null;
+      return;
+    }
+    if (payload.sourcePath === destPath && !ev.ctrlKey) {
+      dragSourcePaths = null;
+      return; // 同フォルダ移動は無意味
+    }
     const isCopy = ev.ctrlKey;
     const items = payload.paths.map((src) => ({
       from: src,
@@ -99,6 +130,7 @@ export function createDnd(ctx: DndCtx) {
       pushToast(`${label} 失敗`, "error");
     }
     ctx.refetch();
+    dragSourcePaths = null;
   };
 
   // v3.4: Spring-loaded folder (ホバー長押しで自動展開)
@@ -114,6 +146,12 @@ export function createDnd(ctx: DndCtx) {
   const onRowDragOver = (ev: DragEvent, entry: FileEntry) => {
     if (entry.kind !== "dir") return;
     if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
+    const destPath = joinPath(ctx.pane().path, entry.name);
+    // v1.6 (16.2): 自己 / 親→子 へのドロップは禁止 (視覚フィードバックも出さない)
+    if (isInvalidDrop(dragSourcePaths, destPath)) {
+      ev.dataTransfer.dropEffect = "none";
+      return;
+    }
     ev.preventDefault();
     ev.stopPropagation();
     ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
