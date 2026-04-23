@@ -438,6 +438,14 @@ select {
     flex: 1;
     overflow: auto;
     min-height: 0;
+    position: relative;
+}
+.rubber-band {
+    position: absolute;
+    border: 1px dashed var(--accent);
+    background: rgba(45, 95, 163, 0.15);
+    pointer-events: none;
+    z-index: 10;
 }
 .file-list table {
     width: 100%;

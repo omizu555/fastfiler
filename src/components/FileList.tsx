@@ -385,6 +385,62 @@ export default function FileList(props: Props) {
   let listRef: HTMLDivElement | undefined;
   let lastAppliedRatio = -1;
 
+  // ----- v1.6 (16.1): 矩形範囲選択 (rubber-band) -----
+  type RubberRect = { x: number; y: number; w: number; h: number };
+  const [rubber, setRubber] = createSignal<RubberRect | null>(null);
+  const onListMouseDown = (ev: MouseEvent) => {
+    if (ev.button !== 0) return;
+    const t = ev.target as HTMLElement | null;
+    if (!t || !listRef) return;
+    // 行 (空白パディング以外) 上では起動しない
+    const tr = t.closest("tr");
+    if (tr && !tr.classList.contains("vpad")) return;
+    // 入力要素・ボタン上では起動しない
+    if (t.closest("input,button,textarea,select,[contenteditable]")) return;
+    const cRect = listRef.getBoundingClientRect();
+    const sx = ev.clientX - cRect.left + listRef.scrollLeft;
+    const sy = ev.clientY - cRect.top + listRef.scrollTop;
+    const additive = ev.ctrlKey || ev.shiftKey;
+    const originalSel = pane().selection.slice();
+    if (!additive) setPaneSelection(props.paneId, []);
+    setRubber({ x: sx, y: sy, w: 0, h: 0 });
+    setFocusedPane(props.paneId);
+    const onMove = (mev: MouseEvent) => {
+      if (!listRef) return;
+      const r = listRef.getBoundingClientRect();
+      const cx = mev.clientX - r.left + listRef.scrollLeft;
+      const cy = mev.clientY - r.top + listRef.scrollTop;
+      const minX = Math.min(sx, cx);
+      const minY = Math.min(sy, cy);
+      const w = Math.abs(cx - sx);
+      const h = Math.abs(cy - sy);
+      setRubber({ x: minX, y: minY, w, h });
+      // 行交差判定
+      const rows = listRef.querySelectorAll("tr[data-rd-name]");
+      const cRect2 = listRef.getBoundingClientRect();
+      const sel = new Set<string>(additive ? originalSel : []);
+      rows.forEach((node) => {
+        const el = node as HTMLElement;
+        const rb = el.getBoundingClientRect();
+        const top = rb.top - cRect2.top + listRef!.scrollTop;
+        const bottom = rb.bottom - cRect2.top + listRef!.scrollTop;
+        const intersects = !(bottom < minY || top > minY + h);
+        if (intersects) {
+          const name = el.getAttribute("data-rd-name");
+          if (name) sel.add(name);
+        }
+      });
+      setPaneSelection(props.paneId, Array.from(sel));
+    };
+    const onUp = () => {
+      setRubber(null);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   // v3.4: 他ペインからの scrollRatio 変化を反映 (フィードバックループ防止)
   createEffect(() => {
     const r = pane().scrollRatio;
@@ -575,6 +631,7 @@ export default function FileList(props: Props) {
             onCleanup(() => ro.disconnect());
           }
         }}
+        onMouseDown={onListMouseDown}
         onScroll={(e) => {
           const el = e.currentTarget;
           const top = el.scrollTop;
@@ -682,6 +739,19 @@ export default function FileList(props: Props) {
         </Show>
         <Show when={entries.loading}>
           <div class="empty muted">読み込み中…</div>
+        </Show>
+        <Show when={rubber()}>
+          {(r) => (
+            <div
+              class="rubber-band"
+              style={{
+                left: `${r().x}px`,
+                top: `${r().y}px`,
+                width: `${r().w}px`,
+                height: `${r().h}px`,
+              }}
+            />
+          )}
         </Show>
       </div>
       <div class="pane-status">
