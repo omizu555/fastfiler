@@ -72,6 +72,14 @@ function broadcastEvent(topic: string, payload: unknown) {
   for (const [id] of entries) sendEvent(id, topic, payload);
 }
 
+/**
+ * v1.6 (16.6): UI からプラグインへ任意のジェスチャ/DOMイベントを broadcast する。
+ * topic 例: "pane.dom.dblclick", "pane.gesture"
+ */
+export function broadcastPluginEvent(topic: string, payload: unknown) {
+  broadcastEvent(topic, payload);
+}
+
 // ---- frontend-handled capabilities ----
 async function handleFrontendCap(
   pluginId: string,

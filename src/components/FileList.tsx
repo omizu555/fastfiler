@@ -2,6 +2,7 @@ import { For, Show, createMemo, createResource, createEffect, createSignal, on, 
 import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, diskFree, shellMenuShow } from "../fs";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { sortFileEntries } from "../file-list/sort";
+import { broadcastPluginEvent } from "../plugin-host";
 import {
   setPanePath,
   setPaneSelection,
@@ -487,7 +488,33 @@ export default function FileList(props: Props) {
       onPointerDown={() => setFocusedPane(props.paneId)}
       onFocusIn={() => setFocusedPane(props.paneId)}
       onKeyDown={onKey}
-      onContextMenu={(e) => openContextMenu(e, null)}
+      onContextMenu={(e) => {
+        // v1.6 (16.6): プラグインへブロードキャスト (空白部分のみ)
+        const t = e.target as HTMLElement | null;
+        const tr = t?.closest("tr");
+        if (!tr || tr.classList.contains("vpad")) {
+          broadcastPluginEvent("pane.dom.contextmenu", {
+            paneId: props.paneId,
+            path: pane().path,
+            target: "empty",
+            x: e.clientX,
+            y: e.clientY,
+          });
+        }
+        openContextMenu(e, null);
+      }}
+      onDblClick={(e) => {
+        // v1.6 (16.6): 空白部分のダブルクリックをプラグインへ
+        const t = e.target as HTMLElement | null;
+        const tr = t?.closest("tr");
+        if (!tr || tr.classList.contains("vpad")) {
+          broadcastPluginEvent("pane.dom.dblclick", {
+            paneId: props.paneId,
+            path: pane().path,
+            target: "empty",
+          });
+        }
+      }}
       onDragOver={onPaneDragOver}
       onDragLeave={onPaneDragLeave}
       onDrop={(e) => handleDrop(e, pane().path)}

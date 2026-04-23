@@ -34,7 +34,9 @@ declare global {
     | "pane.changed"
     | "pane.selection.changed"
     | "plugin.activated"
-    | "plugin.contextMenu.invoked";
+    | "plugin.contextMenu.invoked"
+    | "pane.dom.dblclick"
+    | "pane.dom.contextmenu";
 
   interface FFNamespace {
     invoke(capability: string, args?: Record<string, unknown>): Promise<unknown>;
