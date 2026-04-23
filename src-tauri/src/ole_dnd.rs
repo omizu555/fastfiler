@@ -98,50 +98,30 @@ unsafe fn ole_register_for_hwnd(hwnd: windows::Win32::Foundation::HWND) -> windo
     // 座標変換用に HWND を保存
     APP_HWND.store(hwnd.0 as usize, std::sync::atomic::Ordering::Relaxed);
 
+    // メイン HWND だけに自前の DropTarget を登録する。
+    //
+    // 注意: 以前は WebView2 の子 HWND (Chrome_*/WebView*) にも RegisterDragDrop を
+    //   置き換え、CF_HDROP 以外は元の WebView2 IDropTarget へ "委譲" する実装を試みた。
+    //   しかし Chromium の IDropTarget は内部スレッドへの post 等 Chromium の
+    //   ライフサイクル前提で動いており、別スレッド (Tauri main thread) から直接
+    //   呼び出すと STATUS_ACCESS_VIOLATION (0xc0000005) でクラッシュする。
+    //   また子 HWND を奪うことで HTML5 内部 D&D (フォルダ → サブフォルダへの移動など)
+    //   がそもそも動かなくなっていた。
+    //
+    //   そのため現在は子 HWND には触れず、内部 D&D は WebView2 にそのまま任せる。
+    //   外部からのファイルドロップ (エクスプローラ → 本アプリ) はメイン HWND 上で
+    //   受け取れる範囲で受け取る。
     let target: ComObject<DropTarget> = DropTarget::new().into();
     let idt: windows::Win32::System::Ole::IDropTarget = target.to_interface();
 
     // WebView2 / Tauri が先に登録している場合があるので一旦解除してから再登録
-    // (Tauri の dragDropEnabled=false でも WebView2 ランタイムが内部で登録するケースあり)
     let _ = RevokeDragDrop(hwnd);
     if let Err(e) = RegisterDragDrop(hwnd, &idt) {
         eprintln!("[ole-dnd] RegisterDragDrop on main hwnd failed: {e:?}");
         return Err(e);
     }
     eprintln!("[ole-dnd] RegisterDragDrop on main hwnd OK (hwnd={:?})", hwnd.0);
-
-    // メインウィンドウ配下の子ウィンドウ (WebView2 のホスト/コンテンツ) も
-    // それぞれ独自に IDropTarget を登録している可能性があるので、再帰的に解除し
-    // 同じ DropTarget インスタンスを登録しなおす。これでドロップが
-    // 子ウィンドウに吸われてもイベントを取得できる。
-    register_children_recursive(hwnd, &idt);
     Ok(())
-}
-
-#[cfg(windows)]
-unsafe fn register_children_recursive(parent: windows::Win32::Foundation::HWND, idt: &windows::Win32::System::Ole::IDropTarget) {
-    use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GetClassNameW};
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
-    use windows::Win32::System::Ole::{RegisterDragDrop, RevokeDragDrop};
-
-    struct Ctx<'a> { idt: &'a windows::Win32::System::Ole::IDropTarget }
-    let ctx = Ctx { idt };
-    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let ctx = &*(lparam.0 as *const Ctx);
-        let mut buf = [0u16; 128];
-        let n = GetClassNameW(hwnd, &mut buf);
-        let cls = String::from_utf16_lossy(&buf[..n as usize]);
-        // WebView2 の関連クラスのみ対象 (誤って無関係な子に登録しない)
-        if cls.contains("Chrome") || cls.contains("WebView") || cls.contains("Intermediate") {
-            let _ = RevokeDragDrop(hwnd);
-            match RegisterDragDrop(hwnd, ctx.idt) {
-                Ok(_) => eprintln!("[ole-dnd] child registered: {} (hwnd={:?})", cls, hwnd.0),
-                Err(e) => eprintln!("[ole-dnd] child register failed: {} ({:?}): {e:?}", cls, hwnd.0),
-            }
-        }
-        BOOL(1)
-    }
-    let _ = EnumChildWindows(parent, Some(cb), LPARAM(&ctx as *const _ as isize));
 }
 
 // ---------------- IDropTarget 実装 ----------------

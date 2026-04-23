@@ -2,8 +2,7 @@
 import { createSignal } from "solid-js";
 import { joinPath } from "../path-util";
 import { runFileJob } from "../jobs";
-import { pushUndo, pushToast, bumpRefreshPaths } from "../store";
-import { performUndo } from "../undo";
+import { pushUndo, bumpRefreshPaths } from "../store";
 import type { UndoOp } from "../types";
 
 export interface RightDragPayload {
@@ -131,9 +130,8 @@ export async function executeRightDrag(kind: "move" | "copy") {
         ? ({ kind: "copy", created: it.to } as UndoOp)
         : ({ kind: "move", from: it.from, to: it.to } as UndoOp));
     pushUndo(label, ops);
-    pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
     bumpRefreshPaths([m.destPath, m.payload.sourcePath]);
   } else if (!r.canceled) {
-    pushToast(`${label} 失敗`, "error");
+    console.error(`[right-drag] ${label} 失敗`);
   }
 }

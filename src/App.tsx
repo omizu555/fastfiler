@@ -36,7 +36,6 @@ import {
   setPanelSize,
   focusedLeafPaneId,
   pushUndo,
-  pushToast,
   bumpRefreshPaths,
   navigateBack,
   navigateForward,
@@ -263,17 +262,11 @@ export default function App() {
               : { kind: "move", from: it.from, to: it.to },
           );
           pushUndo(label, ops);
-          pushToast(label, "info", {
-            label: "↶取り消し",
-            onClick: () => {
-              void performUndo();
-            },
-          });
           const sourceDirs =
             op === "move" ? items.map((it) => parentPath(it.from)) : [];
           bumpRefreshPaths([targetPath, ...sourceDirs]);
         } else if (!r.canceled) {
-          pushToast(`${label} 失敗`, "error");
+          console.error(`[ole-drop] ${label} 失敗`);
         }
       });
       unlistens.push(unDrop);

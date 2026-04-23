@@ -7,7 +7,6 @@ import {
   setClipboard,
   clearClipboard,
   pushUndo,
-  pushToast,
   bumpRefreshPaths,
   bumpRefreshPath,
 } from "../store";
@@ -20,7 +19,6 @@ import {
   writeClipboardPaths, // ← 追加
 } from "../fs";
 import { runFileJob } from "../jobs";
-import { performUndo } from "../undo";
 import { openPrompt } from "../components/PromptDialog";
 import { invalidNameMessage, uniqueName } from "./name-utils";
 import { buildAsciiTree, parseDepthInput } from "./ascii-tree";
@@ -66,16 +64,10 @@ export async function pasteHere(ctx: FileOpsCtx) {
         : { kind: "copy", created: it.to },
     );
     pushUndo(label, ops);
-    pushToast(label, "info", {
-      label: "↶取り消し",
-      onClick: () => {
-        void performUndo();
-      },
-    });
     const sources = isCut ? cb.paths.map((p) => parentPath(p)) : [];
     bumpRefreshPaths([dst, ...sources]);
   } else if (!r.canceled) {
-    pushToast(`${label} 失敗`, "error");
+    console.error(`[file-ops] ${label} 失敗`);
   }
   ctx.refetch();
 }
@@ -128,12 +120,6 @@ export async function doRename(ctx: FileOpsCtx) {
       pushUndo(`名前変更: ${oldName} → ${newName}`, [
         { kind: "rename", from, to },
       ]);
-      pushToast(`名前変更: ${oldName} → ${newName}`, "info", {
-        label: "↶取り消し",
-        onClick: () => {
-          void performUndo();
-        },
-      });
       bumpRefreshPath(ctx.pane().path);
       ctx.refetch();
     } catch (e) {

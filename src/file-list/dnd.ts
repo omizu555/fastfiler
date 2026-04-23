@@ -2,11 +2,10 @@
 // 状態 (dragOverRow / paneDragOver) と handler を作るファクトリ。
 import { createSignal, onCleanup } from "solid-js";
 import type { FileEntry, PaneState, UndoOp } from "../types";
-import { setPanePath, setPaneSelection, pushUndo, pushToast, bumpRefreshPaths } from "../store";
+import { setPanePath, setPaneSelection, pushUndo, bumpRefreshPaths } from "../store";
 import { oleStartDrag } from "../fs";
 import { joinPath } from "../path-util";
 import { runFileJob } from "../jobs";
-import { performUndo } from "../undo";
 
 export const DRAG_MIME = "application/x-fastfiler";
 
@@ -105,7 +104,7 @@ export function createDnd(ctx: DndCtx) {
     try { payload = JSON.parse(raw); } catch { dragSourcePaths = null; return; }
     // v1.6 (16.2): 自己 / 親→子 へのドロップを拒否
     if (isInvalidDrop(payload.paths, destPath)) {
-      pushToast("自分自身または配下フォルダへは移動/コピーできません", "warn");
+      console.warn("[dnd] 自分自身または配下フォルダへは移動/コピーできません");
       dragSourcePaths = null;
       return;
     }
@@ -124,10 +123,9 @@ export function createDnd(ctx: DndCtx) {
       const ops: UndoOp[] = items.map((it) =>
         isCopy ? { kind: "copy", created: it.to } : { kind: "move", from: it.from, to: it.to });
       pushUndo(label, ops);
-      pushToast(label, "info", { label: "↶取り消し", onClick: () => { void performUndo(); } });
       bumpRefreshPaths([destPath, payload.sourcePath]);
     } else if (!r.canceled) {
-      pushToast(`${label} 失敗`, "error");
+      console.error(`[dnd] ${label} 失敗`);
     }
     ctx.refetch();
     dragSourcePaths = null;
