@@ -12,11 +12,36 @@ import {
   updateRatio,
   ensurePaneUi,
 } from "./core";
+import { addTab, isPaneLocked } from "./tabs";
+import { pushToast } from "./toasts";
 
-export function setPanePath(paneId: string, path: string, opts?: { fromHistory?: boolean }) {
+/**
+ * ペインのパスを変更する。
+ * - ロック中タブのペインに対しては既定で新規タブを開いてフォールバック (16.5)
+ * - opts.fromHistory: 履歴ナビゲーション (push しない)
+ * - opts.allowLocked: ロック判定をスキップ (内部用、ロック解除直後の自動更新等)
+ */
+export function setPanePath(
+  paneId: string,
+  path: string,
+  opts?: { fromHistory?: boolean; allowLocked?: boolean },
+) {
   const pane = state.panes[paneId];
   if (!pane) return;
   const fromHistory = !!opts?.fromHistory;
+  // v1.6 (16.5): ロック中タブでは path 変更を拒否し、新規タブを開く
+  if (!opts?.allowLocked && isPaneLocked(paneId)) {
+    if (fromHistory) {
+      // 履歴ナビゲーションは新規タブにせず、単に拒否
+      pushToast("ロック中のため履歴を変更できません", "warn");
+      return;
+    }
+    // 同じパスへの再設定なら何もしない
+    if (pane.path === path) return;
+    addTab(path);
+    pushToast("ロック中タブのため新規タブで開きました", "info");
+    return;
+  }
   batch(() => {
     setState("panes", paneId, { path, selection: [], scrollTop: 0 });
     if (!fromHistory) {

@@ -649,6 +649,15 @@ button.primary:hover {
 .pane.pane-focused {
     box-shadow: inset 0 0 0 1px var(--accent);
 }
+.pane.pane-locked .pane-toolbar::before {
+    content: "🔒";
+    font-size: 12px;
+    margin-right: 4px;
+    opacity: 0.7;
+}
+.pane.pane-locked .pane-toolbar {
+    background: rgba(255, 200, 0, 0.06);
+}
 .file-list tr.cut {
     opacity: 0.55;
 }

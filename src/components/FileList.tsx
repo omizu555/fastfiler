@@ -22,6 +22,7 @@ import {
   navigateForward,
   canGoBack,
   canGoForward,
+  isPaneLocked,
   state,
   refreshTickFor,
 } from "../store";
@@ -424,6 +425,7 @@ export default function FileList(props: Props) {
         "drop-target": paneDragOver(),
         "pane-ext-drag-over": extDragPaneId() === props.paneId,
         "pane-focused": state.focusedPaneId === props.paneId,
+        "pane-locked": isPaneLocked(props.paneId),
       }}
       tabIndex={0}
       onPointerDown={() => setFocusedPane(props.paneId)}

@@ -112,3 +112,23 @@ export function toggleTabLock(tabId: string) {
   setState("tabs", (t) => t.id === tabId, "locked", !tab.locked);
   persist();
 }
+
+/** 指定 paneId を含むタブを返す */
+export function findTabOfPane(paneId: string) {
+  for (const tab of state.tabs) {
+    const ids: string[] = [];
+    collectPaneIds(tab.rootPane, ids);
+    if (ids.includes(paneId)) return tab;
+  }
+  return null;
+}
+
+/** 指定タブがロック中か */
+export function isTabLocked(tabId: string): boolean {
+  return !!state.tabs.find((t) => t.id === tabId)?.locked;
+}
+
+/** 指定 paneId を含むタブがロック中か */
+export function isPaneLocked(paneId: string): boolean {
+  return !!findTabOfPane(paneId)?.locked;
+}
