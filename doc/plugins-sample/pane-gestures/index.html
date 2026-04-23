@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pane Gestures</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 12px; color: #222; background: #fff; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      h2 { font-size: 12px; margin: 12px 0 4px; color: #666; }
+      pre { background: #f5f5f5; padding: 6px; font-size: 11px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
+      .muted { color: #888; font-size: 11px; }
+      kbd { background: #eee; border-radius: 3px; padding: 1px 4px; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>🖱 Pane Gestures Sample</h1>
+    <p class="muted">v1.6 で追加された <code>pane.dom.dblclick</code> / <code>pane.dom.contextmenu</code> イベントを利用したサンプル。</p>
+
+    <h2>機能</h2>
+    <ul>
+      <li><b>空白ダブルクリック</b> → アクティブペインを親フォルダへ移動</li>
+      <li><b>空白右クリック</b> → 通知で座標 (画面x, 画面y) を表示</li>
+    </ul>
+
+    <h2>イベントログ</h2>
+    <pre id="log">(待機中)</pre>
+
+    <script src="../sdk.js"></script>
+    <script>
+      const log = document.getElementById("log");
+      const lines = [];
+      function append(line) {
+        lines.unshift(new Date().toLocaleTimeString() + " " + line);
+        if (lines.length > 50) lines.length = 50;
+        log.textContent = lines.join("\n");
+      }
+      if (typeof ff === "undefined") {
+        log.textContent = "FATAL: ff (SDK) が読み込まれていません";
+        throw new Error("ff missing");
+      }
+
+      // 親フォルダ計算 (Windows パス対応)
+      function parentOf(p) {
+        if (!p) return p;
+        // 末尾の区切りを除去
+        let s = p.replace(/[\\/]+$/, "");
+        const idx = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+        if (idx <= 2) {
+          // C:\ のようなドライブ直下: そのまま
+          return s.length >= 3 ? s.slice(0, 3) : s;
+        }
+        return s.slice(0, idx);
+      }
+
+      ff.on("pane.dom.dblclick", (payload) => {
+        append("dblclick: " + JSON.stringify(payload));
+        if (!payload || payload.target !== "empty") return;
+        const next = parentOf(payload.path);
+        if (!next || next === payload.path) {
+          ff.notify("これ以上 上の階層はありません", "warn");
+          return;
+        }
+        ff.pane.setPath(next, payload.paneId).then(() => {
+          ff.notify("親フォルダへ移動: " + next, "info");
+        }).catch((e) => ff.notify("移動失敗: " + (e && e.message || e), "error"));
+      });
+
+      ff.on("pane.dom.contextmenu", (payload) => {
+        append("contextmenu: " + JSON.stringify(payload));
+        if (!payload || payload.target !== "empty") return;
+        ff.notify(
+          "空白右クリック @ (" + payload.x + "," + payload.y + ") path=" + payload.path,
+          "info",
+        );
+      });
+
+      append("ready - ペインの空白部分をダブルクリック / 右クリックしてください");
+    </script>
+  </body>
+</html>

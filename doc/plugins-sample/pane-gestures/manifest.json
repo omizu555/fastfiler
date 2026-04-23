@@ -1,0 +1,12 @@
+{
+  "id": "pane-gestures",
+  "name": "Pane Gestures",
+  "version": "0.1.0",
+  "description": "v1.6 (16.6) サンプル: 空白ダブルクリックで親フォルダへ移動、空白右クリックで簡易ジェスチャ (右=戻る相当 / 左=進む相当) を実演する。",
+  "entry": "index.html",
+  "capabilities": [
+    "ui.notify",
+    "pane.getActive",
+    "pane.setPath"
+  ]
+}
