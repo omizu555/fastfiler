@@ -241,11 +241,9 @@ export default function App() {
     };
     window.addEventListener("auxclick", onAuxClick);
     // v1.9: ウインドウを閉じる前に localStorage を即時 flush して
-    //       前回パスなどの未保存状態を確実に永続化する
-    const onBeforeUnload = () => {
-      try { flushPersistImmediate(); } catch {/* ignore */}
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
+    //       前回パスなどの未保存状態を確実に永続化する。
+    //       beforeunload は WebView2 で × ボタンの close を阻害するため使わず、
+    //       Tauri の onCloseRequested のみで flush する (preventDefault しない)。
     let unlistenClose: (() => void) | null = null;
     (async () => {
       try {
@@ -253,6 +251,7 @@ export default function App() {
         const w = getCurrentWindow();
         const un = await w.onCloseRequested(() => {
           try { flushPersistImmediate(); } catch {/* ignore */}
+          // preventDefault は呼ばない: そのままウインドウを閉じる
         });
         unlistenClose = un;
       } catch {/* tauri 外環境では無視 */}
@@ -262,7 +261,6 @@ export default function App() {
       window.removeEventListener("contextmenu", onCtx);
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("auxclick", onAuxClick);
-      window.removeEventListener("beforeunload", onBeforeUnload);
       if (unlistenClose) { try { unlistenClose(); } catch {/* ignore */} }
     });
   });
