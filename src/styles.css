@@ -1529,98 +1529,54 @@ button.primary:hover {
 .toast-close:hover {
     opacity: 1;
 }
-.notification-area {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 9000;
-    max-width: 380px;
-    pointer-events: none;
-}
-.jobs-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-width: 380px;
-    pointer-events: none;
-}
-
-.job-card {
-    pointer-events: auto;
-    background: #1f2530;
-    border: 1px solid #2e3845;
-    border-radius: 6px;
-    padding: 8px 10px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-    font-size: 12px;
-}
-.job-card.job-done {
-    opacity: 0.85;
-}
-.job-card.job-fail {
-    border-color: #c0392b;
-}
-.job-head {
-    display: flex;
+/* v1.9: ステータスバー内ジョブ進捗表示 */
+.statusbar-jobs {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 4px;
+    margin-left: 8px;
+    padding: 0 6px;
+    font-size: 12px;
+    color: var(--fg, #cbd6e2);
+    max-width: 360px;
 }
-.job-kind {
-    background: #3a4a5e;
-    color: #cbd6e2;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 11px;
-}
-.job-label {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.job-cancel {
-    background: transparent;
-    border: 0;
-    color: #ddd;
-    cursor: pointer;
-    opacity: 0.6;
-}
-.job-cancel:hover {
-    opacity: 1;
-    color: #ff8a7a;
-}
-.job-bar {
+.statusbar-jobs-bar {
+    position: relative;
+    width: 64px;
     height: 6px;
-    background: #0f1418;
+    background: rgba(0, 0, 0, 0.25);
     border-radius: 3px;
     overflow: hidden;
+    flex: 0 0 auto;
 }
-.job-bar-fill {
-    height: 100%;
+.statusbar-jobs-bar-fill {
+    position: absolute;
+    inset: 0;
+    width: 0;
     background: linear-gradient(90deg, #3aa5ff, #56d8ff);
     transition: width 120ms ease-out;
 }
-.job-card.job-fail .job-bar-fill {
-    background: #c0392b;
-}
-.job-meta {
-    margin-top: 4px;
-    color: #aab4c0;
-}
-.job-status {
-    margin-left: 6px;
-}
-.job-current {
-    margin-top: 2px;
-    color: #6a7682;
+.statusbar-jobs-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.statusbar-jobs-more {
+    color: #8a96a4;
     font-size: 11px;
+}
+.statusbar-jobs-cancel {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.6;
+    padding: 0 4px;
+    font-size: 12px;
+}
+.statusbar-jobs-cancel:hover {
+    opacity: 1;
+    color: #ff8a7a;
 }
 
 .perf-warn {

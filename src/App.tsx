@@ -14,9 +14,9 @@ import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import TerminalPanel from "./components/TerminalPanel";
 import StatusBarToast from "./components/StatusBarToast";
+import StatusBarJobs from "./components/StatusBarJobs";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
-import JobsPanel from "./components/JobsPanel";
 import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
 import PromptDialog from "./components/PromptDialog";
 import {
@@ -35,6 +35,7 @@ import {
   focusedLeafPaneId,
   navigateBack,
   navigateForward,
+  flushPersistImmediate,
 } from "./store";
 import { homeDir } from "./fs";
 import {
@@ -239,11 +240,30 @@ export default function App() {
       if (e.button === 3 || e.button === 4) e.preventDefault();
     };
     window.addEventListener("auxclick", onAuxClick);
+    // v1.9: ウインドウを閉じる前に localStorage を即時 flush して
+    //       前回パスなどの未保存状態を確実に永続化する
+    const onBeforeUnload = () => {
+      try { flushPersistImmediate(); } catch {/* ignore */}
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    let unlistenClose: (() => void) | null = null;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const w = getCurrentWindow();
+        const un = await w.onCloseRequested(() => {
+          try { flushPersistImmediate(); } catch {/* ignore */}
+        });
+        unlistenClose = un;
+      } catch {/* tauri 外環境では無視 */}
+    })();
     unlistens.push(() => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("contextmenu", onCtx);
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("auxclick", onAuxClick);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      if (unlistenClose) { try { unlistenClose(); } catch {/* ignore */} }
     });
   });
 
@@ -290,6 +310,7 @@ export default function App() {
       <footer class="app-statusbar">
         <span class="muted statusbar-logo">⚡ FastFiler</span>
         <StatusBarToast />
+        <StatusBarJobs />
         <span class="spacer" />
         <button
           class="statusbar-btn"
@@ -312,9 +333,6 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
       />
       <PromptDialog />
-      <div class="notification-area">
-        <JobsPanel />
-      </div>
       <RightDragOverlay />
     </div>
   );

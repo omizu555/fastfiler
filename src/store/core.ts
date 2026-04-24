@@ -210,18 +210,30 @@ export const loaded = loadInitial();
 export const [state, setState] = createStore<AppState>(loaded ?? freshState("C:\\"));
 
 let saveTimer: number | null = null;
+
+function writeNow() {
+  try {
+    const snapshot = { ...state, _seq: idSeq };
+    delete (snapshot as Record<string, unknown>).pluginContextMenu;
+    delete (snapshot as Record<string, unknown>).toasts;
+    delete (snapshot as Record<string, unknown>).undoStack;
+    delete (snapshot as Record<string, unknown>).activeJobs;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {/* ignore */}
+}
+
 export function persist() {
   if (saveTimer != null) window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    try {
-      const snapshot = { ...state, _seq: idSeq };
-      delete (snapshot as Record<string, unknown>).pluginContextMenu;
-      delete (snapshot as Record<string, unknown>).toasts;
-      delete (snapshot as Record<string, unknown>).undoStack;
-      delete (snapshot as Record<string, unknown>).activeJobs;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-    } catch {/* ignore */}
-  }, 250);
+  saveTimer = window.setTimeout(writeNow, 250);
+}
+
+/** v1.9: ウインドウ閉じる直前に呼ぶ即時 flush。debounce の取りこぼしを防ぐ。 */
+export function flushPersistImmediate() {
+  if (saveTimer != null) {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  writeNow();
 }
 
 if (loaded) persist();

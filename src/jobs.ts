@@ -52,10 +52,8 @@ async function ensureListeners() {
         doneBytes: j.done_bytes,
         finishedAt: Date.now(),
       } : x));
-      // 5 秒後に自動で消す
-      window.setTimeout(() => {
-        setState("activeJobs", (xs) => xs.filter((x) => x.id !== j.job_id));
-      }, 5000);
+      // v1.9: 完了後は即時 filter (ステータスバートーストで通知済み)
+      setState("activeJobs", (xs) => xs.filter((x) => x.id !== j.job_id));
     });
   } catch {/* non-tauri */}
 }

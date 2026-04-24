@@ -1,7 +1,7 @@
 // store バレル: 旧 src/store.ts の API を再エクスポート。
 // 実体は src/store/ 配下の機能別ファイルに分割されている。
 // 既存の `import { ... } from "../store"` を変更せずに済むよう、ここで全てを公開する。
-export { state, setState, persist } from "./store/core";
+export { state, setState, persist, flushPersistImmediate } from "./store/core";
 export * from "./store/tabs";
 export * from "./store/panes";
 export * from "./store/dock";
