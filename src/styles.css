@@ -982,6 +982,20 @@ button.primary:hover {
     font-weight: 600;
     font-size: 12px;
 }
+.file-list table.vlist thead th .col-resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 2;
+}
+.file-list table.vlist thead th .col-resizer:hover {
+    background: var(--accent, #3b82f6);
+    opacity: 0.5;
+}
 .file-list table.vlist thead th.sortable {
     cursor: pointer;
     user-select: none;

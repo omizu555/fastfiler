@@ -26,6 +26,7 @@ import {
   isPaneLocked,
   state,
   refreshTickFor,
+  setFileListColWidth,
 } from "../store";
 import type { FileEntry, SortKey } from "../types";
 import ContextMenu from "./ContextMenu";
@@ -50,6 +51,52 @@ import { beginRightDragCandidate } from "../file-list/right-drag";
 interface Props {
   paneId: string;
   tabId: string;
+}
+
+type ColKey = "name" | "size" | "mtime" | "kind";
+
+/**
+ * 列ヘッダ右端のドラッグハンドル。
+ * 隣接列とで合計幅が保たれるように両方の % を更新する。
+ */
+function ColResizer(p: { col: ColKey; nextCol: ColKey }) {
+  const onPointerDown = (ev: PointerEvent) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    const startX = ev.clientX;
+    const th = (ev.currentTarget as HTMLElement).closest("th") as HTMLElement | null;
+    const table = th?.closest("table") as HTMLElement | null;
+    const tableW = table?.getBoundingClientRect().width ?? 1;
+    const startA = state.fileListColWidths[p.col];
+    const startB = state.fileListColWidths[p.nextCol];
+    const sumAB = startA + startB;
+    const onMove = (e: PointerEvent) => {
+      const dxPct = ((e.clientX - startX) / tableW) * 100;
+      let a = startA + dxPct;
+      let b = startB - dxPct;
+      const min = 5;
+      if (a < min) { a = min; b = sumAB - a; }
+      if (b < min) { b = min; a = sumAB - b; }
+      setFileListColWidth(p.col, a);
+      setFileListColWidth(p.nextCol, b);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+    document.body.style.cursor = "col-resize";
+  };
+  return (
+    <span
+      class="col-resizer"
+      onPointerDown={onPointerDown}
+      onClick={(e) => e.stopPropagation()}
+      title="ドラッグで列幅変更"
+    />
+  );
 }
 
 export default function FileList(props: Props) {
@@ -618,21 +665,24 @@ export default function FileList(props: Props) {
       >
         <table class="vlist">
           <colgroup>
-            <col style={{ width: "50%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "25%" }} />
-            <col style={{ width: "10%" }} />
+            <col style={{ width: `${state.fileListColWidths.name}%` }} />
+            <col style={{ width: `${state.fileListColWidths.size}%` }} />
+            <col style={{ width: `${state.fileListColWidths.mtime}%` }} />
+            <col style={{ width: `${state.fileListColWidths.kind}%` }} />
           </colgroup>
           <thead>
             <tr>
               <th class="sortable" onClick={() => setPaneSort(props.paneId, "name")}>
                 名前{sortIndicator("name")}
+                <ColResizer col="name" nextCol="size" />
               </th>
               <th class="sortable" onClick={() => setPaneSort(props.paneId, "size")}>
                 サイズ{sortIndicator("size")}
+                <ColResizer col="size" nextCol="mtime" />
               </th>
               <th class="sortable" onClick={() => setPaneSort(props.paneId, "mtime")}>
                 更新日時{sortIndicator("mtime")}
+                <ColResizer col="mtime" nextCol="kind" />
               </th>
               <th class="sortable" onClick={() => setPaneSort(props.paneId, "kind")}>
                 種別{sortIndicator("kind")}

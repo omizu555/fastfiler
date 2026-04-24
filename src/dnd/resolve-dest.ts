@@ -19,6 +19,19 @@ const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
 const baseName = (p: string) =>
   p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "untitled";
 
+/**
+ * フォルダ自身/子孫へのドロップ判定 (無限再帰コピー防止)。
+ *   src=C:\A, dst=C:\A     → true
+ *   src=C:\A, dst=C:\A\B   → true
+ *   src=C:\A, dst=C:\Aa    → false (前方一致だけだと誤検出するため区切り判定)
+ */
+function isSelfOrDescendant(src: string, dst: string): boolean {
+  const a = norm(src);
+  const b = norm(dst);
+  if (a === b) return true;
+  return b.startsWith(a + "\\") || b.startsWith(a + "/");
+}
+
 export async function resolveDestinations(
   srcPaths: string[],
   dstDir: string,
@@ -33,6 +46,10 @@ export async function resolveDestinations(
   }
   const result: ResolvedItem[] = [];
   for (const src of srcPaths) {
+    // 自身 or 子孫への drop は禁止 (無限再帰コピー/移動を防ぐ)
+    if (isSelfOrDescendant(src, dstDir)) {
+      continue;
+    }
     const name = baseName(src);
     const finalDst0 = joinPath(dstDir, name);
     if (op === "move" && norm(src) === norm(finalDst0)) {

@@ -88,6 +88,8 @@ export interface AppState {
   uiFont: string | null;
   uiFontSize: number;
   focusedPaneId: string | null;
+  /** ファイル一覧の列幅 (% 単位、name+size+mtime+kind=100) */
+  fileListColWidths: { name: number; size: number; mtime: number; kind: number };
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -150,6 +152,7 @@ function loadInitial(): AppState | null {
     v.toasts = [];
     v.undoStack = [];
     if (v.focusedPaneId === undefined) v.focusedPaneId = null;
+    if (!v.fileListColWidths) v.fileListColWidths = { name: 50, size: 15, mtime: 25, kind: 10 };
     if (!v.toasts) v.toasts = [];
     if (!v.undoStack) v.undoStack = [];
     v.activeJobs = [];
@@ -211,6 +214,7 @@ function freshState(initialPath: string): AppState {
     uiFont: null,
     uiFontSize: 13,
     focusedPaneId: paneId,
+    fileListColWidths: { name: 50, size: 15, mtime: 25, kind: 10 },
   };
 }
 export const loaded = loadInitial();
