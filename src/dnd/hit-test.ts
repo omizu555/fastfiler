@@ -19,11 +19,21 @@ export function hitTest(x: number, y: number): DropTarget {
   let crumb: HTMLElement | null = null;
   let paneEl: HTMLElement | null = null;
   for (const el of els) {
-    const ds = el.dataset;
-    if (!ds) continue;
-    if (!folderRow && ds.rdFolder === "1") folderRow = el;
-    if (!crumb && ds.rdCrumbPath) crumb = el;
-    if (!paneEl && ds.paneId) paneEl = el;
+    // 行 / ペイン要素は <tr>/<div> のレイアウトの都合で
+    // elementsFromPoint が返すのは内側の <td> / <span> / <img> のことがある。
+    // 確実に拾うため closest で祖先を辿る。
+    if (!folderRow) {
+      const f = el.closest('[data-rd-folder="1"]') as HTMLElement | null;
+      if (f) folderRow = f;
+    }
+    if (!crumb) {
+      const c = el.closest("[data-rd-crumb-path]") as HTMLElement | null;
+      if (c) crumb = c;
+    }
+    if (!paneEl) {
+      const p = el.closest("[data-pane-id]") as HTMLElement | null;
+      if (p) paneEl = p;
+    }
     if (folderRow && paneEl) break;
   }
   const paneId = paneEl?.dataset.paneId ?? null;
@@ -37,10 +47,9 @@ export function hitTest(x: number, y: number): DropTarget {
   } else if (paneEl) {
     destPath = paneEl.dataset.rdPanePath ?? null;
   }
-  const result: DropTarget = {
+  return {
     paneId,
     destPath,
     folderName: folderRow?.dataset.rdName ?? null,
   };
-  return result;
 }

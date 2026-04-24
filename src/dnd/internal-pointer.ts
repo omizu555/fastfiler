@@ -109,7 +109,6 @@ function onMouseMove(ev: MouseEvent): void {
   }
   updateCursor(ev.ctrlKey);
   const hit = hitTest(ev.clientX, ev.clientY);
-  // mousemove ログは多すぎるので、ペイン/フォルダが変わった時だけ出す
   const sig = `${hit.paneId ?? ""}|${hit.folderName ?? ""}|${hit.destPath ?? ""}`;
   if (sig !== lastMoveSig) {
     console.info("[dnd] move hit changed", { x: ev.clientX, y: ev.clientY, ...hit });
@@ -117,6 +116,26 @@ function onMouseMove(ev: MouseEvent): void {
   }
   if (hit.paneId) setExtDragOver(hit.paneId, hit.folderName);
   else clearExtDragOver();
+}
+
+/**
+ * v1.9: ウインドウ外に出た瞬間に OS ドラッグへ昇格 (Shift 不要)。
+ *       内部 D&D 中に mouseleave が document で発火したら oleStartDrag を呼ぶ。
+ */
+function onDocumentMouseLeave(_ev: MouseEvent): void {
+  if (!pointerCand || osDragLaunched) return;
+  if (!pointerActive) return; // ドラッグ確定前は無視
+  console.info("[dnd] mouseleave document → escalate to OS drag", pointerCand.paths);
+  osDragLaunched = true;
+  const cand = pointerCand;
+  pointerCand = null;
+  pointerActive = false;
+  document.body.style.cursor = "";
+  clearExtDragOver();
+  lastMoveSig = "";
+  void oleStartDrag(cand.paths, 0x7)
+    .then(() => console.info("[dnd] oleStartDrag (escalation) resolved"))
+    .catch((err) => console.warn("[dnd] oleStartDrag (escalation) failed:", err));
 }
 
 async function onMouseUp(ev: MouseEvent): Promise<void> {
@@ -184,6 +203,7 @@ export function installInternalPointerDnd(): () => void {
   window.addEventListener("mouseup", onMouseUp, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("blur", onWindowBlur);
+  document.documentElement.addEventListener("mouseleave", onDocumentMouseLeave);
   return () => {
     installed = false;
     window.removeEventListener("mousedown", onMouseDownCapture, true);
@@ -191,5 +211,6 @@ export function installInternalPointerDnd(): () => void {
     window.removeEventListener("mouseup", onMouseUp, true);
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("blur", onWindowBlur);
+    document.documentElement.removeEventListener("mouseleave", onDocumentMouseLeave);
   };
 }
