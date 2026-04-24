@@ -108,6 +108,32 @@ function onMouseMove(ev: MouseEvent): void {
     console.info("[dnd] drag started (internal)", pointerCand.paths);
   }
   updateCursor(ev.ctrlKey);
+
+  // v1.9: WebView2 はドラッグ中に mouseleave を発火しないので、
+  //       move 時の座標でウインドウ境界の外/縁に達したら OS ドラッグに昇格する。
+  const margin = 2;
+  const outOfWindow =
+    ev.clientX <= margin ||
+    ev.clientY <= margin ||
+    ev.clientX >= window.innerWidth - margin ||
+    ev.clientY >= window.innerHeight - margin;
+  if (outOfWindow) {
+    console.info("[dnd] out-of-window detected → escalate to OS drag", {
+      x: ev.clientX, y: ev.clientY, w: window.innerWidth, h: window.innerHeight,
+    }, pointerCand.paths);
+    osDragLaunched = true;
+    const cand = pointerCand;
+    pointerCand = null;
+    pointerActive = false;
+    document.body.style.cursor = "";
+    clearExtDragOver();
+    lastMoveSig = "";
+    void oleStartDrag(cand.paths, 0x7)
+      .then(() => console.info("[dnd] oleStartDrag (escalation) resolved"))
+      .catch((err) => console.warn("[dnd] oleStartDrag (escalation) failed:", err));
+    return;
+  }
+
   const hit = hitTest(ev.clientX, ev.clientY);
   const sig = `${hit.paneId ?? ""}|${hit.folderName ?? ""}|${hit.destPath ?? ""}`;
   if (sig !== lastMoveSig) {
