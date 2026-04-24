@@ -240,21 +240,50 @@ export default function App() {
       if (e.button === 3 || e.button === 4) e.preventDefault();
     };
     window.addEventListener("auxclick", onAuxClick);
-    // v1.9: × ボタン押下時に flush してから明示的に destroy() で閉じる。
-    //       Tauri 2 では onCloseRequested ハンドラ登録時点で close が JS に委ねられる
-    //       挙動があるため、preventDefault → flush → destroy() の安全パターンを使う。
+    // v1.9 デバッグ: × ボタンで閉じない問題の原因究明用ログ
     let unlistenClose: (() => void) | null = null;
     (async () => {
+      console.info("[close-hook] init begin");
       try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const w = getCurrentWindow();
+        const mod = await import("@tauri-apps/api/window");
+        console.info("[close-hook] window module loaded", Object.keys(mod));
+        const w = mod.getCurrentWindow();
+        console.info("[close-hook] getCurrentWindow ok label=", w.label);
         const un = await w.onCloseRequested(async (event) => {
-          event.preventDefault();
-          try { flushPersistImmediate(); } catch {/* ignore */}
-          try { await w.destroy(); } catch {/* ignore */}
+          console.info("[close-hook] onCloseRequested fired", event);
+          try {
+            event.preventDefault();
+            console.info("[close-hook] preventDefault called");
+          } catch (err) {
+            console.error("[close-hook] preventDefault failed", err);
+          }
+          try {
+            flushPersistImmediate();
+            console.info("[close-hook] flushPersistImmediate ok");
+          } catch (err) {
+            console.error("[close-hook] flushPersistImmediate failed", err);
+          }
+          try {
+            console.info("[close-hook] calling destroy()");
+            await w.destroy();
+            console.info("[close-hook] destroy() resolved");
+          } catch (err) {
+            console.error("[close-hook] destroy() failed", err);
+          }
         });
         unlistenClose = un;
-      } catch {/* tauri 外環境では無視 */}
+        console.info("[close-hook] listener registered");
+      } catch (err) {
+        console.error("[close-hook] init failed", err);
+      }
+      // 緊急脱出: コンソールから window.__ffCloseUnregister() で解除可能
+      (window as unknown as { __ffCloseUnregister?: () => void }).__ffCloseUnregister = () => {
+        if (unlistenClose) {
+          unlistenClose();
+          unlistenClose = null;
+          console.info("[close-hook] manually unregistered");
+        }
+      };
     })();
     unlistens.push(() => {
       window.removeEventListener("keydown", onKey);
