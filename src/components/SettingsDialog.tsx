@@ -5,7 +5,6 @@ import type { HotkeyAction } from "../types";
 import PerfPanel from "./PerfPanel";
 import GeneralTab from "./settings/GeneralTab";
 import SearchTab from "./settings/SearchTab";
-// import LinksTab from "./settings/LinksTab"; // v1.7: 連動 UI は非表示
 import HotkeysTab from "./settings/HotkeysTab";
 import PresetsTab from "./settings/PresetsTab";
 import PluginsTab from "./settings/PluginsTab";
@@ -15,7 +14,7 @@ interface Props {
   onClose: () => void;
 }
 
-type TabId = "general" | "search" | "links" | "hotkeys" | "presets" | "plugins" | "perf";
+type TabId = "general" | "search" | "hotkeys" | "presets" | "plugins" | "perf";
 
 export default function SettingsDialog(props: Props) {
   const [tab, setTab] = createSignal<TabId>("general");

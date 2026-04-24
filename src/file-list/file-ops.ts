@@ -23,7 +23,7 @@ import {
 import { runFileJob } from "../jobs";
 import { openPrompt } from "../components/PromptDialog";
 import { invalidNameMessage, uniqueName } from "./name-utils";
-import { resolveDestinations, refreshTargets } from "./resolve-dest";
+import { resolveDestinations, refreshTargets } from "../dnd/resolve-dest";
 import { buildAsciiTree, parseDepthInput } from "./ascii-tree";
 
 export interface FileOpsCtx {

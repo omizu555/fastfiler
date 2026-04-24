@@ -2,13 +2,12 @@ import { Show } from "solid-js";
 import { state, dismissToast } from "../store";
 
 /**
- * v1.6 (16.3): ステータスバーに直近 1 件のトーストを表示する。
- * settings.toastPosition === "statusbar" の場合のみ描画される。
+ * v1.7: ステータスバーに直近 1 件のトーストを表示する。
  */
 export default function StatusBarToast() {
   const last = () => state.toasts[state.toasts.length - 1];
   return (
-    <Show when={state.toastPosition === "statusbar" && last()}>
+    <Show when={last()}>
       {(t) => (
         <div class={`statusbar-toast statusbar-toast-${t().level}`}>
           <span class="statusbar-toast-msg" title={t().message}>{t().message}</span>

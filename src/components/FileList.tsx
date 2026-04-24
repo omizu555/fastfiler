@@ -31,7 +31,6 @@ import type { FileEntry, SortKey } from "../types";
 import ContextMenu from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
 import SearchPanel from "./SearchPanel";
-import { PaneNameLabel } from "./DriveListView";
 import { iconForEntryWith } from "../icons";
 import { matchKey } from "../hotkeys";
 import {
@@ -45,7 +44,7 @@ import {
   type FileOpsCtx,
 } from "../file-list/file-ops";
 import { buildContextMenu } from "../file-list/build-context-menu";
-import { createDnd, DRAG_MIME, extDragPaneId, extDragRowName, registerPaneRefetch } from "../file-list/dnd";
+import { registerPaneRefetch, extDragPaneId, extDragRowName } from "../dnd";
 import { beginRightDragCandidate } from "../file-list/right-drag";
 
 interface Props {
@@ -331,22 +330,9 @@ export default function FileList(props: Props) {
     { defer: true }
   ));
 
-  // ----- D&D (詳細は file-list/dnd.ts) -----
-  const dnd = createDnd({ paneId: props.paneId, pane, refetch: () => refetch() });
-  // pointer 自前 D&D が drop 後に着地ペインを refresh できるよう登録
+  // ----- D&D: 着地ペイン refresh のため refetch を pointer エンジンに登録 -----
   const unregRefetch = registerPaneRefetch(props.paneId, () => refetch());
   onCleanup(() => unregRefetch());
-  const {
-    dragOverRow,
-    paneDragOver,
-    onRowDragStart,
-    onPaneDragOver,
-    onPaneDragLeave,
-    handleDrop,
-    onRowDragOver,
-    onRowDrop,
-    onRowDragLeave,
-  } = dnd;
 
   const isCut = (name: string) => {
     const cb = state.clipboard;
@@ -357,7 +343,6 @@ export default function FileList(props: Props) {
   // ----- パンくず / アドレスバー -----
   const [editingPath, setEditingPath] = createSignal(false);
   const [pathError, setPathError] = createSignal<string | null>(null);
-  const [crumbDropIdx, setCrumbDropIdx] = createSignal<number | null>(null);
 
   const breadcrumbs = createMemo(() => breadcrumbsOf(pane().path));
   let crumbListRef: HTMLDivElement | undefined;
@@ -368,18 +353,8 @@ export default function FileList(props: Props) {
     });
   });
 
-  const onCrumbDragOver = (ev: DragEvent, idx: number) => {
-    if (!ev.dataTransfer?.types.includes(DRAG_MIME)) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    ev.dataTransfer.dropEffect = ev.ctrlKey ? "copy" : "move";
-    setCrumbDropIdx(idx);
-  };
-  const onCrumbDrop = (ev: DragEvent, target: string) => {
-    ev.stopPropagation();
-    setCrumbDropIdx(null);
-    void handleDrop(ev, target);
-  };
+  // パンくずへの D&D ドロップは hit-test (data-rd-crumb-path) で内部 pointer エンジンが処理する
+  // (旧 HTML5 経路は撤去済み)
 
   // ----- 仮想スクロール -----
   const ROW_H = 28;
@@ -482,7 +457,6 @@ export default function FileList(props: Props) {
       data-pane-id={props.paneId}
       data-rd-pane-path={pane().path}
       classList={{
-        "drop-target": paneDragOver(),
         "pane-ext-drag-over": extDragPaneId() === props.paneId,
         "pane-focused": state.focusedPaneId === props.paneId,
         "pane-locked": isPaneLocked(props.paneId),
@@ -518,9 +492,6 @@ export default function FileList(props: Props) {
           });
         }
       }}
-      onDragOver={onPaneDragOver}
-      onDragLeave={onPaneDragLeave}
-      onDrop={(e) => handleDrop(e, pane().path)}
     >
       <div class="pane-toolbar">
         <button title="親フォルダへ (Backspace)"
@@ -543,11 +514,8 @@ export default function FileList(props: Props) {
                     <Show when={i() > 0}><span class="crumb-sep">›</span></Show>
                     <button
                       class="crumb"
-                      classList={{ "crumb-drop": crumbDropIdx() === i() }}
+                      data-rd-crumb-path={c.path}
                       onClick={() => setPanePath(props.paneId, c.path)}
-                      onDragOver={(ev) => onCrumbDragOver(ev, i())}
-                      onDragLeave={() => { if (crumbDropIdx() === i()) setCrumbDropIdx(null); }}
-                      onDrop={(ev) => onCrumbDrop(ev, c.path)}
                       title={c.path}
                     >{c.label}</button>
                   </>
@@ -686,10 +654,8 @@ export default function FileList(props: Props) {
                       hidden: !!e.hidden,
                       cut: isCut(e.name),
                       "drag-over-row":
-                        dragOverRow() === e.name ||
-                        (extDragPaneId() === props.paneId && extDragRowName() === e.name && e.kind === "dir"),
+                        extDragPaneId() === props.paneId && extDragRowName() === e.name && e.kind === "dir",
                     }}
-                    draggable={true}
                     data-rd-pane-path={pane().path}
                     data-rd-name={e.name}
                     data-rd-folder={e.kind === "dir" ? "1" : undefined}
@@ -707,10 +673,6 @@ export default function FileList(props: Props) {
                         ev.clientY,
                       );
                     }}
-                    onDragStart={(ev) => onRowDragStart(ev, e.name)}
-                    onDragOver={(ev) => onRowDragOver(ev, e)}
-                    onDragLeave={() => onRowDragLeave(e)}
-                    onDrop={(ev) => onRowDrop(ev, e)}
                     onClick={(ev) => onRowClick(e.name, idx(), ev)}
                     onDblClick={() => enter(e)}
                     onContextMenu={(ev) => openContextMenu(ev, e)}

@@ -88,8 +88,6 @@ export interface AppState {
   uiFont: string | null;
   uiFontSize: number;
   focusedPaneId: string | null;
-  /** v1.6 (16.3): 通知の表示位置 */
-  toastPosition: "popup" | "statusbar";
 }
 
 const STORAGE_KEY = "fastfiler:state:v1";
@@ -148,9 +146,6 @@ function loadInitial(): AppState | null {
     if (!v.toasts) v.toasts = [];
     if (!v.undoStack) v.undoStack = [];
     v.activeJobs = [];
-    if (v.toastPosition !== "popup" && v.toastPosition !== "statusbar") v.toastPosition = "statusbar";
-    // v1.7: ファイル操作の通知をステータスバーに統一 (右下ポップアップ廃止)
-    v.toastPosition = "statusbar";
     return v;
   } catch {
     return null;
@@ -209,7 +204,6 @@ function freshState(initialPath: string): AppState {
     uiFont: null,
     uiFontSize: 13,
     focusedPaneId: paneId,
-    toastPosition: "statusbar",
   };
 }
 export const loaded = loadInitial();

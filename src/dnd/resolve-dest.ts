@@ -4,7 +4,7 @@
 // - 同一バッチ内での重複も解決 (複数を同フォルダに同時 paste した場合)
 import { listDir } from "../fs";
 import { joinPath, parentPath } from "../path-util";
-import { uniqueNameWithExt } from "./name-utils";
+import { uniqueNameWithExt } from "../file-list/name-utils";
 
 export type DestOp = "copy" | "move";
 
@@ -35,11 +35,9 @@ export async function resolveDestinations(
   for (const src of srcPaths) {
     const name = baseName(src);
     const finalDst0 = joinPath(dstDir, name);
-    // move で src と dst が同一 (同階層への cut+paste 等) → 除外
     if (op === "move" && norm(src) === norm(finalDst0)) {
       continue;
     }
-    // copy で src と dst が同一 → 衝突回避が必要 (existing にも入っているはず)
     let renamed = false;
     let finalName = name;
     if (existing.has(name)) {
@@ -47,16 +45,11 @@ export async function resolveDestinations(
       renamed = finalName !== name;
     }
     existing.add(finalName);
-    result.push({
-      from: src,
-      to: joinPath(dstDir, finalName),
-      renamed,
-    });
+    result.push({ from: src, to: joinPath(dstDir, finalName), renamed });
   }
   return result;
 }
 
-// 移動/コピー後にリフレッシュ対象としたいパス一覧 (dst + 各 src の親)
 export function refreshTargets(
   items: ResolvedItem[],
   dstDir: string,

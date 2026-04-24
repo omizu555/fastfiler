@@ -22,7 +22,6 @@ export function setShowPreview(v: boolean) { setState("showPreview", v); persist
 export function togglePreview() { setState("showPreview", (v) => !v); persist(); }
 export function togglePluginPanel() { setState("showPluginPanel", (v) => !v); persist(); }
 export function setHidePaneToolbar(v: boolean) { setState("hidePaneToolbar", v); persist(); }
-export function setToastPosition(v: "popup" | "statusbar") { setState("toastPosition", v); persist(); }
 
 export function setLinkGroupChannel(groupId: string, channel: LinkChannel, enabled: boolean) {
   setState("linkGroups", (g) => g.id === groupId, "channels", channel, enabled);

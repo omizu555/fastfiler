@@ -1,52 +1,8 @@
-import { For, createResource, createSignal } from "solid-js";
+import { For, createResource } from "solid-js";
 import { listDrives, DRIVES_PATH } from "../fs";
-import { setPanePath, setPaneName, setFocusedPane, state } from "../store";
+import { setPanePath, setFocusedPane, state } from "../store";
 import { driveIcon, driveTitle } from "../drive-util";
 import type { DriveInfo } from "../types";
-
-export function PaneNameLabel(props: { paneId: string; fallback?: string }) {
-  const pane = () => state.panes[props.paneId];
-  const [editing, setEditing] = createSignal(false);
-  let inputRef: HTMLInputElement | undefined;
-
-  const display = () => {
-    const n = pane()?.name;
-    if (n && n.trim()) return n;
-    return props.fallback ?? "(無題)";
-  };
-
-  const commit = (val: string) => {
-    setPaneName(props.paneId, val);
-    setEditing(false);
-  };
-
-  return (
-    <span
-      class="pane-name"
-      classList={{ "has-name": !!(pane()?.name) }}
-      title="ダブルクリックで名前を編集 (空欄で解除)"
-      onDblClick={() => {
-        setEditing(true);
-        queueMicrotask(() => { inputRef?.focus(); inputRef?.select(); });
-      }}
-    >
-      {editing() ? (
-        <input
-          ref={inputRef}
-          class="pane-name-input"
-          value={pane()?.name ?? ""}
-          onBlur={(e) => commit(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit((e.currentTarget as HTMLInputElement).value);
-            if (e.key === "Escape") setEditing(false);
-          }}
-        />
-      ) : (
-        <>🏷 {display()}</>
-      )}
-    </span>
-  );
-}
 
 interface Props {
   paneId: string;

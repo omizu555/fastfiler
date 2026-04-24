@@ -1,10 +1,7 @@
 // 右ボタン D&D: 押下→閾値超でゴースト追従、放したらコピー/移動/キャンセル メニュー表示
 import { createSignal } from "solid-js";
 import { joinPath } from "../path-util";
-import { runFileJob } from "../jobs";
-import { pushUndo, bumpRefreshPaths, pushToast } from "../store";
-import { resolveDestinations, refreshTargets } from "./resolve-dest";
-import type { UndoOp } from "../types";
+import { performDrop } from "../dnd";
 
 export interface RightDragPayload {
   paths: string[];
@@ -41,23 +38,29 @@ export function beginRightDragCandidate(payload: RightDragPayload, x: number, y:
   suppressNextContext = false;
 }
 
-function findDest(x: number, y: number): string | null {
+function findDest(x: number, y: number): { paneId: string | null; path: string | null } {
   const els = document.elementsFromPoint(x, y);
+  let resultPath: string | null = null;
+  let resultPane: string | null = null;
   for (const el of els) {
     const e = el as HTMLElement;
     const row = e.closest?.("[data-rd-folder]") as HTMLElement | null;
-    if (row) {
+    if (row && !resultPath) {
       const pp = row.getAttribute("data-rd-pane-path") ?? "";
       const name = row.getAttribute("data-rd-name") ?? "";
-      if (pp && name) return joinPath(pp, name);
+      if (pp && name) resultPath = joinPath(pp, name);
     }
-    const pane = e.closest?.("[data-rd-pane-path]") as HTMLElement | null;
-    if (pane) {
-      const pp = pane.getAttribute("data-rd-pane-path");
-      if (pp) return pp;
+    const pane = e.closest?.("[data-pane-id]") as HTMLElement | null;
+    if (pane && !resultPane) {
+      resultPane = pane.getAttribute("data-pane-id");
+      if (!resultPath) {
+        const pp = pane.getAttribute("data-rd-pane-path");
+        if (pp) resultPath = pp;
+      }
     }
+    if (resultPath && resultPane) break;
   }
-  return null;
+  return { paneId: resultPane, path: resultPath };
 }
 
 function onMove(e: MouseEvent) {
@@ -78,11 +81,10 @@ function onUp(e: MouseEvent) {
   if (active()) {
     const a = active()!;
     setActive(null);
-    // 直後の contextmenu を抑止
     suppressNextContext = true;
     const dest = findDest(e.clientX, e.clientY);
-    if (dest && dest !== a.payload.sourcePath + "::__cancel__") {
-      setMenu({ x: e.clientX, y: e.clientY, payload: a.payload, destPath: dest });
+    if (dest.path) {
+      setMenu({ x: e.clientX, y: e.clientY, payload: a.payload, destPath: dest.path });
     }
   }
   pending = null;
@@ -116,25 +118,12 @@ export async function executeRightDrag(kind: "move" | "copy") {
   const m = menu();
   if (!m) return;
   setMenu(null);
-  const items = await resolveDestinations(m.payload.paths, m.destPath, kind);
-  if (items.length === 0) {
-    pushToast("対象がありません (同じ場所への移動)", "info");
-    return;
-  }
-  const renamedCount = items.filter((it) => it.renamed).length;
-  const label = `${kind === "copy" ? "コピー" : "移動"} ${items.length}件 → ${m.destPath}`;
-  const r = await runFileJob(kind, items.map(({ from, to }) => ({ from, to })), { label });
-  if (r.ok) {
-    const ops: UndoOp[] = items.map((it) =>
-      kind === "copy"
-        ? ({ kind: "copy", created: it.to } as UndoOp)
-        : ({ kind: "move", from: it.from, to: it.to } as UndoOp));
-    pushUndo(label, ops);
-    bumpRefreshPaths(refreshTargets(items, m.destPath, kind === "move").concat(m.payload.sourcePath));
-    const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
-    pushToast(`${kind === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`, "info");
-  } else if (!r.canceled) {
-    console.error(`[right-drag] ${label} 失敗`);
-    pushToast(`${kind === "copy" ? "コピー" : "移動"} 失敗`, "error");
-  }
+  await performDrop({
+    paths: m.payload.paths,
+    destPath: m.destPath,
+    op: kind,
+    sourceDir: m.payload.sourcePath,
+    logTag: "[right-drag]",
+  });
 }
+

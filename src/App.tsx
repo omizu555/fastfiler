@@ -13,7 +13,6 @@ import SettingsDialog from "./components/SettingsDialog";
 import PreviewPane from "./components/PreviewPane";
 import PluginPanel from "./components/PluginPanel";
 import TerminalPanel from "./components/TerminalPanel";
-import ToastContainer from "./components/ToastContainer";
 import StatusBarToast from "./components/StatusBarToast";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
@@ -33,22 +32,18 @@ import {
   cycleWorkspaceLayout,
   toggleWorkspaceTree,
   panelsInSlot,
-  setPanelSize,
   focusedLeafPaneId,
-  pushUndo,
-  bumpRefreshPaths,
   navigateBack,
   navigateForward,
-  pushToast,
 } from "./store";
 import { homeDir } from "./fs";
-import { joinPath, parentPath, volumeOf } from "./path-util";
-import { setExtDragOver, clearExtDragOver, getInternalDragPaths, isInternalDropPaths, clearInternalDrag, installInternalPointerDnd } from "./file-list/dnd";
-import { resolveDestinations, refreshTargets } from "./file-list/resolve-dest";
+import {
+  installInternalPointerDnd,
+  installExternalDropListeners,
+} from "./dnd";
 import { matchKey } from "./hotkeys";
 import { performUndo } from "./undo";
-import { runFileJob } from "./jobs";
-import type { DockSlot, PanelId, UndoOp } from "./types";
+import type { DockSlot, PanelId } from "./types";
 
 function PanelById(props: { id: PanelId }) {
   return (
@@ -114,283 +109,20 @@ export default function App() {
   const unlistens: Array<() => void> = [];
   onCleanup(() => unlistens.forEach((fn) => fn()));
 
-  // WebView2 D&D drop 時の修飾キー判定用 (drop イベントには含まれないため自前追跡)
-  let ctrlDown = false;
-  const onModKey = (e: KeyboardEvent) => { ctrlDown = e.ctrlKey; };
-  window.addEventListener("keydown", onModKey, true);
-  window.addEventListener("keyup", onModKey, true);
-  onCleanup(() => {
-    window.removeEventListener("keydown", onModKey, true);
-    window.removeEventListener("keyup", onModKey, true);
-  });
-
   onMount(async () => {
     ensureRightDragInstalled();
-    const uninstallPtrDnd = installInternalPointerDnd();
-    onCleanup(() => uninstallPtrDnd());
+    // アプリ内 D&D (pointer 自前) と外部 D&D (OLE / WebView2) を install
+    unlistens.push(installInternalPointerDnd());
+    try {
+      unlistens.push(await installExternalDropListeners());
+    } catch (err) {
+      console.warn("[app] external dnd init failed", err);
+    }
     try {
       const home = await homeDir();
       setInitialPath(home);
     } catch {
       /* ignore */
-    }
-    // v4.0+: OLE D&D 受信 (エクスプローラからのドロップ)
-    try {
-      const { listen } = await import("@tauri-apps/api/event");
-
-      // Rust 側 ScreenToClient は物理ピクセルを返すため、CSS ピクセルへ変換する
-      const toCssCoords = (
-        x: number,
-        y: number,
-      ): { cx: number; cy: number } => {
-        const dpr = window.devicePixelRatio || 1;
-        return { cx: x / dpr, cy: y / dpr };
-      };
-
-      // ドラッグオーバー中のビジュアルフィードバック
-      const unDragOver = await listen<{ effect: number; x: number; y: number }>(
-        "ole-drag-over",
-        (e) => {
-          const { cx, cy } = toCssCoords(e.payload.x, e.payload.y);
-          // elementsFromPoint は z-order の上から全要素を返す
-          const els = document.elementsFromPoint(cx, cy) as HTMLElement[];
-          // フォルダ行を優先して探す
-          const folderRow = els.find((el) => el.dataset.rdFolder === "1") as
-            | HTMLElement
-            | undefined;
-          // ペインを特定
-          const paneEl = els.find((el) => el.dataset.paneId) as
-            | HTMLElement
-            | undefined;
-          const paneId = paneEl?.dataset.paneId ?? null;
-          // eslint-disable-next-line no-console
-          console.debug("[ole-dnd] drag-over", {
-            raw: e.payload,
-            dpr: window.devicePixelRatio,
-            cx,
-            cy,
-            paneId,
-            folderRow: folderRow?.dataset.rdName ?? null,
-            elsTop: els[0]?.tagName,
-          });
-          if (paneId) {
-            setExtDragOver(paneId, folderRow?.dataset.rdName ?? null);
-          } else {
-            clearExtDragOver();
-          }
-        },
-      );
-      unlistens.push(unDragOver);
-
-      // ドラッグ離脱
-      const unDragLeave = await listen("ole-drag-leave", () => {
-        // eslint-disable-next-line no-console
-        console.debug("[ole-dnd] drag-leave");
-        clearExtDragOver();
-      });
-      unlistens.push(unDragLeave);
-
-      // ドロップ完了
-      const unDrop = await listen<{
-        paths: string[];
-        effect: number;
-        x: number;
-        y: number;
-      }>("ole-drop", async (e) => {
-        const { paths, effect, x, y } = e.payload;
-        clearExtDragOver();
-        if (!paths.length) {
-          console.warn("[ole-dnd] drop: empty paths");
-          return;
-        }
-        const { cx, cy } = toCssCoords(x, y);
-        const els = document.elementsFromPoint(cx, cy) as HTMLElement[];
-        const folderRow = els.find((el) => el.dataset.rdFolder === "1") as
-          | HTMLElement
-          | undefined;
-        const paneEl = els.find((el) => el.dataset.paneId) as
-          | HTMLElement
-          | undefined;
-        const targetPaneId = paneEl?.dataset.paneId ?? focusedLeafPaneId();
-        let targetPath: string | null = null;
-        if (
-          folderRow &&
-          folderRow.dataset.rdPanePath &&
-          folderRow.dataset.rdName
-        ) {
-          targetPath = joinPath(
-            folderRow.dataset.rdPanePath,
-            folderRow.dataset.rdName,
-          );
-        } else if (targetPaneId) {
-          targetPath = state.panes[targetPaneId]?.path ?? null;
-        }
-        if (!targetPath) {
-          console.warn("[ole-dnd] drop: no target path resolved");
-          return;
-        }
-        // v1.7.3: Ctrl=copy / それ以外は src/dst の volume 比較で move/copy 自動選択。
-        // (effect は WebView2/エクスプローラ間のネゴシエーションで決まり、ユーザー
-        //  意図と必ずしも一致しないため自前で判定する)
-        const internal = isInternalDropPaths(paths);
-        let op: "copy" | "move";
-        if (ctrlDown) {
-          op = "copy";
-        } else if (internal) {
-          op = "move";
-        } else {
-          const srcVol = volumeOf(paths[0]);
-          const dstVol = volumeOf(targetPath);
-          op = srcVol && dstVol && srcVol === dstVol ? "move" : "copy";
-        }
-        if (internal) clearInternalDrag();
-        void effect; // 未使用警告抑止
-        const items = await resolveDestinations(paths, targetPath, op);
-        if (items.length === 0) {
-          pushToast("対象がありません (同じ場所への移動)", "info");
-          return;
-        }
-        const renamedCount = items.filter((it) => it.renamed).length;
-        const label = `${op === "copy" ? "コピー" : "移動"} (${items.length} 件) → ${targetPath}`;
-        const r = await runFileJob(
-          op,
-          items.map(({ from, to }) => ({ from, to })),
-          { label },
-        );
-        if (r.ok) {
-          const ops: UndoOp[] = items.map((it) =>
-            op === "copy"
-              ? { kind: "copy", created: it.to }
-              : { kind: "move", from: it.from, to: it.to },
-          );
-          pushUndo(label, ops);
-          const sourceDirs =
-            op === "move" ? items.map((it) => parentPath(it.from)) : [];
-          bumpRefreshPaths([targetPath, ...sourceDirs]);
-          const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
-          pushToast(
-            `${op === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`,
-            "info",
-          );
-        } else if (!r.canceled) {
-          console.error(`[ole-drop] ${label} 失敗`);
-          pushToast(`${op === "copy" ? "コピー" : "移動"} 失敗`, "error");
-        }
-      });
-      unlistens.push(unDrop);
-
-      // v1.7.2: WebView2 領域上のドロップを受けるため Tauri 標準 D&D を併用。
-      // Rust 自前 IDropTarget はメイン HWND のみで WebView2 領域には届かないため。
-      try {
-        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-        const wv = getCurrentWebview();
-        const unWv = await wv.onDragDropEvent((ev) => {
-          const payload = ev.payload as {
-            type: "enter" | "over" | "drop" | "leave";
-            paths?: string[];
-            position?: { x: number; y: number };
-          };
-          if (payload.type === "leave") {
-            clearExtDragOver();
-            return;
-          }
-          const pos = payload.position;
-          if (!pos) return;
-          const { cx, cy } = toCssCoords(pos.x, pos.y);
-          const els = document.elementsFromPoint(cx, cy) as HTMLElement[];
-          const folderRow = els.find((el) => el.dataset.rdFolder === "1") as
-            | HTMLElement | undefined;
-          const paneEl = els.find((el) => el.dataset.paneId) as
-            | HTMLElement | undefined;
-          const targetPaneId = paneEl?.dataset.paneId ?? null;
-
-          if (payload.type === "enter" || payload.type === "over") {
-            if (targetPaneId) {
-              setExtDragOver(targetPaneId, folderRow?.dataset.rdName ?? null);
-            } else {
-              clearExtDragOver();
-            }
-            return;
-          }
-
-          // drop
-          clearExtDragOver();
-          const paths = payload.paths ?? [];
-          if (!paths.length) return;
-          let targetPath: string | null = null;
-          if (
-            folderRow &&
-            folderRow.dataset.rdPanePath &&
-            folderRow.dataset.rdName
-          ) {
-            targetPath = joinPath(
-              folderRow.dataset.rdPanePath,
-              folderRow.dataset.rdName,
-            );
-          } else {
-            const pid = targetPaneId ?? focusedLeafPaneId();
-            if (pid) targetPath = state.panes[pid]?.path ?? null;
-          }
-          if (!targetPath) {
-            console.warn("[wv-drop] no target path resolved");
-            return;
-          }
-          // Ctrl+ドロップ→ 強制 copy。
-          // それ以外:
-          //   - 内部 D&D (paths が internalDragPaths と一致) → move (アプリ内)
-          //   - 外部 D&D → src/dst の volume を比較 (同一=move / 別=copy)
-          const internal = isInternalDropPaths(paths);
-          let op: "copy" | "move";
-          if (ctrlDown) {
-            op = "copy";
-          } else if (internal) {
-            op = "move";
-          } else {
-            const srcVol = volumeOf(paths[0]);
-            const dstVol = volumeOf(targetPath);
-            op = srcVol && dstVol && srcVol === dstVol ? "move" : "copy";
-          }
-          if (internal) clearInternalDrag();
-          const dest = targetPath;
-          const logTag = internal ? "[internal-drop]" : "[wv-drop]";
-          void (async () => {
-            const items = await resolveDestinations(paths, dest, op);
-            if (items.length === 0) {
-              pushToast("対象がありません (同じ場所への移動)", "info");
-              return;
-            }
-            const renamedCount = items.filter((it) => it.renamed).length;
-            const label = `${op === "copy" ? "コピー" : "移動"} (${items.length} 件) → ${dest}`;
-            const r = await runFileJob(
-              op,
-              items.map(({ from, to }) => ({ from, to })),
-              { label },
-            );
-            if (r.ok) {
-              const ops: UndoOp[] = items.map((it) =>
-                op === "copy"
-                  ? { kind: "copy", created: it.to }
-                  : { kind: "move", from: it.from, to: it.to },
-              );
-              pushUndo(label, ops);
-              bumpRefreshPaths(refreshTargets(items, dest, op === "move"));
-              const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
-              pushToast(
-                `${op === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`,
-                "info",
-              );
-            } else if (!r.canceled) {
-              console.error(`${logTag} ${label} 失敗`);
-              pushToast(`${op === "copy" ? "コピー" : "移動"} 失敗`, "error");
-            }
-          })();
-        });
-        unlistens.push(unWv);
-      } catch (err) {
-        console.warn("[wv-drop] init failed", err);
-      }
-    } catch {
-      /* non-tauri */
     }
     const onKey = (e: KeyboardEvent) => {
       const hk = state.hotkeys;
@@ -581,7 +313,6 @@ export default function App() {
       />
       <PromptDialog />
       <div class="notification-area">
-        <ToastContainer />
         <JobsPanel />
       </div>
       <RightDragOverlay />
