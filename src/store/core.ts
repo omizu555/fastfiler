@@ -95,8 +95,15 @@ const STORAGE_KEY = "fastfiler:state:v1";
 function loadInitial(): AppState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      console.info("[persist] loadInitial: no saved state");
+      return null;
+    }
     const v = JSON.parse(raw) as AppState & { _seq?: number };
+    try {
+      const paths = Object.entries(v.panes ?? {}).map(([k, p]) => `${k}=${(p as { path?: string }).path ?? ""}`);
+      console.info("[persist] loadInitial: loaded panes=", paths.join(", "));
+    } catch {/* ignore */}
     if (v._seq) idSeq = v._seq;
     if (v.showThumbnails === undefined) v.showThumbnails = true;
     if (v.showPreview === undefined) v.showPreview = false;
