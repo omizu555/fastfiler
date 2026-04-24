@@ -11,7 +11,7 @@
 //     (mousedown 即時起動は Shift+クリック範囲選択を壊すため不可)。
 //   - Ctrl は離れたタイミングの値を採用 (mouseup 時の修飾キー)。
 
-import { state } from "../store";
+import { state, setPaneSelection } from "../store";
 import { joinPath } from "../path-util";
 import { oleStartDrag } from "../fs";
 import { hitTest } from "./hit-test";
@@ -47,7 +47,8 @@ function endPointerDrag(): void {
 }
 
 function updateCursor(ctrl: boolean): void {
-  document.body.style.cursor = ctrl ? "copy" : "move";
+  // "move" は十字に見えるので、ctrl 時のみ "copy"、通常はドラッグらしい "grabbing" を使う
+  document.body.style.cursor = ctrl ? "copy" : "grabbing";
 }
 
 function onMouseDownCapture(ev: MouseEvent): void {
@@ -74,7 +75,12 @@ function onMouseDownCapture(ev: MouseEvent): void {
   }
   const pane = state.panes[paneId];
   let sel = pane?.selection ?? [];
-  if (!sel.includes(name)) sel = [name];
+  if (!sel.includes(name)) {
+    sel = [name];
+    // v1.9: クリックした行が選択に含まれていなかったら、選択を更新して
+    //       UI 上もハイライトされた状態にする (ドラッグ中の視認性向上)
+    setPaneSelection(paneId, sel);
+  }
   const paths = sel.map((n) => joinPath(panePath, n));
   pointerCand = {
     paths,
