@@ -240,18 +240,18 @@ export default function App() {
       if (e.button === 3 || e.button === 4) e.preventDefault();
     };
     window.addEventListener("auxclick", onAuxClick);
-    // v1.9: ウインドウを閉じる前に localStorage を即時 flush して
-    //       前回パスなどの未保存状態を確実に永続化する。
-    //       beforeunload は WebView2 で × ボタンの close を阻害するため使わず、
-    //       Tauri の onCloseRequested のみで flush する (preventDefault しない)。
+    // v1.9: × ボタン押下時に flush してから明示的に destroy() で閉じる。
+    //       Tauri 2 では onCloseRequested ハンドラ登録時点で close が JS に委ねられる
+    //       挙動があるため、preventDefault → flush → destroy() の安全パターンを使う。
     let unlistenClose: (() => void) | null = null;
     (async () => {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const w = getCurrentWindow();
-        const un = await w.onCloseRequested(() => {
+        const un = await w.onCloseRequested(async (event) => {
+          event.preventDefault();
           try { flushPersistImmediate(); } catch {/* ignore */}
-          // preventDefault は呼ばない: そのままウインドウを閉じる
+          try { await w.destroy(); } catch {/* ignore */}
         });
         unlistenClose = un;
       } catch {/* tauri 外環境では無視 */}
