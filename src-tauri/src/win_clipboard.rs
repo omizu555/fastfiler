@@ -122,3 +122,93 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
     let _ = CloseClipboard();
     res
 }
+
+// =================================================================
+// クリップボードから CF_HDROP + Preferred DropEffect を読み出す
+// =================================================================
+
+#[derive(serde::Serialize)]
+pub struct ClipboardPaths {
+    pub paths: Vec<String>,
+    /// "copy" | "cut"
+    pub op: String,
+}
+
+#[tauri::command]
+pub fn clipboard_read_paths() -> AppResult<Option<ClipboardPaths>> {
+    #[cfg(not(windows))]
+    {
+        return Ok(None);
+    }
+    #[cfg(windows)]
+    unsafe {
+        read_paths_win()
+    }
+}
+
+#[cfg(windows)]
+unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
+    use windows::Win32::Foundation::{HGLOBAL, HWND};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+        RegisterClipboardFormatW,
+    };
+    use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows::Win32::System::Ole::CF_HDROP;
+    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    use windows::core::PCWSTR;
+
+    if IsClipboardFormatAvailable(CF_HDROP.0 as u32).is_err() {
+        return Ok(None);
+    }
+    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
+        return Err(AppError::Other("OpenClipboard 失敗".into()));
+    }
+
+    let result: AppResult<Option<ClipboardPaths>> = (|| {
+        let h = GetClipboardData(CF_HDROP.0 as u32)
+            .map_err(|e| AppError::Other(format!("GetClipboardData(HDROP): {e}")))?;
+        if h.is_invalid() {
+            return Ok(None);
+        }
+        let hdrop = HDROP(h.0);
+        let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+        let mut paths: Vec<String> = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let needed = DragQueryFileW(hdrop, i, None);
+            if needed == 0 {
+                continue;
+            }
+            let mut buf: Vec<u16> = vec![0u16; (needed + 1) as usize];
+            let written = DragQueryFileW(hdrop, i, Some(&mut buf));
+            if written == 0 {
+                continue;
+            }
+            let s = String::from_utf16_lossy(&buf[..written as usize]);
+            paths.push(s);
+        }
+
+        // Preferred DropEffect を読む (1=COPY, 2=MOVE)
+        let fmt_name: Vec<u16> = "Preferred DropEffect\0".encode_utf16().collect();
+        let cf_pref = RegisterClipboardFormatW(PCWSTR(fmt_name.as_ptr()));
+        let mut op = "copy".to_string();
+        if cf_pref != 0 && IsClipboardFormatAvailable(cf_pref).is_ok() {
+            if let Ok(h_eff) = GetClipboardData(cf_pref) {
+                if !h_eff.is_invalid() {
+                    let hg = HGLOBAL(h_eff.0);
+                    let p = GlobalLock(hg) as *const u32;
+                    if !p.is_null() {
+                        if *p == 2 {
+                            op = "cut".to_string();
+                        }
+                        let _ = GlobalUnlock(hg);
+                    }
+                }
+            }
+        }
+        Ok(Some(ClipboardPaths { paths, op }))
+    })();
+
+    let _ = CloseClipboard();
+    result
+}

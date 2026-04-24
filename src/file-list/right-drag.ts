@@ -2,7 +2,8 @@
 import { createSignal } from "solid-js";
 import { joinPath } from "../path-util";
 import { runFileJob } from "../jobs";
-import { pushUndo, bumpRefreshPaths } from "../store";
+import { pushUndo, bumpRefreshPaths, pushToast } from "../store";
+import { resolveDestinations, refreshTargets } from "./resolve-dest";
 import type { UndoOp } from "../types";
 
 export interface RightDragPayload {
@@ -115,23 +116,25 @@ export async function executeRightDrag(kind: "move" | "copy") {
   const m = menu();
   if (!m) return;
   setMenu(null);
-  if (m.destPath === m.payload.sourcePath && kind === "move") {
-    return; // 同フォルダ内移動は無意味
+  const items = await resolveDestinations(m.payload.paths, m.destPath, kind);
+  if (items.length === 0) {
+    pushToast("対象がありません (同じ場所への移動)", "info");
+    return;
   }
-  const items = m.payload.paths.map((src) => ({
-    from: src,
-    to: joinPath(m.destPath, src.split(/[\\/]/).pop() ?? "untitled"),
-  }));
+  const renamedCount = items.filter((it) => it.renamed).length;
   const label = `${kind === "copy" ? "コピー" : "移動"} ${items.length}件 → ${m.destPath}`;
-  const r = await runFileJob(kind, items, { label });
+  const r = await runFileJob(kind, items.map(({ from, to }) => ({ from, to })), { label });
   if (r.ok) {
     const ops: UndoOp[] = items.map((it) =>
       kind === "copy"
         ? ({ kind: "copy", created: it.to } as UndoOp)
         : ({ kind: "move", from: it.from, to: it.to } as UndoOp));
     pushUndo(label, ops);
-    bumpRefreshPaths([m.destPath, m.payload.sourcePath]);
+    bumpRefreshPaths(refreshTargets(items, m.destPath, kind === "move").concat(m.payload.sourcePath));
+    const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
+    pushToast(`${kind === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`, "info");
   } else if (!r.canceled) {
     console.error(`[right-drag] ${label} 失敗`);
+    pushToast(`${kind === "copy" ? "コピー" : "移動"} 失敗`, "error");
   }
 }

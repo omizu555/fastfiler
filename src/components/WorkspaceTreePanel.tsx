@@ -329,18 +329,7 @@ export default function WorkspaceTreePanel() {
 
   return (
     <aside class="workspace-tree" classList={{ [`slot-${slot()}`]: true }} style={panelStyle()} tabindex={0} onKeyDown={onTreeKey}>
-      <PanelHeader panel="tree" title="🌲 ツリー" right={
-        <select
-          class="apply-select"
-          title="クリック時の反映先"
-          value={state.workspace.treeApply}
-          onChange={(e) => setWorkspaceTreeApply(e.currentTarget.value as never)}
-        >
-          <option value="active">アクティブ</option>
-          <option value="red">🔴 連動Red</option>
-          <option value="blue">🔵 連動Blue</option>
-        </select>
-      } />
+      <PanelHeader panel="tree" title="🌲 ツリー" />
       <div class="workspace-tree-body">
         <Show when={!drives.loading} fallback={<div class="tree-loading">…</div>}>
           <For each={drives() ?? []}>

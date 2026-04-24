@@ -197,12 +197,7 @@ export default function VerticalTabs() {
       </div>
 
       <div class="vtabs-foot">
-        <small>
-          連動:{" "}
-          <For each={state.linkGroups}>
-            {(g) => <span class="lg-chip" style={{ background: g.color }}>{g.name}</span>}
-          </For>
-        </small>
+        <small class="muted">FastFiler</small>
       </div>
     </aside>
   );

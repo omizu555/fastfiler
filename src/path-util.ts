@@ -90,6 +90,26 @@ export function uncServerOf(path: string): string | null {
   return m ? `\\\\${m[1]}` : null;
 }
 
+/**
+ * パスから「ボリューム識別子」を返す。
+ * - ドライブ: `c:` などの小文字ドライブレター
+ * - UNC: `\\server\share` (lowercase)
+ * - 不明/特殊: null
+ *
+ * 同一ボリュームかどうかの比較に使う (move/copy 自動判定)。
+ */
+export function volumeOf(path: string): string | null {
+  if (!path || path.startsWith("::")) return null;
+  const norm = path.replace(/\//g, "\\");
+  if (isUncPath(norm)) {
+    const parts = norm.slice(2).split("\\").filter(Boolean);
+    if (parts.length < 2) return null;
+    return `\\\\${parts[0].toLowerCase()}\\${parts[1].toLowerCase()}`;
+  }
+  const m = norm.match(/^([A-Za-z]):/);
+  return m ? m[1].toLowerCase() + ":" : null;
+}
+
 /** breadcrumbs 用の {label, path} 配列。root は full path をラベルにする */
 export function breadcrumbsOf(path: string): { label: string; path: string }[] {
   const sp = splitPath(path);

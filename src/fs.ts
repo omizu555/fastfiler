@@ -380,6 +380,23 @@ export async function writeClipboardPaths(
     console.warn("clipboard_write_paths failed", e);
   }
 }
+
+// クリップボードから CF_HDROP を読み取り (エクスプローラ等のコピー/切り取りを取得)
+export async function readClipboardPaths(): Promise<
+  { paths: string[]; op: "copy" | "cut" } | null
+> {
+  if (!isTauri()) return null;
+  try {
+    const r = await invoke<{ paths: string[]; op: string } | null>(
+      "clipboard_read_paths",
+    );
+    if (!r || !r.paths || r.paths.length === 0) return null;
+    return { paths: r.paths, op: r.op === "cut" ? "cut" : "copy" };
+  } catch (e) {
+    console.warn("clipboard_read_paths failed", e);
+    return null;
+  }
+}
 export function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

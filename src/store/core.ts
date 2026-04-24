@@ -148,7 +148,9 @@ function loadInitial(): AppState | null {
     if (!v.toasts) v.toasts = [];
     if (!v.undoStack) v.undoStack = [];
     v.activeJobs = [];
-    if (v.toastPosition !== "popup" && v.toastPosition !== "statusbar") v.toastPosition = "popup";
+    if (v.toastPosition !== "popup" && v.toastPosition !== "statusbar") v.toastPosition = "statusbar";
+    // v1.7: ファイル操作の通知をステータスバーに統一 (右下ポップアップ廃止)
+    v.toastPosition = "statusbar";
     return v;
   } catch {
     return null;
@@ -207,7 +209,7 @@ function freshState(initialPath: string): AppState {
     uiFont: null,
     uiFontSize: 13,
     focusedPaneId: paneId,
-    toastPosition: "popup",
+    toastPosition: "statusbar",
   };
 }
 export const loaded = loadInitial();

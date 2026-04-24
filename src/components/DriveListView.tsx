@@ -71,7 +71,6 @@ export default function DriveListView(props: Props) {
       onFocusIn={() => setFocusedPane(props.paneId)}
     >
       <div class="pane-toolbar">
-        <PaneNameLabel paneId={props.paneId} fallback="💻 PC" />
         <button title="これ以上は戻れません" disabled>↑</button>
         <div class="breadcrumbs">
           <span class="crumb crumb-active" title={DRIVES_PATH}>💻 PC (ドライブ一覧)</span>

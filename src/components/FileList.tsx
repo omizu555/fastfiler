@@ -45,7 +45,7 @@ import {
   type FileOpsCtx,
 } from "../file-list/file-ops";
 import { buildContextMenu } from "../file-list/build-context-menu";
-import { createDnd, DRAG_MIME, extDragPaneId, extDragRowName } from "../file-list/dnd";
+import { createDnd, DRAG_MIME, extDragPaneId, extDragRowName, registerPaneRefetch } from "../file-list/dnd";
 import { beginRightDragCandidate } from "../file-list/right-drag";
 
 interface Props {
@@ -333,6 +333,9 @@ export default function FileList(props: Props) {
 
   // ----- D&D (詳細は file-list/dnd.ts) -----
   const dnd = createDnd({ paneId: props.paneId, pane, refetch: () => refetch() });
+  // pointer 自前 D&D が drop 後に着地ペインを refresh できるよう登録
+  const unregRefetch = registerPaneRefetch(props.paneId, () => refetch());
+  onCleanup(() => unregRefetch());
   const {
     dragOverRow,
     paneDragOver,
@@ -520,13 +523,6 @@ export default function FileList(props: Props) {
       onDrop={(e) => handleDrop(e, pane().path)}
     >
       <div class="pane-toolbar">
-        <PaneNameLabel paneId={props.paneId} />
-        <button title="戻る (Alt+← / マウス戻るボタン)"
-          disabled={!canGoBack(props.paneId)}
-          onClick={() => navigateBack(props.paneId)}>←</button>
-        <button title="進む (Alt+→ / マウス進むボタン)"
-          disabled={!canGoForward(props.paneId)}
-          onClick={() => navigateForward(props.paneId)}>→</button>
         <button title="親フォルダへ (Backspace)"
           onClick={() => setPanePath(props.paneId, parentPath(pane().path))}>↑</button>
         <Show when={editingPath()} fallback={
@@ -616,24 +612,8 @@ export default function FileList(props: Props) {
           />
         </Show>
         <button title="再読込 (F5)" onClick={() => { bumpRefresh(); refetch(); }}>⟳</button>
-        <select
-          class="link-select"
-          value={pane().linkGroupId ?? ""}
-          onChange={(e) => setPaneLinkGroup(props.paneId, e.currentTarget.value || null)}
-          title="連動グループ"
-        >
-          <option value="">連動なし</option>
-          <For each={state.linkGroups}>
-            {(g) => <option value={g.id}>{g.name}</option>}
-          </For>
-        </select>
-        <Show when={pane().linkGroupId}>
-          <span class="link-badge"
-            style={{ background: state.linkGroups.find((g) => g.id === pane().linkGroupId)?.color }}/>
-        </Show>
         <button title="水平分割" onClick={() => splitPane(props.tabId, props.paneId, "h")}>⬌</button>
         <button title="垂直分割" onClick={() => splitPane(props.tabId, props.paneId, "v")}>⬍</button>
-        <button title="ツリー表示に切替" onClick={() => setPaneView(props.paneId, "tree")}>🌲</button>
         <button title="検索 (Ctrl+F)" classList={{ active: searchMode() }} onClick={() => togglePaneSearch(props.paneId)}>🔍</button>
         <button title="ペインを閉じる" onClick={() => closePane(props.tabId, props.paneId)}>✕</button>
       </div>

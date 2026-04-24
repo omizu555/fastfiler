@@ -95,6 +95,7 @@ pub fn run() {
             ole_dnd::ole_dnd_register,
             ole_dnd::ole_dnd_start_drag,
             win_clipboard::clipboard_write_paths,
+            win_clipboard::clipboard_read_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

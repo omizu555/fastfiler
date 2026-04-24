@@ -39,10 +39,12 @@ import {
   bumpRefreshPaths,
   navigateBack,
   navigateForward,
+  pushToast,
 } from "./store";
 import { homeDir } from "./fs";
-import { joinPath, parentPath } from "./path-util";
-import { setExtDragOver, clearExtDragOver } from "./file-list/dnd";
+import { joinPath, parentPath, volumeOf } from "./path-util";
+import { setExtDragOver, clearExtDragOver, getInternalDragPaths, isInternalDropPaths, clearInternalDrag, installInternalPointerDnd } from "./file-list/dnd";
+import { resolveDestinations, refreshTargets } from "./file-list/resolve-dest";
 import { matchKey } from "./hotkeys";
 import { performUndo } from "./undo";
 import { runFileJob } from "./jobs";
@@ -112,8 +114,20 @@ export default function App() {
   const unlistens: Array<() => void> = [];
   onCleanup(() => unlistens.forEach((fn) => fn()));
 
+  // WebView2 D&D drop 時の修飾キー判定用 (drop イベントには含まれないため自前追跡)
+  let ctrlDown = false;
+  const onModKey = (e: KeyboardEvent) => { ctrlDown = e.ctrlKey; };
+  window.addEventListener("keydown", onModKey, true);
+  window.addEventListener("keyup", onModKey, true);
+  onCleanup(() => {
+    window.removeEventListener("keydown", onModKey, true);
+    window.removeEventListener("keyup", onModKey, true);
+  });
+
   onMount(async () => {
     ensureRightDragInstalled();
+    const uninstallPtrDnd = installInternalPointerDnd();
+    onCleanup(() => uninstallPtrDnd());
     try {
       const home = await homeDir();
       setInitialPath(home);
@@ -185,21 +199,11 @@ export default function App() {
       }>("ole-drop", async (e) => {
         const { paths, effect, x, y } = e.payload;
         clearExtDragOver();
-        // eslint-disable-next-line no-console
-        console.debug("[ole-dnd] drop received", {
-          paths,
-          effect,
-          x,
-          y,
-          dpr: window.devicePixelRatio,
-        });
         if (!paths.length) {
-          // eslint-disable-next-line no-console
           console.warn("[ole-dnd] drop: empty paths");
           return;
         }
         const { cx, cy } = toCssCoords(x, y);
-        // elementsFromPoint でフォルダ行 → ペインの順に検索
         const els = document.elementsFromPoint(cx, cy) as HTMLElement[];
         const folderRow = els.find((el) => el.dataset.rdFolder === "1") as
           | HTMLElement
@@ -208,53 +212,51 @@ export default function App() {
           | HTMLElement
           | undefined;
         const targetPaneId = paneEl?.dataset.paneId ?? focusedLeafPaneId();
-        // eslint-disable-next-line no-console
-        console.debug("[ole-dnd] drop hit-test", {
-          cx,
-          cy,
-          targetPaneId,
-          folderRow: folderRow?.dataset.rdName ?? null,
-          elTags: els
-            .slice(0, 5)
-            .map(
-              (el) =>
-                `${el.tagName}.${el.className?.toString().slice(0, 30) ?? ""}`,
-            ),
-        });
         let targetPath: string | null = null;
         if (
           folderRow &&
           folderRow.dataset.rdPanePath &&
           folderRow.dataset.rdName
         ) {
-          // フォルダ行の上にドロップ → そのフォルダ内
           targetPath = joinPath(
             folderRow.dataset.rdPanePath,
             folderRow.dataset.rdName,
           );
         } else if (targetPaneId) {
-          // ペイン背景へのドロップ → ペインの現在フォルダ
           targetPath = state.panes[targetPaneId]?.path ?? null;
         }
         if (!targetPath) {
-          // eslint-disable-next-line no-console
           console.warn("[ole-dnd] drop: no target path resolved");
           return;
         }
-        const isMove = (effect & 2) !== 0;
-        const op: "copy" | "move" = isMove ? "move" : "copy";
-        const items = paths.map((from) => {
-          const name =
-            from
-              .replace(/[\\/]+$/, "")
-              .split(/[\\/]/)
-              .pop() || "";
-          const sep =
-            targetPath!.endsWith("\\") || targetPath!.endsWith("/") ? "" : "\\";
-          return { from, to: `${targetPath}${sep}${name}` };
-        });
+        // v1.7.3: Ctrl=copy / それ以外は src/dst の volume 比較で move/copy 自動選択。
+        // (effect は WebView2/エクスプローラ間のネゴシエーションで決まり、ユーザー
+        //  意図と必ずしも一致しないため自前で判定する)
+        const internal = isInternalDropPaths(paths);
+        let op: "copy" | "move";
+        if (ctrlDown) {
+          op = "copy";
+        } else if (internal) {
+          op = "move";
+        } else {
+          const srcVol = volumeOf(paths[0]);
+          const dstVol = volumeOf(targetPath);
+          op = srcVol && dstVol && srcVol === dstVol ? "move" : "copy";
+        }
+        if (internal) clearInternalDrag();
+        void effect; // 未使用警告抑止
+        const items = await resolveDestinations(paths, targetPath, op);
+        if (items.length === 0) {
+          pushToast("対象がありません (同じ場所への移動)", "info");
+          return;
+        }
+        const renamedCount = items.filter((it) => it.renamed).length;
         const label = `${op === "copy" ? "コピー" : "移動"} (${items.length} 件) → ${targetPath}`;
-        const r = await runFileJob(op, items, { label });
+        const r = await runFileJob(
+          op,
+          items.map(({ from, to }) => ({ from, to })),
+          { label },
+        );
         if (r.ok) {
           const ops: UndoOp[] = items.map((it) =>
             op === "copy"
@@ -265,11 +267,128 @@ export default function App() {
           const sourceDirs =
             op === "move" ? items.map((it) => parentPath(it.from)) : [];
           bumpRefreshPaths([targetPath, ...sourceDirs]);
+          const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
+          pushToast(
+            `${op === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`,
+            "info",
+          );
         } else if (!r.canceled) {
           console.error(`[ole-drop] ${label} 失敗`);
+          pushToast(`${op === "copy" ? "コピー" : "移動"} 失敗`, "error");
         }
       });
       unlistens.push(unDrop);
+
+      // v1.7.2: WebView2 領域上のドロップを受けるため Tauri 標準 D&D を併用。
+      // Rust 自前 IDropTarget はメイン HWND のみで WebView2 領域には届かないため。
+      try {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const wv = getCurrentWebview();
+        const unWv = await wv.onDragDropEvent((ev) => {
+          const payload = ev.payload as {
+            type: "enter" | "over" | "drop" | "leave";
+            paths?: string[];
+            position?: { x: number; y: number };
+          };
+          if (payload.type === "leave") {
+            clearExtDragOver();
+            return;
+          }
+          const pos = payload.position;
+          if (!pos) return;
+          const { cx, cy } = toCssCoords(pos.x, pos.y);
+          const els = document.elementsFromPoint(cx, cy) as HTMLElement[];
+          const folderRow = els.find((el) => el.dataset.rdFolder === "1") as
+            | HTMLElement | undefined;
+          const paneEl = els.find((el) => el.dataset.paneId) as
+            | HTMLElement | undefined;
+          const targetPaneId = paneEl?.dataset.paneId ?? null;
+
+          if (payload.type === "enter" || payload.type === "over") {
+            if (targetPaneId) {
+              setExtDragOver(targetPaneId, folderRow?.dataset.rdName ?? null);
+            } else {
+              clearExtDragOver();
+            }
+            return;
+          }
+
+          // drop
+          clearExtDragOver();
+          const paths = payload.paths ?? [];
+          if (!paths.length) return;
+          let targetPath: string | null = null;
+          if (
+            folderRow &&
+            folderRow.dataset.rdPanePath &&
+            folderRow.dataset.rdName
+          ) {
+            targetPath = joinPath(
+              folderRow.dataset.rdPanePath,
+              folderRow.dataset.rdName,
+            );
+          } else {
+            const pid = targetPaneId ?? focusedLeafPaneId();
+            if (pid) targetPath = state.panes[pid]?.path ?? null;
+          }
+          if (!targetPath) {
+            console.warn("[wv-drop] no target path resolved");
+            return;
+          }
+          // Ctrl+ドロップ→ 強制 copy。
+          // それ以外:
+          //   - 内部 D&D (paths が internalDragPaths と一致) → move (アプリ内)
+          //   - 外部 D&D → src/dst の volume を比較 (同一=move / 別=copy)
+          const internal = isInternalDropPaths(paths);
+          let op: "copy" | "move";
+          if (ctrlDown) {
+            op = "copy";
+          } else if (internal) {
+            op = "move";
+          } else {
+            const srcVol = volumeOf(paths[0]);
+            const dstVol = volumeOf(targetPath);
+            op = srcVol && dstVol && srcVol === dstVol ? "move" : "copy";
+          }
+          if (internal) clearInternalDrag();
+          const dest = targetPath;
+          const logTag = internal ? "[internal-drop]" : "[wv-drop]";
+          void (async () => {
+            const items = await resolveDestinations(paths, dest, op);
+            if (items.length === 0) {
+              pushToast("対象がありません (同じ場所への移動)", "info");
+              return;
+            }
+            const renamedCount = items.filter((it) => it.renamed).length;
+            const label = `${op === "copy" ? "コピー" : "移動"} (${items.length} 件) → ${dest}`;
+            const r = await runFileJob(
+              op,
+              items.map(({ from, to }) => ({ from, to })),
+              { label },
+            );
+            if (r.ok) {
+              const ops: UndoOp[] = items.map((it) =>
+                op === "copy"
+                  ? { kind: "copy", created: it.to }
+                  : { kind: "move", from: it.from, to: it.to },
+              );
+              pushUndo(label, ops);
+              bumpRefreshPaths(refreshTargets(items, dest, op === "move"));
+              const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
+              pushToast(
+                `${op === "copy" ? "コピー" : "移動"} ${items.length}件 完了${note}`,
+                "info",
+              );
+            } else if (!r.canceled) {
+              console.error(`${logTag} ${label} 失敗`);
+              pushToast(`${op === "copy" ? "コピー" : "移動"} 失敗`, "error");
+            }
+          })();
+        });
+        unlistens.push(unWv);
+      } catch (err) {
+        console.warn("[wv-drop] init failed", err);
+      }
     } catch {
       /* non-tauri */
     }

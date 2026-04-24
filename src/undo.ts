@@ -1,5 +1,5 @@
 import { renamePath, movePath, deletePath } from "./fs";
-import { popUndo, state } from "./store";
+import { popUndo, state, pushToast } from "./store";
 import type { UndoEntry, UndoOp } from "./types";
 
 async function applyInverse(op: UndoOp): Promise<void> {
@@ -19,6 +19,7 @@ async function applyInverse(op: UndoOp): Promise<void> {
 export async function performUndo(): Promise<boolean> {
   const entry = popUndo();
   if (!entry) {
+    pushToast("元に戻す操作がありません", "info");
     return false;
   }
   const errors: string[] = [];
@@ -32,11 +33,16 @@ export async function performUndo(): Promise<boolean> {
   }
   if (errors.length > 0) {
     console.error(`[undo] 取り消し失敗: ${entry.label} (${errors.length}件)`);
+    pushToast(`取り消し失敗: ${entry.label}`, "error");
     return false;
   }
+  pushToast(`取り消し: ${entry.label}`, "info");
   return true;
 }
 
 export function canUndo(): boolean {
   return state.undoStack.length > 0;
 }
+// UndoEntry を再エクスポートして外部 import 安定性を確保
+export type { UndoEntry };
+

@@ -5,7 +5,7 @@ import type { HotkeyAction } from "../types";
 import PerfPanel from "./PerfPanel";
 import GeneralTab from "./settings/GeneralTab";
 import SearchTab from "./settings/SearchTab";
-import LinksTab from "./settings/LinksTab";
+// import LinksTab from "./settings/LinksTab"; // v1.7: 連動 UI は非表示
 import HotkeysTab from "./settings/HotkeysTab";
 import PresetsTab from "./settings/PresetsTab";
 import PluginsTab from "./settings/PluginsTab";
@@ -88,7 +88,6 @@ export default function SettingsDialog(props: Props) {
           <nav class="settings-tabs">
             <button classList={{ active: tab() === "general" }} onClick={() => setTab("general")}>基本</button>
             <button classList={{ active: tab() === "search" }} onClick={() => setTab("search")}>検索</button>
-            <button classList={{ active: tab() === "links" }} onClick={() => setTab("links")}>連動</button>
             <button classList={{ active: tab() === "hotkeys" }} onClick={() => setTab("hotkeys")}>ホットキー</button>
             <button classList={{ active: tab() === "presets" }} onClick={() => setTab("presets")}>プリセット</button>
             <button classList={{ active: tab() === "plugins" }} onClick={() => setTab("plugins")}>プラグイン</button>
@@ -107,7 +106,6 @@ export default function SettingsDialog(props: Props) {
               />
             </Show>
             <Show when={tab() === "search"}><SearchTab /></Show>
-            <Show when={tab() === "links"}><LinksTab /></Show>
             <Show when={tab() === "hotkeys"}>
               <HotkeysTab capturing={capturing()} onCapture={setCapturing} />
             </Show>

@@ -9,18 +9,21 @@ import {
   pushUndo,
   bumpRefreshPaths,
   bumpRefreshPath,
+  pushToast,
 } from "../store";
-import { joinPath, parentPath } from "../path-util";
+import { joinPath } from "../path-util";
 import {
   deletePath,
   deleteToTrash,
   renamePath,
   createDir,
-  writeClipboardPaths, // ← 追加
+  writeClipboardPaths,
+  readClipboardPaths,
 } from "../fs";
 import { runFileJob } from "../jobs";
 import { openPrompt } from "../components/PromptDialog";
 import { invalidNameMessage, uniqueName } from "./name-utils";
+import { resolveDestinations, refreshTargets } from "./resolve-dest";
 import { buildAsciiTree, parseDepthInput } from "./ascii-tree";
 
 export interface FileOpsCtx {
@@ -34,7 +37,8 @@ export function cutSelection(ctx: FileOpsCtx) {
   if (!sel.length) return;
   const paths = sel.map((n) => joinPath(ctx.pane().path, n));
   setClipboard(paths, "cut");
-  void writeClipboardPaths(paths, "cut"); // ← 追加
+  void writeClipboardPaths(paths, "cut");
+  pushToast(`切り取り ${paths.length} 件`, "info");
 }
 
 export function copySelection(ctx: FileOpsCtx) {
@@ -42,21 +46,47 @@ export function copySelection(ctx: FileOpsCtx) {
   if (!sel.length) return;
   const paths = sel.map((n) => joinPath(ctx.pane().path, n));
   setClipboard(paths, "copy");
-  void writeClipboardPaths(paths, "copy"); // ← 追加
+  void writeClipboardPaths(paths, "copy");
+  pushToast(`コピー ${paths.length} 件`, "info");
 }
 
 export async function pasteHere(ctx: FileOpsCtx) {
-  const cb = state.clipboard;
-  if (!cb) return;
   const dst = ctx.pane().path;
-  const items = cb.paths.map((src) => ({
-    from: src,
-    to: joinPath(dst, src.split(/[\\/]/).pop() ?? "untitled"),
-  }));
-  const isCut = cb.op === "cut";
-  if (isCut) clearClipboard();
+  // OS クリップボード優先 (エクスプローラからのコピー/カットを必ず拾うため)。
+  // OS 側に無いか取得失敗した場合のみ、アプリ内 clipboard をフォールバックで使う。
+  let paths: string[];
+  let isCut: boolean;
+  let fromInternal = false;
+  const ext = await readClipboardPaths().catch(() => null);
+  if (ext && ext.paths.length > 0) {
+    paths = ext.paths;
+    isCut = ext.op === "cut";
+    // アプリ内 clipboard と一致するなら、cut 後の元削除責任を負う必要があるため internal 扱い
+    if (
+      state.clipboard &&
+      state.clipboard.op === ext.op &&
+      state.clipboard.paths.length === ext.paths.length &&
+      state.clipboard.paths.every((p, i) => p === ext.paths[i])
+    ) {
+      fromInternal = true;
+    }
+  } else if (state.clipboard) {
+    paths = state.clipboard.paths;
+    isCut = state.clipboard.op === "cut";
+    fromInternal = true;
+  } else {
+    return;
+  }
+  const op = isCut ? "move" : "copy";
+  const items = await resolveDestinations(paths, dst, op);
+  if (items.length === 0) {
+    pushToast("貼り付け対象がありません (同じ場所への移動)", "info");
+    return;
+  }
+  if (fromInternal && isCut) clearClipboard();
+  const renamedCount = items.filter((it) => it.renamed).length;
   const label = `${isCut ? "移動" : "コピー"} ${items.length}件 → ${dst}`;
-  const r = await runFileJob(isCut ? "move" : "copy", items, { label });
+  const r = await runFileJob(op, items.map(({ from, to }) => ({ from, to })), { label });
   if (r.ok) {
     const ops: UndoOp[] = items.map((it) =>
       isCut
@@ -64,10 +94,12 @@ export async function pasteHere(ctx: FileOpsCtx) {
         : { kind: "copy", created: it.to },
     );
     pushUndo(label, ops);
-    const sources = isCut ? cb.paths.map((p) => parentPath(p)) : [];
-    bumpRefreshPaths([dst, ...sources]);
+    bumpRefreshPaths(refreshTargets(items, dst, isCut));
+    const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
+    pushToast(`${isCut ? "移動" : "コピー"} ${items.length}件 完了${note}`, "info");
   } else if (!r.canceled) {
     console.error(`[file-ops] ${label} 失敗`);
+    pushToast(`${isCut ? "移動" : "コピー"} 失敗`, "error");
   }
   ctx.refetch();
 }
