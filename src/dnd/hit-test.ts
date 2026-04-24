@@ -37,9 +37,10 @@ export function hitTest(x: number, y: number): DropTarget {
   } else if (paneEl) {
     destPath = paneEl.dataset.rdPanePath ?? null;
   }
-  return {
+  const result: DropTarget = {
     paneId,
     destPath,
     folderName: folderRow?.dataset.rdName ?? null,
   };
+  return result;
 }

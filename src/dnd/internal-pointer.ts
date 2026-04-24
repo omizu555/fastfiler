@@ -33,6 +33,7 @@ let pointerCand: PointerCandidate | null = null;
 let pointerActive = false;
 let osDragLaunched = false;
 let installed = false;
+let lastMoveSig = "";
 
 function endPointerDrag(): void {
   pointerCand = null;
@@ -42,6 +43,7 @@ function endPointerDrag(): void {
     clearExtDragOver();
   }
   osDragLaunched = false;
+  lastMoveSig = "";
 }
 
 function updateCursor(ctrl: boolean): void {
@@ -53,14 +55,23 @@ function onMouseDownCapture(ev: MouseEvent): void {
   const target = ev.target as HTMLElement | null;
   if (!target) return;
   const row = target.closest("tr[data-rd-name]") as HTMLElement | null;
-  if (!row) return;
+  if (!row) {
+    // ログは過剰になるので row 不在は出さない
+    return;
+  }
   const paneEl = target.closest("[data-pane-id]") as HTMLElement | null;
-  if (!paneEl) return;
+  if (!paneEl) {
+    console.info("[dnd] mousedown: row found but no [data-pane-id] ancestor");
+    return;
+  }
   const panePath = row.dataset.rdPanePath ?? paneEl.dataset.rdPanePath;
   const paneId = paneEl.dataset.paneId;
   const name = row.dataset.rdName;
-  if (!panePath || !paneId || !name) return;
-  // 現選択を取得 (リアクティブは不要、一回読みで十分)
+  console.info("[dnd] mousedown candidate", { paneId, panePath, name, sel: state.panes[paneId ?? ""]?.selection });
+  if (!panePath || !paneId || !name) {
+    console.warn("[dnd] mousedown: missing dataset", { panePath, paneId, name });
+    return;
+  }
   const pane = state.panes[paneId];
   let sel = pane?.selection ?? [];
   if (!sel.includes(name)) sel = [name];
@@ -82,40 +93,61 @@ function onMouseMove(ev: MouseEvent): void {
   const dy = ev.clientY - pointerCand.startY;
   if (!pointerActive) {
     if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD_PX) return;
-    // 閾値超過 → ドラッグ確定
     if (ev.shiftKey) {
-      // Shift → OS ドラッグへ移行
+      console.info("[dnd] threshold exceeded with Shift → oleStartDrag", pointerCand.paths);
       osDragLaunched = true;
       const cand = pointerCand;
       pointerCand = null;
       pointerActive = false;
-      void oleStartDrag(cand.paths, 0x7).catch((err) =>
-        console.warn("[internal-pointer] oleStartDrag failed:", err),
-      );
+      void oleStartDrag(cand.paths, 0x7)
+        .then(() => console.info("[dnd] oleStartDrag resolved"))
+        .catch((err) => console.warn("[dnd] oleStartDrag failed:", err));
       return;
     }
     pointerActive = true;
+    console.info("[dnd] drag started (internal)", pointerCand.paths);
   }
   updateCursor(ev.ctrlKey);
   const hit = hitTest(ev.clientX, ev.clientY);
+  // mousemove ログは多すぎるので、ペイン/フォルダが変わった時だけ出す
+  const sig = `${hit.paneId ?? ""}|${hit.folderName ?? ""}|${hit.destPath ?? ""}`;
+  if (sig !== lastMoveSig) {
+    console.info("[dnd] move hit changed", { x: ev.clientX, y: ev.clientY, ...hit });
+    lastMoveSig = sig;
+  }
   if (hit.paneId) setExtDragOver(hit.paneId, hit.folderName);
   else clearExtDragOver();
 }
 
 async function onMouseUp(ev: MouseEvent): Promise<void> {
-  if (!pointerCand) return;
+  if (!pointerCand) {
+    return;
+  }
   const cand = pointerCand;
   const wasActive = pointerActive;
   endPointerDrag();
-  if (!wasActive) return; // クリック相当: 何もしない
+  console.info("[dnd] mouseup", { wasActive, x: ev.clientX, y: ev.clientY });
+  if (!wasActive) return;
   const hit = hitTest(ev.clientX, ev.clientY);
-  if (!hit.destPath) return;
-  // 同一ペイン空白に drop (= 元の親ディレクトリと同じ) → no-op
+  console.info("[dnd] mouseup hit", hit);
+  if (!hit.destPath) {
+    // 詳細: その地点の elementsFromPoint を出して原因を見る
+    const els = document.elementsFromPoint(ev.clientX, ev.clientY) as HTMLElement[];
+    console.warn("[dnd] mouseup: no destPath, drop cancelled. elementsFromPoint:",
+      els.slice(0, 8).map((e) => ({
+        tag: e.tagName,
+        cls: (e.className as unknown as { toString?: () => string })?.toString?.() ?? "",
+        ds: { ...e.dataset },
+      })),
+    );
+    return;
+  }
   if (
     !hit.folderName &&
     hit.destPath === cand.sourcePath &&
     hit.paneId === cand.sourcePaneId
   ) {
+    console.info("[dnd] drop on same pane blank → no-op");
     return;
   }
   const op = decideOp({
@@ -124,6 +156,7 @@ async function onMouseUp(ev: MouseEvent): Promise<void> {
     srcPaths: cand.paths,
     dstPath: hit.destPath,
   });
+  console.info("[dnd] performDrop", { op, paths: cand.paths, dest: hit.destPath, sourceDir: cand.sourcePath, targetPaneId: hit.paneId ?? cand.sourcePaneId });
   await performDrop({
     paths: cand.paths,
     destPath: hit.destPath,
@@ -132,6 +165,7 @@ async function onMouseUp(ev: MouseEvent): Promise<void> {
     targetPaneId: hit.paneId ?? cand.sourcePaneId,
     logTag: "[internal-drop]",
   });
+  console.info("[dnd] performDrop done");
 }
 
 function onKeyDown(ev: KeyboardEvent): void {
