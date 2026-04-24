@@ -41,25 +41,38 @@ function save(v: SavedWindow): void {
   } catch {/* ignore */}
 }
 
-/** 起動時に呼ぶ。前回保存があれば適用する。 */
+/** 起動時に呼ぶ。前回保存があれば適用する。常に最後に show() する。 */
 export async function applySavedWindow(): Promise<void> {
   const v = loadSavedWindow();
   console.info("[window-state] applySavedWindow", v);
-  if (!v) return;
+  let winMod: typeof import("@tauri-apps/api/window") | null = null;
   try {
-    const winMod = await import("@tauri-apps/api/window");
+    winMod = await import("@tauri-apps/api/window");
     const dpiMod = await import("@tauri-apps/api/dpi");
     const w = winMod.getCurrentWindow();
-    if (v.maximized) {
-      await w.maximize();
-      console.info("[window-state] maximized restored");
-      return;
+    if (v) {
+      if (v.maximized) {
+        await w.maximize();
+        console.info("[window-state] maximized restored");
+      } else {
+        await w.setPosition(new dpiMod.PhysicalPosition(v.x, v.y));
+        await w.setSize(new dpiMod.PhysicalSize(v.width, v.height));
+        console.info("[window-state] position/size restored");
+      }
     }
-    await w.setPosition(new dpiMod.PhysicalPosition(v.x, v.y));
-    await w.setSize(new dpiMod.PhysicalSize(v.width, v.height));
-    console.info("[window-state] position/size restored");
   } catch (err) {
     console.warn("[window-state] applySavedWindow failed", err);
+  }
+  // ちらつき防止: 位置適用後に表示
+  try {
+    if (winMod) {
+      const w = winMod.getCurrentWindow();
+      await w.show();
+      try { await w.setFocus(); } catch {/* ignore */}
+      console.info("[window-state] window shown");
+    }
+  } catch (err) {
+    console.warn("[window-state] show failed", err);
   }
 }
 

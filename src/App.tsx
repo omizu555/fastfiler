@@ -44,7 +44,7 @@ import {
 } from "./dnd";
 import { matchKey } from "./hotkeys";
 import { performUndo } from "./undo";
-import { applySavedWindow, captureAndSaveWindow } from "./window-state";
+import { captureAndSaveWindow } from "./window-state";
 import type { DockSlot, PanelId } from "./types";
 
 function PanelById(props: { id: PanelId }) {
@@ -113,8 +113,6 @@ export default function App() {
 
   onMount(async () => {
     ensureRightDragInstalled();
-    // v1.9: 前回ウインドウ位置 / サイズを復元 (なるべく初期描画前に)
-    void applySavedWindow();
     // アプリ内 D&D (pointer 自前) と外部 D&D (OLE / WebView2) を install
     unlistens.push(installInternalPointerDnd());
     try {

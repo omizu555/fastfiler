@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import { createEffect } from "solid-js";
 import App from "./App";
 import { state, activeLeafPaneId, togglePaneSearchFocused } from "./store";
+import { applySavedWindow } from "./window-state";
 import "./styles.css";
 
 // v1.7.1: WebView2 標準 Find ダイアログを抑止し Ctrl+F を必ずアプリ側で処理
@@ -62,6 +63,9 @@ mql.addEventListener("change", () => {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root not found");
+// v1.9: 前回ウインドウ位置/サイズを適用してから表示し render する
+//       (visible:false で起動 → applySavedWindow 内で show() を呼ぶ)
+void applySavedWindow();
 render(() => <App />, root);
 
 
