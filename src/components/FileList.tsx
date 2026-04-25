@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createResource, createEffect, createSignal, on, onCleanup } from "solid-js";
 import { listDir, listDirs, watchDir, unwatchDir, listenFsChange, formatSize, formatDate, openWithShell, diskFree, shellMenuShow } from "../fs";
+import { getCachedListing, setCachedListing } from "../dir-cache";
 import { breadcrumbsOf, joinPath, parentPath } from "../path-util";
 import { sortFileEntries } from "../file-list/sort";
 import { broadcastPluginEvent } from "../plugin-host";
@@ -112,7 +113,17 @@ export default function FileList(props: Props) {
     () => ({ path: pane().path, k: refreshKey(), g: refreshTickFor(pane().path) }),
     async (s) => {
       const list = await listDir(s.path);
+      // v1.10: キャッシュへ保存 (生のリストを保存し、表示時に hidden filter する)
+      setCachedListing(s.path, list);
       return state.showHidden ? list : list.filter((e) => !e.hidden);
+    },
+    {
+      // v1.10: 起動時/フォルダ移動時の体感速度向上のため、キャッシュがあれば即時描画する
+      initialValue: (() => {
+        const cached = getCachedListing(pane().path);
+        if (!cached) return undefined;
+        return state.showHidden ? cached : cached.filter((e) => !e.hidden);
+      })(),
     },
   );
 

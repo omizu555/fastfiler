@@ -6,18 +6,20 @@ import {
   onMount,
   onCleanup,
   For,
+  lazy,
 } from "solid-js";
 import VerticalTabs from "./components/VerticalTabs";
 import PaneTree from "./components/PaneTree";
-import SettingsDialog from "./components/SettingsDialog";
-import PreviewPane from "./components/PreviewPane";
-import PluginPanel from "./components/PluginPanel";
-import TerminalPanel from "./components/TerminalPanel";
+// v1.10: 起動時間短縮のため重い/条件付き表示のコンポーネントは lazy load
+const SettingsDialog = lazy(() => import("./components/SettingsDialog"));
+const PreviewPane = lazy(() => import("./components/PreviewPane"));
+const PluginPanel = lazy(() => import("./components/PluginPanel"));
+const TerminalPanel = lazy(() => import("./components/TerminalPanel"));
+const WorkspaceTreePanel = lazy(() => import("./components/WorkspaceTreePanel"));
 import StatusBarToast from "./components/StatusBarToast";
 import StatusBarJobs from "./components/StatusBarJobs";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
-import WorkspaceTreePanel from "./components/WorkspaceTreePanel";
 import PromptDialog from "./components/PromptDialog";
 import {
   state,
@@ -265,6 +267,13 @@ export default function App() {
             console.error("[close-hook] flushPersistImmediate failed", err);
           }
           try {
+            const { flushDirCacheImmediate } = await import("./dir-cache");
+            flushDirCacheImmediate();
+            console.info("[close-hook] flushDirCacheImmediate ok");
+          } catch (err) {
+            console.error("[close-hook] flushDirCacheImmediate failed", err);
+          }
+          try {
             await captureAndSaveWindow();
           } catch (err) {
             console.error("[close-hook] captureAndSaveWindow failed", err);
@@ -339,7 +348,9 @@ export default function App() {
         </div>
         <DockArea slot="bottom" />
       </div>
-      <TerminalPanel />
+      <Show when={state.showTerminal}>
+        <TerminalPanel />
+      </Show>
       <footer class="app-statusbar">
         <span class="muted statusbar-logo">⚡ FastFiler</span>
         <StatusBarToast />
@@ -361,10 +372,12 @@ export default function App() {
           ⚙
         </button>
       </footer>
-      <SettingsDialog
-        open={settingsOpen()}
-        onClose={() => setSettingsOpen(false)}
-      />
+      <Show when={settingsOpen()}>
+        <SettingsDialog
+          open={settingsOpen()}
+          onClose={() => setSettingsOpen(false)}
+        />
+      </Show>
       <PromptDialog />
       <RightDragOverlay />
     </div>
