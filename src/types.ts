@@ -107,8 +107,31 @@ export interface PluginStatus {
 
 export type ThemeMode = "system" | "dark" | "light";
 
+// v1.11: テーマ プリセット (CSS 変数セット)
+export type ThemePresetId =
+  | "default"
+  | "dracula"
+  | "solarizedDark"
+  | "solarizedLight"
+  | "nord"
+  | "monokai"
+  | "githubLight"
+  | "githubDark"
+  | "tokyoNight"
+  | "gruvboxDark";
+
 // v3.3: アイコンセット
 export type IconSet = "emoji" | "minimal" | "colored";
+
+// v1.11: アイコン パック (拡張子別アイコン)
+export type IconPackId = "default" | "emoji" | "material" | "vscode" | "mono";
+
+// v1.11: 新規ファイル ユーザー定義テンプレート
+export interface TemplateInfo {
+  name: string;
+  path: string;
+  ext?: string | null;
+}
 
 // v2.0: プラグインが登録可能なコンテキストメニュー項目
 export interface PluginContextMenuItem {

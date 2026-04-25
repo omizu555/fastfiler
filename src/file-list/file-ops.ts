@@ -10,6 +10,7 @@ import {
   bumpRefreshPaths,
   bumpRefreshPath,
   pushToast,
+  setPaneSelection,
 } from "../store";
 import { joinPath } from "../path-util";
 import {
@@ -199,5 +200,61 @@ export async function exportAsciiTree(rootPath: string) {
     await navigator.clipboard.writeText(text);
   } catch (e) {
     alert(`クリップボードコピー失敗: ${e}\n\n${text}`);
+  }
+}
+
+// v1.11: 新規ファイル (内蔵テンプレ or ユーザーテンプレから作成 → リネーム促す)
+import { createBuiltin, createFromTemplate, type BuiltinTemplate } from "../templates";
+import type { TemplateInfo } from "../types";
+import { invalidNameMessage as _invalidName } from "./name-utils";
+
+export async function doNewFileBuiltin(ctx: FileOpsCtx, t: BuiltinTemplate) {
+  try {
+    const created = await createBuiltin(t, ctx.pane().path);
+    await afterCreateFile(ctx, created);
+  } catch (e) {
+    alert(`作成失敗: ${e}`);
+  }
+}
+
+export async function doNewFileFromTemplate(ctx: FileOpsCtx, tpl: TemplateInfo) {
+  try {
+    const created = await createFromTemplate(tpl.path, ctx.pane().path);
+    await afterCreateFile(ctx, created);
+  } catch (e) {
+    alert(`作成失敗: ${e}`);
+  }
+}
+
+async function afterCreateFile(ctx: FileOpsCtx, createdPath: string) {
+  bumpRefreshPath(ctx.pane().path);
+  ctx.refetch();
+  // 作成ファイル名を抽出して選択
+  const name = createdPath.split(/[\\/]/).pop() ?? "";
+  if (!name) return;
+  setPaneSelection(ctx.pane().id, [name]);
+  // 短い遅延後に rename ダイアログ
+  await new Promise((r) => setTimeout(r, 50));
+  const existing = new Set(ctx.visible().map((e) => e.name));
+  existing.delete(name);
+  const newName = await openPrompt({
+    title: "名前の変更",
+    label: name,
+    initial: name,
+    confirmLabel: "変更",
+    validate: (v) => _invalidName(v, existing),
+  });
+  if (newName && newName !== name) {
+    const from = joinPath(ctx.pane().path, name);
+    const to = joinPath(ctx.pane().path, newName);
+    try {
+      await renamePath(from, to);
+      pushUndo(`名前変更: ${name} → ${newName}`, [{ kind: "rename", from, to }]);
+      bumpRefreshPath(ctx.pane().path);
+      ctx.refetch();
+      setPaneSelection(ctx.pane().id, [newName]);
+    } catch (e) {
+      alert(`リネーム失敗: ${e}`);
+    }
   }
 }

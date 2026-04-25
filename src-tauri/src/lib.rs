@@ -16,6 +16,7 @@ mod term;
 mod win_shell;
 mod ole_dnd;
 mod win_clipboard;
+mod templates;
 mod error;
 
 pub use error::AppError;
@@ -96,6 +97,11 @@ pub fn run() {
             ole_dnd::ole_dnd_start_drag,
             win_clipboard::clipboard_write_paths,
             win_clipboard::clipboard_read_paths,
+            // templates (v1.11)
+            templates::templates_dir,
+            templates::list_templates,
+            templates::create_empty_file,
+            templates::create_file_from_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

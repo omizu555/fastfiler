@@ -13,9 +13,12 @@ import {
   doDelete,
   doRename,
   doNewFolder,
+  doNewFileBuiltin,
+  doNewFileFromTemplate,
   exportAsciiTree,
   type FileOpsCtx,
 } from "./file-ops";
+import { BUILTIN_TEMPLATES, userTemplates } from "../templates";
 
 export interface BuildMenuCtx extends FileOpsCtx {
   target: FileEntry | null;
@@ -55,6 +58,27 @@ export function buildContextMenu(ctx: BuildMenuCtx): ContextMenuItem[] {
     { separator: true },
     { label: "名前の変更", icon: "✎", shortcut: "F2", disabled: !single, onClick: () => { void doRename(ctx); } },
     { label: "新規フォルダ", icon: "📁", shortcut: "Ctrl+Shift+N", onClick: () => { void doNewFolder(ctx); } },
+    {
+      label: "新規ファイル",
+      icon: "📄",
+      submenu: [
+        ...BUILTIN_TEMPLATES.map((t) => ({
+          label: t.label,
+          icon: t.icon ?? "📄",
+          onClick: () => { void doNewFileBuiltin(ctx, t); },
+        })),
+        ...(userTemplates().length > 0
+          ? [
+              { separator: true } as ContextMenuItem,
+              ...userTemplates().map((t) => ({
+                label: t.name,
+                icon: "🧩",
+                onClick: () => { void doNewFileFromTemplate(ctx, t); },
+              })),
+            ]
+          : []),
+      ],
+    },
     { separator: true },
     {
       label: "ツリーをコピー (ASCII)", icon: "🌳",

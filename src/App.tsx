@@ -129,6 +129,11 @@ export default function App() {
     } catch {
       /* ignore */
     }
+    // v1.11: 新規ファイル ユーザーテンプレ一覧をロード
+    try {
+      const { refreshUserTemplates } = await import("./templates");
+      void refreshUserTemplates();
+    } catch {/* ignore */}
     const onKey = (e: KeyboardEvent) => {
       const hk = state.hotkeys;
       if (matchKey(hk["open-settings"], e)) {

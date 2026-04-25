@@ -12,7 +12,19 @@ use crate::error::{AppError, AppResult};
 pub fn open_with_shell(path: String) -> AppResult<()> {
     #[cfg(windows)]
     {
-        win::shell_exec("open", &path, None)
+        // ディスクイメージ (iso/img/vhd/vhdx) は "mount" verb を使用し
+        // Windows エクスプローラと同じ「マウント」挙動にする (Win8 以降)。
+        // それ以外は従来通り "open" verb を使用。
+        let ext = std::path::Path::new(&path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        let verb = match ext.as_str() {
+            "iso" | "img" | "vhd" | "vhdx" => "mount",
+            _ => "open",
+        };
+        win::shell_exec(verb, &path, None)
     }
     #[cfg(not(windows))]
     {
