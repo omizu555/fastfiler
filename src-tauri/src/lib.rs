@@ -142,6 +142,7 @@ pub fn run() {
             shell_assoc::shell_assoc_status,
             shell_assoc::shell_assoc_enable,
             shell_assoc::shell_assoc_disable,
+            shell_assoc::shell_assoc_diagnose,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

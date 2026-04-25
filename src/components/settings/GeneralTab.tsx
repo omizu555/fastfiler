@@ -378,6 +378,17 @@ export default function GeneralTab(props: Props) {
           />
           フォルダ既定ハンドラとして登録 (Excel リンク等を新規タブで開く)
         </label>
+        <button
+          class="ghost"
+          style={{ "margin-left": "8px" }}
+          onClick={async () => {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              const out = await invoke<string>("shell_assoc_diagnose");
+              alert(out);
+            } catch (e) { alert(`診断失敗: ${e}`); }
+          }}
+        >🔍 診断</button>
       </div>
       <div class="setting-row" style={{ "margin-top": "-8px" }}>
         <span></span>
