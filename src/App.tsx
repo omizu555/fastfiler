@@ -134,6 +134,23 @@ export default function App() {
       const { refreshUserTemplates } = await import("./templates");
       void refreshUserTemplates();
     } catch {/* ignore */}
+    // v1.12: シェル統合 — 起動引数 / 二重起動の argv → 新規タブ
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      const { addOrFocusTab } = await import("./store");
+      // 初回起動時の argv (cli から渡されたディレクトリ)
+      const init = await invoke<string | null>("cli_initial_path").catch(() => null);
+      if (init && typeof init === "string") {
+        addOrFocusTab(init);
+      }
+      // 2 個目のプロセスから転送された argv
+      const un = await listen<string>("ff://open-path", (ev) => {
+        const p = ev.payload;
+        if (p && typeof p === "string") addOrFocusTab(p);
+      });
+      unlistens.push(un);
+    } catch {/* ignore */}
     const onKey = (e: KeyboardEvent) => {
       const hk = state.hotkeys;
       if (matchKey(hk["open-settings"], e)) {

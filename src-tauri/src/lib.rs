@@ -17,19 +17,49 @@ mod win_shell;
 mod ole_dnd;
 mod win_clipboard;
 mod templates;
+mod shell_assoc;
 mod error;
 
 pub use error::AppError;
 
-use tauri::Manager;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager};
+
+/// v1.12: 起動引数で渡されたフォルダパスを保持 (フロントが onMount で取得)
+#[derive(Default)]
+pub struct InitialPath(pub Mutex<Option<String>>);
+
+/// argv からディレクトリ パスらしき引数を抽出 (最初に見つかった有効なディレクトリ)
+fn extract_dir_arg(args: &[String]) -> Option<String> {
+    // args[0] は実行ファイル パス
+    for a in args.iter().skip(1) {
+        if a.starts_with('-') {
+            continue;
+        }
+        let p = std::path::Path::new(a);
+        if p.is_dir() {
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn cli_initial_path(state: tauri::State<'_, InitialPath>) -> Option<String> {
+    state.0.lock().ok().and_then(|mut g| g.take())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+            }
+            // v1.12: 2 個目以降のプロセスから受け取った引数 → 新規タブで開く
+            if let Some(dir) = extract_dir_arg(&args) {
+                let _ = app.emit("ff://open-path", dir);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -38,6 +68,11 @@ pub fn run() {
             app.manage(watcher_state);
             app.manage(search::SearchState::default());
             app.manage(file_jobs::JobRegistry::default());
+            // v1.12: 初回起動時の argv を保存 (フロント onMount → cli_initial_path で取得)
+            let initial = InitialPath(Mutex::new(
+                extract_dir_arg(&std::env::args().collect::<Vec<_>>()),
+            ));
+            app.manage(initial);
             term::register(app.handle());
             ole_dnd::register(app.handle());
             Ok(())
@@ -102,6 +137,11 @@ pub fn run() {
             templates::list_templates,
             templates::create_empty_file,
             templates::create_file_from_template,
+            // v1.12: シェル統合
+            cli_initial_path,
+            shell_assoc::shell_assoc_status,
+            shell_assoc::shell_assoc_enable,
+            shell_assoc::shell_assoc_disable,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

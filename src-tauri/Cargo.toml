@@ -34,6 +34,7 @@ portable-pty = "0.8"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 windows-core = "0.58"
 windows-implement = "0.58"
 windows = { version = "0.58", features = [

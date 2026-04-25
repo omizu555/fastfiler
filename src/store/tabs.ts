@@ -27,6 +27,30 @@ export function addTab(path = "C:\\") {
   persist();
 }
 
+/**
+ * v1.12: 同一パスのタブが既にあれば そちらをアクティブ化、なければ新規追加。
+ * シェル統合 (Excel リンクなど外部からフォルダを開く場合) で重複防止。
+ */
+export function addOrFocusTab(path: string) {
+  const norm = path.replace(/[/\\]+$/g, "").toLowerCase();
+  for (const tab of state.tabs) {
+    const ids: string[] = [];
+    collectPaneIds(tab.rootPane, ids);
+    for (const pid of ids) {
+      const p = state.panes[pid]?.path?.replace(/[/\\]+$/g, "").toLowerCase();
+      if (p === norm) {
+        batch(() => {
+          setState("activeTabId", tab.id);
+          setState("focusedPaneId", pid);
+        });
+        persist();
+        return;
+      }
+    }
+  }
+  addTab(path);
+}
+
 export function closeTab(tabId: string) {
   const tab = state.tabs.find((t) => t.id === tabId);
   if (tab?.locked) return; // ロック中は全経路で閉じない

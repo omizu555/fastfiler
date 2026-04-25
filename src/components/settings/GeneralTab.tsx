@@ -1,5 +1,5 @@
 // 設定: 基本タブ (テーマ/アクセント/アイコン/タブ列数/隠しファイル/サムネ/ターミナル/ワークスペース配置)
-import { For, Show, createResource } from "solid-js";
+import { For, Show, createResource, createSignal, onMount } from "solid-js";
 import {
   state,
   setTheme,
@@ -34,6 +34,33 @@ interface Props {
 export default function GeneralTab(props: Props) {
   const [fonts] = createResource(() => loadSystemFonts());
   const fontList = () => fonts() ?? fallbackFonts();
+
+  // v1.12: シェル統合 (フォルダ既定ハンドラ)
+  const [shellAssoc, setShellAssoc] = createSignal(false);
+  const [shellAssocBusy, setShellAssocBusy] = createSignal(false);
+  const refreshShellAssoc = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const v = await invoke<boolean>("shell_assoc_status");
+      setShellAssoc(!!v);
+    } catch {/* ignore */}
+  };
+  onMount(() => { void refreshShellAssoc(); });
+  const toggleShellAssoc = async (enable: boolean) => {
+    setShellAssocBusy(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      if (enable) await invoke("shell_assoc_enable");
+      else await invoke("shell_assoc_disable");
+      await refreshShellAssoc();
+    } catch (e) {
+      alert(`シェル統合の切替に失敗しました: ${e}`);
+      await refreshShellAssoc();
+    } finally {
+      setShellAssocBusy(false);
+    }
+  };
+
   return (
     <>
       <div class="setting-row">
@@ -339,6 +366,25 @@ export default function GeneralTab(props: Props) {
           />
           縦/横に積み重ねる (OFF: 並列で 3 列表示)
         </label>
+      </div>
+      <div class="setting-row">
+        <label>シェル統合 (実験的)</label>
+        <label class="inline">
+          <input
+            type="checkbox"
+            checked={shellAssoc()}
+            disabled={shellAssocBusy()}
+            onChange={(e) => { void toggleShellAssoc(e.currentTarget.checked); }}
+          />
+          フォルダ既定ハンドラとして登録 (Excel リンク等を新規タブで開く)
+        </label>
+      </div>
+      <div class="setting-row" style={{ "margin-top": "-8px" }}>
+        <span></span>
+        <small class="muted">
+          ⚠ ON にすると、デスクトップやエクスプローラのフォルダ ダブルクリックも FastFiler が開きます。
+          OFF で Windows 標準の動作に戻ります (HKCU スコープ・管理者権限不要)。
+        </small>
       </div>
       <Show when={false}><></></Show>
     </>

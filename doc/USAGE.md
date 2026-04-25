@@ -647,6 +647,23 @@ ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, is
 | プラグインフォルダ | WebView プラグインを置くパス |
 | UI フォント / サイズ | 即時反映、システムフォントから選択可 |
 | ターミナルフォント / サイズ | 次回セッションから反映 |
+| シェル統合 (実験的・v1.12) | フォルダ既定ハンドラとして登録 ON/OFF (詳細は §12.5) |
+
+### 12.5 シェル統合 (フォルダ既定ハンドラ) — v1.12
+
+設定タブ「基本」末尾の **「フォルダ既定ハンドラとして登録」** チェックを ON にすると、Excel のハイパーリンクや他アプリからフォルダパスを開く操作 (`ShellExecute("open", folder)`) が **FastFiler の新規タブ** で受け取れるようになります。
+
+**動作**
+- 既に FastFiler が起動中 → 新規タブとして指定フォルダが追加され、ウィンドウが前面化されます
+- 起動していない → FastFiler が起動し、初期タブとして指定フォルダを開きます
+- 既に同じパスのタブがある → 重複追加せず、そのタブをアクティブ化
+- コマンドラインからも `fastfiler.exe D:\work` で同様に開けます
+
+**注意 (重要)**
+- ON にすると **デスクトップやエクスプローラ内のフォルダ ダブルクリックも FastFiler が開きます**。Windows 側でアプリ別の区別はできません
+- レジストリは `HKCU\Software\Classes\Folder\shell\open\command` と `Directory\shell\open\command` に書き込みます (HKCU スコープ・管理者権限不要)
+- OFF に戻せば Windows 標準のエクスプローラ動作に復帰します
+- **FastFiler をアンインストール / 移動する前に必ず OFF にしてください** (登録 exe パスが残ったままだとフォルダが開けなくなります)
 
 ### 12.2 連動タブ
 
@@ -759,6 +776,8 @@ ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, is
 | UI フォント候補が少ない | `queryLocalFonts()` の許可ダイアログを許可する。拒否時は curated fallback のみ |
 | プラグイン iframe が真っ白 / 「ff is not defined」 | `sdk.js` を `%APPDATA%\fastfiler\plugins\` 直下に置き、各プラグインから `../sdk.js` で参照しているか確認 |
 | プラグインの右クリックメニューが出ない | プラグインを ✅ 有効化 + 行クリックでアクティブ化されているか確認 |
+| シェル統合 ON 後、フォルダが開けなくなった (v1.12) | FastFiler.exe の場所が変わった可能性。設定 → シェル統合を一度 OFF → ON し直して再登録 |
+| FastFiler をアンインストールしたい (v1.12) | **必ず先に** 設定 → シェル統合を OFF にしてから削除してください (古い exe パスがレジストリに残るとフォルダが開けなくなります) |
 
 ---
 
