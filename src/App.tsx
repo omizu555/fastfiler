@@ -21,6 +21,7 @@ import StatusBarJobs from "./components/StatusBarJobs";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
 import PromptDialog from "./components/PromptDialog";
+import { isAnyLoading } from "./loading-state";
 import {
   state,
   setInitialPath,
@@ -353,6 +354,9 @@ export default function App() {
       </Show>
       <footer class="app-statusbar">
         <span class="muted statusbar-logo">⚡ FastFiler</span>
+        <Show when={isAnyLoading()}>
+          <span class="statusbar-loading">読み込み中...</span>
+        </Show>
         <StatusBarToast />
         <StatusBarJobs />
         <span class="spacer" />

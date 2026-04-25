@@ -1055,8 +1055,10 @@ button.primary:hover {
     font-size: 13px;
 }
 .settings-tabs button.active {
-    color: #fff;
-    border-bottom-color: #4ea1ff;
+    color: var(--fg);
+    background: var(--bg);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
 }
 .settings-tabs button:hover {
     background: var(--border);
@@ -1633,13 +1635,17 @@ button.primary:hover {
     border-radius: 3px;
     max-width: 200px;
     overflow: hidden;
+    color: var(--fg-dim);
 }
 .terminal-tab:hover {
     background: var(--hover);
+    color: var(--fg);
 }
 .terminal-tab.active {
-    background: var(--selected);
+    background: var(--bg);
     color: var(--fg);
+    font-weight: 600;
+    border-bottom: 2px solid var(--accent);
 }
 .terminal-tab-close {
     background: transparent;
@@ -1720,6 +1726,16 @@ button.primary:hover {
 .statusbar-logo {
     font-weight: 600;
     letter-spacing: 0.3px;
+}
+.statusbar-loading {
+    color: var(--accent);
+    font-size: 11px;
+    padding: 0 6px;
+    animation: ff-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ff-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
 }
 .statusbar-btn {
     background: transparent;
