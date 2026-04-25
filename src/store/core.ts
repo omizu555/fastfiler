@@ -71,6 +71,8 @@ export interface AppState {
   paneUi: Record<string, PaneUiState>;
   workspace: WorkspaceState;
   theme: import("../types").ThemeMode;
+  themePreset: import("../types").ThemePresetId;
+  iconPack: import("../types").IconPackId;
   accentColor: string | null;
   iconSet: import("../types").IconSet;
   plugins: { enabled: Record<string, boolean> };
@@ -134,6 +136,8 @@ function loadInitial(): AppState | null {
       }
     }
     if (!v.theme) v.theme = "system";
+    if (!v.themePreset) v.themePreset = "default";
+    if (!v.iconPack) v.iconPack = "default";
     if (v.accentColor === undefined) v.accentColor = null;
     if (!v.iconSet) v.iconSet = "emoji";
     if (!Array.isArray(v.presets)) v.presets = [];
@@ -194,6 +198,8 @@ function freshState(initialPath: string): AppState {
     paneUi: { [paneId]: defaultPaneUi() },
     workspace: defaultWorkspace(),
     theme: "system",
+    themePreset: "default",
+    iconPack: "default",
     accentColor: null,
     iconSet: "emoji",
     plugins: { enabled: {} },

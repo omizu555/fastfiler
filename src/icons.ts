@@ -1,6 +1,7 @@
-// v3.3: アイコンセット
-import type { IconSet } from "./types";
+// v3.3: アイコンセット (+ v1.11 アイコンパック)
+import type { IconSet, IconPackId } from "./types";
 import type { FileEntry } from "./types";
+import { iconForEntryPack } from "./icon-packs";
 
 const COLORED_EXT_MAP: Record<string, string> = {
   // 画像
@@ -21,12 +22,18 @@ const COLORED_EXT_MAP: Record<string, string> = {
   exe: "⚙", msi: "⚙", dll: "⚙", app: "⚙", deb: "⚙", rpm: "⚙",
 };
 
-export function iconForEntry(e: { kind: string; ext?: string | null }): string {
-  const set = (typeof window !== "undefined" && (window as any).__ff?.state?.iconSet) as IconSet | undefined;
-  return iconForEntryWith(e, set ?? "emoji");
+export function iconForEntry(e: { kind: string; ext?: string | null; name?: string }): string {
+  const st = (typeof window !== "undefined" && (window as any).__ff?.state) as
+    | { iconSet?: IconSet; iconPack?: IconPackId }
+    | undefined;
+  const pack = st?.iconPack ?? "default";
+  if (pack !== "default") return iconForEntryPack(e, pack);
+  return iconForEntryWith(e, st?.iconSet ?? "emoji");
 }
 
-export function iconForEntryWith(e: { kind: string; ext?: string | null }, set: IconSet): string {
+export function iconForEntryWith(e: { kind: string; ext?: string | null; name?: string }, set: IconSet, pack?: IconPackId): string {
+  // v1.11: pack 指定があれば優先
+  if (pack && pack !== "default") return iconForEntryPack(e, pack);
   if (e.kind === "dir") {
     if (set === "minimal") return "▸";
     if (set === "colored") return "📁";
@@ -41,6 +48,6 @@ export function iconForEntryWith(e: { kind: string; ext?: string | null }, set: 
 }
 
 // FileEntry 互換ヘルパ (Thumbnail フォールバック用)
-export function fallbackIcon(entry: Pick<FileEntry, "kind" | "ext">, set: IconSet): string {
-  return iconForEntryWith(entry as { kind: string; ext?: string | null }, set);
+export function fallbackIcon(entry: Pick<FileEntry, "kind" | "ext" | "name">, set: IconSet, pack?: IconPackId): string {
+  return iconForEntryWith(entry as { kind: string; ext?: string | null; name?: string }, set, pack);
 }

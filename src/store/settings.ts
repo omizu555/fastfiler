@@ -1,5 +1,5 @@
 import { batch } from "solid-js";
-import type { HotkeyAction, IconSet, LinkChannel, ThemeMode } from "../types";
+import type { HotkeyAction, IconPackId, IconSet, LinkChannel, ThemeMode, ThemePresetId } from "../types";
 import { defaultHotkeys } from "../hotkeys";
 import { state, setState, persist, loaded } from "./core";
 
@@ -54,6 +54,8 @@ export function setEverythingScope(v: boolean) {
 export function setTheme(t: ThemeMode) { setState("theme", t); persist(); }
 export function setAccentColor(c: string | null) { setState("accentColor", c); persist(); }
 export function setIconSet(s: IconSet) { setState("iconSet", s); persist(); }
+export function setThemePreset(p: ThemePresetId) { setState("themePreset", p); persist(); }
+export function setIconPack(p: IconPackId) { setState("iconPack", p); persist(); }
 
 export function setFileListColWidth(paneId: string, col: "name" | "size" | "mtime" | "kind", percent: number) {
   // 各列の最小%は 5、最大は 90 (他列が押し潰されすぎないよう)

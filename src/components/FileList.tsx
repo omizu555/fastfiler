@@ -747,13 +747,13 @@ export default function FileList(props: Props) {
                     <td>
                       <Show
                         when={state.showThumbnails && shouldThumb(e.ext)}
-                        fallback={<span class="icon">{iconForEntryWith(e, state.iconSet)}</span>}
+                        fallback={<span class="icon">{iconForEntryWith(e, state.iconSet, state.iconPack)}</span>}
                       >
                         <Thumbnail
                           path={joinPath(pane().path, e.name)}
                           ext={e.ext}
                           size={48}
-                          fallback={iconForEntryWith(e, state.iconSet)}
+                          fallback={iconForEntryWith(e, state.iconSet, state.iconPack)}
                         />
                       </Show>
                       {e.name}

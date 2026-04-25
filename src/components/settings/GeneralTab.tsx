@@ -5,6 +5,8 @@ import {
   setTheme,
   setAccentColor,
   setIconSet,
+  setThemePreset,
+  setIconPack,
   setTerminalShell,
   setTerminalFont,
   setTerminalFontSize,
@@ -17,6 +19,8 @@ import {
   setHidePaneToolbar,
 } from "../../store";
 import { loadSystemFonts, fallbackFonts } from "../../font-list";
+import { openWithShell } from "../../fs";
+import { templatesDirPath, refreshUserTemplates } from "../../templates";
 
 interface Props {
   columns: number;
@@ -49,6 +53,27 @@ export default function GeneralTab(props: Props) {
             checked={state.theme === "dark"}
             onChange={() => setTheme("dark")} /> 🌙 ダーク
         </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="cfg-theme-preset">テーマ プリセット</label>
+        <select
+          id="cfg-theme-preset"
+          value={state.themePreset}
+          onChange={(e) => setThemePreset(e.currentTarget.value as never)}
+        >
+          <option value="default">既定 (上のテーマに従う)</option>
+          <option value="githubLight">GitHub Light</option>
+          <option value="githubDark">GitHub Dark</option>
+          <option value="solarizedLight">Solarized Light</option>
+          <option value="solarizedDark">Solarized Dark</option>
+          <option value="dracula">Dracula</option>
+          <option value="nord">Nord</option>
+          <option value="monokai">Monokai</option>
+          <option value="tokyoNight">Tokyo Night</option>
+          <option value="gruvboxDark">Gruvbox Dark</option>
+        </select>
+        <small class="muted" style={{ "margin-left": "8px" }}>選択すると配色一式を切替</small>
       </div>
 
       <div class="setting-row">
@@ -85,6 +110,45 @@ export default function GeneralTab(props: Props) {
             checked={state.iconSet === "minimal"}
             onChange={() => setIconSet("minimal")} /> ▸ ミニマル
         </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="cfg-icon-pack">アイコン パック</label>
+        <select
+          id="cfg-icon-pack"
+          value={state.iconPack}
+          onChange={(e) => setIconPack(e.currentTarget.value as never)}
+        >
+          <option value="default">既定 (上のアイコンセットに従う)</option>
+          <option value="emoji">Emoji (リッチ)</option>
+          <option value="material">Material (色ブロック)</option>
+          <option value="vscode">VSCode (Seti 風)</option>
+          <option value="mono">Mono (モノクロ記号)</option>
+        </select>
+        <small class="muted" style={{ "margin-left": "8px" }}>拡張子別アイコン</small>
+      </div>
+
+      <div class="setting-row">
+        <label>新規ファイル テンプレート</label>
+        <button
+          class="ghost"
+          onClick={async () => {
+            try {
+              const p = await templatesDirPath();
+              await openWithShell(p);
+            } catch (e) {
+              alert(`テンプレフォルダを開けませんでした: ${e}`);
+            }
+          }}
+        >📂 テンプレ フォルダを開く</button>
+        <button
+          class="ghost"
+          style={{ "margin-left": "6px" }}
+          onClick={() => { void refreshUserTemplates(); }}
+        >🔄 再読込</button>
+        <small class="muted" style={{ "margin-left": "8px" }}>
+          %APPDATA%\fastfiler\templates にファイルを置くと「新規ファイル」サブメニューに表示
+        </small>
       </div>
 
       <div class="setting-row">

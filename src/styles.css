@@ -1818,3 +1818,123 @@ button.primary:hover {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 2px;
 }
+
+/* === v1.11: テーマ プリセット === */
+/* preset 指定がある場合は light/dark の base を上書きする */
+
+/* Dracula */
+:root[data-theme-preset="dracula"] {
+    --bg: #282a36;
+    --bg2: #21222c;
+    --bg3: #44475a;
+    --fg: #f8f8f2;
+    --fg-dim: #a0a0a8;
+    --accent: #bd93f9;
+    --border: #44475a;
+    --selected: #44475a;
+    color-scheme: dark;
+}
+
+/* Solarized Dark */
+:root[data-theme-preset="solarizedDark"] {
+    --bg: #002b36;
+    --bg2: #073642;
+    --bg3: #0a4351;
+    --fg: #eee8d5;
+    --fg-dim: #93a1a1;
+    --accent: #b58900;
+    --border: #094352;
+    --selected: #073642;
+    color-scheme: dark;
+}
+
+/* Solarized Light */
+:root[data-theme-preset="solarizedLight"] {
+    --bg: #fdf6e3;
+    --bg2: #eee8d5;
+    --bg3: #e0dab2;
+    --fg: #073642;
+    --fg-dim: #586e75;
+    --accent: #b58900;
+    --border: #d8d3c2;
+    --selected: #d8d3c2;
+    color-scheme: light;
+}
+
+/* Nord */
+:root[data-theme-preset="nord"] {
+    --bg: #2e3440;
+    --bg2: #3b4252;
+    --bg3: #434c5e;
+    --fg: #eceff4;
+    --fg-dim: #aab1bd;
+    --accent: #88c0d0;
+    --border: #4c566a;
+    --selected: #434c5e;
+    color-scheme: dark;
+}
+
+/* Monokai */
+:root[data-theme-preset="monokai"] {
+    --bg: #272822;
+    --bg2: #1e1f1c;
+    --bg3: #3e3d32;
+    --fg: #f8f8f2;
+    --fg-dim: #a0a08a;
+    --accent: #a6e22e;
+    --border: #49483e;
+    --selected: #49483e;
+    color-scheme: dark;
+}
+
+/* GitHub Light */
+:root[data-theme-preset="githubLight"] {
+    --bg: #ffffff;
+    --bg2: #f6f8fa;
+    --bg3: #eaeef2;
+    --fg: #1f2328;
+    --fg-dim: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+    --selected: #ddf4ff;
+    color-scheme: light;
+}
+
+/* GitHub Dark */
+:root[data-theme-preset="githubDark"] {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --fg: #e6edf3;
+    --fg-dim: #8b949e;
+    --accent: #2f81f7;
+    --border: #30363d;
+    --selected: #1f6feb33;
+    color-scheme: dark;
+}
+
+/* Tokyo Night */
+:root[data-theme-preset="tokyoNight"] {
+    --bg: #1a1b26;
+    --bg2: #16161e;
+    --bg3: #2a2b3d;
+    --fg: #c0caf5;
+    --fg-dim: #7a82a3;
+    --accent: #7aa2f7;
+    --border: #2a2b3d;
+    --selected: #283457;
+    color-scheme: dark;
+}
+
+/* Gruvbox Dark */
+:root[data-theme-preset="gruvboxDark"] {
+    --bg: #282828;
+    --bg2: #1d2021;
+    --bg3: #3c3836;
+    --fg: #ebdbb2;
+    --fg-dim: #a89984;
+    --accent: #fabd2f;
+    --border: #504945;
+    --selected: #504945;
+    color-scheme: dark;
+}

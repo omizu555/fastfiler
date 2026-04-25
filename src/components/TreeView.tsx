@@ -153,7 +153,7 @@ function TreeNode(props: NodeProps) {
           class="tree-toggle"
           onClick={(e) => { e.stopPropagation(); props.toggle(props.path); }}
         >{isOpen() ? "▾" : "▸"}</span>
-        <span class="tree-icon">{iconForEntryWith({ kind: "dir" }, state.iconSet)}</span>
+        <span class="tree-icon">{iconForEntryWith({ kind: "dir" }, state.iconSet, state.iconPack)}</span>
         <span class="tree-label">{props.label}</span>
       </div>
       <Show when={isOpen()}>

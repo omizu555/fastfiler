@@ -53,6 +53,16 @@ createEffect(() => {
 createEffect(() => {
   document.documentElement.dataset.iconset = state.iconSet;
 });
+
+// v1.11: テーマ プリセット (data-theme-preset で CSS 変数を上書き)
+createEffect(() => {
+  const p = state.themePreset;
+  if (p && p !== "default") {
+    document.documentElement.dataset.themePreset = p;
+  } else {
+    delete document.documentElement.dataset.themePreset;
+  }
+});
 mql.addEventListener("change", () => {
   if (state.theme === "system") {
     const eff = mql.matches ? "light" : "dark";
