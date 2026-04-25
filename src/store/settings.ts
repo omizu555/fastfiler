@@ -55,9 +55,9 @@ export function setTheme(t: ThemeMode) { setState("theme", t); persist(); }
 export function setAccentColor(c: string | null) { setState("accentColor", c); persist(); }
 export function setIconSet(s: IconSet) { setState("iconSet", s); persist(); }
 
-export function setFileListColWidth(col: "name" | "size" | "mtime" | "kind", percent: number) {
+export function setFileListColWidth(paneId: string, col: "name" | "size" | "mtime" | "kind", percent: number) {
   // 各列の最小%は 5、最大は 90 (他列が押し潰されすぎないよう)
   const v = Math.max(5, Math.min(90, percent));
-  setState("fileListColWidths", col, v);
+  setState("paneUi", paneId, "colWidths", col, v);
   persist();
 }

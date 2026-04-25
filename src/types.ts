@@ -254,6 +254,8 @@ export interface PaneUiState {
   sortDir: SortDir;
   // フォルダを常に先頭にまとめる (既定 true)
   foldersFirst: boolean;
+  // v1.9: ファイル一覧の列幅 (% 単位、合計 100)
+  colWidths: { name: number; size: number; mtime: number; kind: number };
 }
 
 export function defaultPaneUi(): PaneUiState {
@@ -267,5 +269,6 @@ export function defaultPaneUi(): PaneUiState {
     sortKey: "name",
     sortDir: "asc",
     foldersFirst: true,
+    colWidths: { name: 50, size: 15, mtime: 25, kind: 10 },
   };
 }
