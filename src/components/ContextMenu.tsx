@@ -38,12 +38,29 @@ export default function ContextMenu(props: Props) {
     queueMicrotask(() => {
       if (!ref) return;
       const rect = ref.getBoundingClientRect();
-      const dx = Math.max(0, rect.right - window.innerWidth + 4);
-      const dy = Math.max(0, rect.bottom - window.innerHeight + 4);
-      if (dx || dy) {
-        ref.style.left = `${props.x - dx}px`;
-        ref.style.top = `${props.y - dy}px`;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const w = rect.width;
+      const h = rect.height;
+      let left = props.x;
+      let top = props.y;
+      // 横: 右にはみ出すならカーソル左側へフリップ
+      if (left + w + 4 > vw) {
+        left = Math.max(4, props.x - w);
       }
+      // 縦: 下にはみ出すならカーソル上側へフリップ。両側とも入らなければ
+      // 上端 4px に貼り付けて縦スクロールを許可
+      if (top + h + 4 > vh) {
+        if (props.y - h >= 4) {
+          top = props.y - h;
+        } else {
+          top = 4;
+          ref.style.maxHeight = `${vh - 8}px`;
+          ref.style.overflowY = "auto";
+        }
+      }
+      ref.style.left = `${left}px`;
+      ref.style.top = `${top}px`;
     });
   });
   onCleanup(() => {
@@ -72,11 +89,17 @@ export default function ContextMenu(props: Props) {
         style.left = "100%";
         style.right = "auto";
       }
-      // 縦: 下にはみ出すなら上揃え (下端を triggerの下端に合わせる)
+      // 縦: 下にはみ出すなら上方向フリップ。両方収まらないなら上端クランプ + スクロール
       if (tRect.top + sRect.height > vh - 4) {
-        // 親 .ctx-item からの相対で、サブメニューの bottom を trigger 高さと揃える
-        style.top = "auto";
-        style.bottom = "-4px";
+        if (tRect.bottom - sRect.height >= 4) {
+          style.top = "auto";
+          style.bottom = "-4px";
+        } else {
+          style.top = `${4 - tRect.top}px`;
+          style.bottom = "auto";
+          style.maxHeight = `${vh - 8}px`;
+          style.overflowY = "auto";
+        }
       } else {
         style.top = "-4px";
         style.bottom = "auto";
