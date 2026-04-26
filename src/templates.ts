@@ -25,19 +25,6 @@ export interface BuiltinTemplate {
 
 export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   { id: "blank", label: "空のファイル", fileName: "新しいファイル", icon: "📄" },
-  { id: "txt", label: "テキスト", fileName: "新しいテキスト.txt", icon: "📝" },
-  { id: "md", label: "Markdown", fileName: "新規ドキュメント.md", icon: "📝", body: "# \n" },
-  { id: "json", label: "JSON", fileName: "新規.json", icon: "📜", body: "{\n  \n}\n" },
-  { id: "yml", label: "YAML", fileName: "新規.yml", icon: "📜" },
-  { id: "html", label: "HTML", fileName: "新規.html", icon: "🌐",
-    body: "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title></title>\n</head>\n<body>\n\n</body>\n</html>\n" },
-  { id: "css", label: "CSS", fileName: "新規.css", icon: "🎨" },
-  { id: "js", label: "JavaScript", fileName: "新規.js", icon: "📜" },
-  { id: "ts", label: "TypeScript", fileName: "新規.ts", icon: "📜" },
-  { id: "py", label: "Python", fileName: "新規.py", icon: "🐍" },
-  { id: "bat", label: "バッチ (.bat)", fileName: "新規.bat", icon: "📜", body: "@echo off\r\n" },
-  { id: "ps1", label: "PowerShell", fileName: "新規.ps1", icon: "📜" },
-  { id: "gitignore", label: ".gitignore", fileName: ".gitignore", icon: "📝" },
 ];
 
 export async function templatesDirPath(): Promise<string> {

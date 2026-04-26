@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 
 export interface ContextMenuItem {
   label?: string;
@@ -20,7 +20,9 @@ interface Props {
 
 export default function ContextMenu(props: Props) {
   let ref: HTMLDivElement | undefined;
+  let subRef: HTMLDivElement | undefined;
   const [openIndex, setOpenIndex] = createSignal<number | null>(null);
+  const [subStyle, setSubStyle] = createSignal<Record<string, string>>({ top: "-4px", left: "100%" });
 
   const onDocClick = (e: MouseEvent) => {
     if (!ref) return;
@@ -47,6 +49,40 @@ export default function ContextMenu(props: Props) {
   onCleanup(() => {
     document.removeEventListener("mousedown", onDocClick, true);
     document.removeEventListener("keydown", onKey);
+  });
+
+  // サブメニューが画面外にはみ出る場合は上方向 / 左方向にフリップ
+  createEffect(() => {
+    const idx = openIndex();
+    if (idx === null) return;
+    queueMicrotask(() => {
+      if (!subRef) return;
+      const trigger = subRef.parentElement as HTMLElement | null;
+      if (!trigger) return;
+      const tRect = trigger.getBoundingClientRect();
+      const sRect = subRef.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const style: Record<string, string> = {};
+      // 横: 右にはみ出すなら左側へ
+      if (tRect.right + sRect.width + 4 > vw) {
+        style.left = "auto";
+        style.right = "100%";
+      } else {
+        style.left = "100%";
+        style.right = "auto";
+      }
+      // 縦: 下にはみ出すなら上揃え (下端を triggerの下端に合わせる)
+      if (tRect.top + sRect.height > vh - 4) {
+        // 親 .ctx-item からの相対で、サブメニューの bottom を trigger 高さと揃える
+        style.top = "auto";
+        style.bottom = "-4px";
+      } else {
+        style.top = "-4px";
+        style.bottom = "auto";
+      }
+      setSubStyle(style);
+    });
   });
 
   const handle = (it: ContextMenuItem) => {
@@ -98,7 +134,7 @@ export default function ContextMenu(props: Props) {
                 <span class="ctx-arrow">▸</span>
               </Show>
               <Show when={openIndex() === idx() && it.submenu && it.submenu.length}>
-                <div class="ctx-submenu">
+                <div class="ctx-submenu" ref={subRef} style={subStyle()}>
                   <For each={it.submenu}>
                     {(sub) => (
                       <Show
