@@ -21,6 +21,7 @@ import {
 import { loadSystemFonts, fallbackFonts } from "../../font-list";
 import { openWithShell } from "../../fs";
 import { templatesDirPath, refreshUserTemplates } from "../../templates";
+import { userCommandsDir, refreshUserCommands, userCommands, userCommandsError } from "../../user-commands";
 
 interface Props {
   columns: number;
@@ -176,6 +177,40 @@ export default function GeneralTab(props: Props) {
         <small class="muted" style={{ "margin-left": "8px" }}>
           %APPDATA%\fastfiler\templates にファイルを置くと「新規ファイル」サブメニューに表示
         </small>
+      </div>
+
+      <div class="setting-row">
+        <label>ユーザー コマンド (v1.13)</label>
+        <button
+          class="ghost"
+          onClick={async () => {
+            try {
+              const p = await userCommandsDir();
+              await openWithShell(p);
+            } catch (e) {
+              alert(`コマンド フォルダを開けませんでした: ${e}`);
+            }
+          }}
+        >📁 コマンド フォルダを開く</button>
+        <button
+          class="ghost"
+          style={{ "margin-left": "6px" }}
+          onClick={() => { void refreshUserCommands(); }}
+        >🔄 再読込</button>
+        <small class="muted" style={{ "margin-left": "8px" }}>
+          %APPDATA%\fastfiler\commands\commands.json で右クリックメニューに項目追加
+        </small>
+        <div style={{ "margin-top": "6px", "padding-left": "0" }}>
+          {userCommandsError() ? (
+            <small style={{ color: "var(--danger, #e55)" }}>
+              ⚠ パースエラー: {userCommandsError()}
+            </small>
+          ) : userCommands().length === 0 ? (
+            <small class="muted">未登録 (commands.json.sample をコピー → commands.json にリネーム)</small>
+          ) : (
+            <small class="muted">登録中: {userCommands().length} 件 — {userCommands().map((c) => c.label).join(" / ")}</small>
+          )}
+        </div>
       </div>
 
       <div class="setting-row">

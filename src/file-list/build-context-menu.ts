@@ -19,6 +19,7 @@ import {
   type FileOpsCtx,
 } from "./file-ops";
 import { BUILTIN_TEMPLATES, userTemplates } from "../templates";
+import { userCommands, runUserCommand, type UserCommand } from "../user-commands";
 
 export interface BuildMenuCtx extends FileOpsCtx {
   target: FileEntry | null;
@@ -140,6 +141,71 @@ export function buildContextMenu(ctx: BuildMenuCtx): ContextMenuItem[] {
           });
         },
       });
+    }
+  }
+
+  // v1.13: ユーザー定義コマンドを追加
+  const cmds = userCommands();
+  if (cmds.length > 0) {
+    const visibleEntries = ctx.visible();
+    const selSet = new Set(sel);
+    const selEntries = visibleEntries.filter((e) => selSet.has(e.name));
+    const allFiles = selEntries.length > 0 && selEntries.every((e) => e.kind !== "dir");
+    const allFolders = selEntries.length > 0 && selEntries.every((e) => e.kind === "dir");
+
+    const matches = cmds.filter((c) => {
+      if (c.when === "background") return !hasSel;
+      if (!hasSel) return false;
+      if (c.when === "file" && !allFiles) return false;
+      if (c.when === "folder" && !allFolders) return false;
+      if (c.extensions && c.extensions.length > 0) {
+        const exts = c.extensions.map((x) => x.toLowerCase().replace(/^\./, ""));
+        const ok = selEntries.every((e) => {
+          if (e.kind === "dir") return false;
+          const idx = e.name.lastIndexOf(".");
+          const ext = idx > 0 ? e.name.slice(idx + 1).toLowerCase() : "";
+          return exts.includes(ext);
+        });
+        if (!ok) return false;
+      }
+      return true;
+    });
+
+    if (matches.length > 0) {
+      base.push({ separator: true });
+      const cwd = ctx.pane().path;
+      const runCmd = (c: UserCommand) => {
+        const paths = hasSel ? fullSel : [];
+        void runUserCommand(c.id, paths, cwd).catch((err) => {
+          console.error(`[user-command] ${c.id}:`, err);
+          alert(`コマンド実行失敗: ${c.label}\n${err}`);
+        });
+      };
+      const grouped = new Map<string | null, UserCommand[]>();
+      for (const c of matches) {
+        const key = c.submenu ?? null;
+        const arr = grouped.get(key) ?? [];
+        arr.push(c);
+        grouped.set(key, arr);
+      }
+      // トップレベル (submenu 未指定) を先に
+      const topLevel = grouped.get(null) ?? [];
+      for (const c of topLevel) {
+        base.push({ label: c.label, icon: c.icon ?? "⚙", onClick: () => runCmd(c) });
+      }
+      // サブメニュー グループ
+      for (const [key, items] of grouped) {
+        if (key === null) continue;
+        base.push({
+          label: key,
+          icon: "📂",
+          submenu: items.map((c) => ({
+            label: c.label,
+            icon: c.icon ?? "⚙",
+            onClick: () => runCmd(c),
+          })),
+        });
+      }
     }
   }
 

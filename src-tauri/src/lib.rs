@@ -18,6 +18,7 @@ mod ole_dnd;
 mod win_clipboard;
 mod templates;
 mod shell_assoc;
+mod user_commands;
 mod error;
 
 pub use error::AppError;
@@ -143,6 +144,10 @@ pub fn run() {
             shell_assoc::shell_assoc_enable,
             shell_assoc::shell_assoc_disable,
             shell_assoc::shell_assoc_diagnose,
+            // v1.13: ユーザー定義コマンド
+            user_commands::user_commands_dir,
+            user_commands::list_user_commands,
+            user_commands::run_user_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

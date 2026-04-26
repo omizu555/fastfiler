@@ -134,6 +134,11 @@ export default function App() {
       const { refreshUserTemplates } = await import("./templates");
       void refreshUserTemplates();
     } catch {/* ignore */}
+    // v1.13: ユーザー定義コマンド一覧をロード
+    try {
+      const { refreshUserCommands } = await import("./user-commands");
+      void refreshUserCommands();
+    } catch {/* ignore */}
     // v1.12: シェル統合 — 起動引数 / 二重起動の argv → 新規タブ
     try {
       const { invoke } = await import("@tauri-apps/api/core");
