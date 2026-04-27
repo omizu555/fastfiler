@@ -1,4 +1,4 @@
-import { For, createResource, createSignal, createMemo } from "solid-js";
+import { For, createResource, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import {
   state,
   setActiveTab,
@@ -18,6 +18,74 @@ export default function VerticalTabs() {
   const [drives] = createResource(() => listDrives());
   const [dragId, setDragId] = createSignal<string | null>(null);
   const [overIdx, setOverIdx] = createSignal<number | null>(null);
+
+  // タブ並び替えは HTML5 dragstart が Tauri の dragDropEnabled で抑制されるため
+  // pointer (mousedown/move/up) ベースで実装する。閾値超過まではクリックとして
+  // 扱われ、setActiveTab がそのまま発火する。
+  let pending: { id: string; x: number; y: number } | null = null;
+  let dragMoved = false;
+  let suppressNextClick = false;
+  const THRESHOLD_PX = 5;
+
+  const onTabMouseDown = (ev: MouseEvent, tabId: string) => {
+    if (ev.button !== 0) return;
+    const tgt = ev.target as HTMLElement | null;
+    if (tgt?.closest?.(".vtab-close")) return; // ×/🔒 ボタン上はドラッグしない
+    pending = { id: tabId, x: ev.clientX, y: ev.clientY };
+    dragMoved = false;
+  };
+
+  const onWindowMove = (ev: MouseEvent) => {
+    if (!pending) return;
+    if (!dragMoved) {
+      const dx = ev.clientX - pending.x;
+      const dy = ev.clientY - pending.y;
+      if (Math.abs(dx) + Math.abs(dy) < THRESHOLD_PX) return;
+      dragMoved = true;
+      setDragId(pending.id);
+    }
+    const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+    const tabEl = el?.closest?.("[data-vtab-idx]") as HTMLElement | null;
+    if (!tabEl) return;
+    const i = parseInt(tabEl.getAttribute("data-vtab-idx") ?? "-1", 10);
+    if (i < 0) return;
+    const r = tabEl.getBoundingClientRect();
+    const before = (ev.clientY - r.top) < r.height / 2;
+    setOverIdx(before ? i : i + 1);
+  };
+
+  const onWindowUp = (_ev: MouseEvent) => {
+    if (!pending) return;
+    const id = pending.id;
+    const wasMoved = dragMoved;
+    const target = overIdx();
+    pending = null;
+    dragMoved = false;
+    setDragId(null);
+    setOverIdx(null);
+    if (wasMoved && target !== null) reorderTab(id, target);
+    if (wasMoved) suppressNextClick = true;
+  };
+
+  const onWindowKey = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape" && pending) {
+      pending = null;
+      dragMoved = false;
+      setDragId(null);
+      setOverIdx(null);
+    }
+  };
+
+  onMount(() => {
+    window.addEventListener("mousemove", onWindowMove);
+    window.addEventListener("mouseup", onWindowUp);
+    window.addEventListener("keydown", onWindowKey);
+  });
+  onCleanup(() => {
+    window.removeEventListener("mousemove", onWindowMove);
+    window.removeEventListener("mouseup", onWindowUp);
+    window.removeEventListener("keydown", onWindowKey);
+  });
   const slot = createMemo(() => state.workspace.panelDock?.tabs.slot ?? "left");
   const ownSize = createMemo(() => state.workspace.panelDock?.tabs.size ?? state.workspace.tabsWidth);
   const stackMode = createMemo(() =>
@@ -133,6 +201,7 @@ export default function VerticalTabs() {
         <For each={state.tabs}>
           {(t, i) => (
             <div
+              data-vtab-idx={i()}
               classList={{
                 vtab: true,
                 active: state.activeTabId === t.id,
@@ -140,7 +209,6 @@ export default function VerticalTabs() {
                 dragging: dragId() === t.id,
                 "drop-before": overIdx() === i(),
               }}
-              draggable={true}
               onAuxClick={(ev) => {
                 if (ev.button !== 1) return;
                 ev.preventDefault();
@@ -150,31 +218,12 @@ export default function VerticalTabs() {
               onMouseDown={(ev) => {
                 // 中ボタンクリック時のオートスクロール抑止
                 if (ev.button === 1) ev.preventDefault();
+                onTabMouseDown(ev, t.id);
               }}
-              onDragStart={(ev) => {
-                setDragId(t.id);
-                ev.dataTransfer?.setData("application/x-fastfiler-tab", t.id);
-                if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+              onClick={() => {
+                if (suppressNextClick) { suppressNextClick = false; return; }
+                setActiveTab(t.id);
               }}
-              onDragEnd={() => { setDragId(null); setOverIdx(null); }}
-              onDragOver={(ev) => {
-                if (!ev.dataTransfer?.types.includes("application/x-fastfiler-tab")) return;
-                ev.preventDefault();
-                ev.dataTransfer.dropEffect = "move";
-                const rect = ev.currentTarget.getBoundingClientRect();
-                const before = (ev.clientY - rect.top) < rect.height / 2;
-                setOverIdx(before ? i() : i() + 1);
-              }}
-              onDragLeave={() => { /* ちらつき抑制のため何もしない */ }}
-              onDrop={(ev) => {
-                ev.preventDefault();
-                const id = ev.dataTransfer?.getData("application/x-fastfiler-tab");
-                const target = overIdx();
-                if (id && target !== null) reorderTab(id, target);
-                setDragId(null);
-                setOverIdx(null);
-              }}
-              onClick={() => setActiveTab(t.id)}
               title={`${t.locked ? "🔒 ロック中 " : ""}${state.panes[findLeaf(t.rootPane) ?? ""]?.path ?? t.title}\n(中クリックでロック切替)`}
             >
               <span class="vtab-icon">{iconForPath(tabPath(t), drives())}</span>
