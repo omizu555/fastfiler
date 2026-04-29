@@ -98,11 +98,6 @@ export function setTabColumns(n: number) {
   persist();
 }
 
-export function updateTabTitle(tabId: string, title: string) {
-  setState("tabs", (t) => t.id === tabId, "title", title);
-  persist();
-}
-
 export function reorderTab(fromId: string, toIndex: number) {
   const list = [...state.tabs];
   const fromIdx = list.findIndex((t) => t.id === fromId);
@@ -138,18 +133,13 @@ export function toggleTabLock(tabId: string) {
 }
 
 /** 指定 paneId を含むタブを返す */
-export function findTabOfPane(paneId: string) {
+function findTabOfPane(paneId: string) {
   for (const tab of state.tabs) {
     const ids: string[] = [];
     collectPaneIds(tab.rootPane, ids);
     if (ids.includes(paneId)) return tab;
   }
   return null;
-}
-
-/** 指定タブがロック中か */
-export function isTabLocked(tabId: string): boolean {
-  return !!state.tabs.find((t) => t.id === tabId)?.locked;
 }
 
 /** 指定 paneId を含むタブがロック中か */

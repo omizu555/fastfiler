@@ -10,7 +10,7 @@
 // 軽量化のため SVG ではなく絵文字 + 一部 Unicode シンボルで構成。
 // パック依存は string 1 文字 (or 絵文字 + 修飾子) のみ。
 
-import type { FileEntry, IconPackId } from "./types";
+import type { IconPackId } from "./types";
 
 type ExtMap = Record<string, string>;
 
@@ -146,8 +146,4 @@ export function iconForEntryPack(
     if (found) return found;
   }
   return PACK_MAP[pack]?.[ext] ?? FILE_BY_PACK[pack] ?? "📄";
-}
-
-export function fallbackIconPack(entry: Pick<FileEntry, "kind" | "ext" | "name">, pack: IconPackId): string {
-  return iconForEntryPack(entry as { kind: string; ext?: string | null; name?: string }, pack);
 }

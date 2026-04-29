@@ -80,22 +80,6 @@ export function setPanePath(
   persist();
 }
 
-/** 履歴ナビゲーション可否 */
-export function canGoBack(paneId: string): boolean {
-  const p = state.panes[paneId];
-  if (!p) return false;
-  const idx = p.historyIndex ?? 0;
-  return idx > 0;
-}
-
-export function canGoForward(paneId: string): boolean {
-  const p = state.panes[paneId];
-  if (!p) return false;
-  const hist = p.history ?? [p.path];
-  const idx = p.historyIndex ?? hist.length - 1;
-  return idx < hist.length - 1;
-}
-
 /** 履歴を 1 つ前へ */
 export function navigateBack(paneId: string): boolean {
   const p = state.panes[paneId];
@@ -246,11 +230,6 @@ export function setPaneView(paneId: string, view: "list" | "tree") {
   persist();
 }
 
-export function setPaneName(paneId: string, name: string | null) {
-  setState("panes", paneId, "name", name && name.trim() ? name.trim() : null);
-  persist();
-}
-
 // === paneUi 系 ===
 
 export function getPaneUi(paneId: string): PaneUiState {
@@ -280,14 +259,6 @@ export function setPaneSort(paneId: string, key: SortKey) {
     setState("paneUi", paneId, "sortKey", key);
     setState("paneUi", paneId, "sortDir", "asc");
   }
-}
-
-export function focusPaneSearch(paneId: string) {
-  ensurePaneUi(paneId);
-  batch(() => {
-    setState("paneUi", paneId, "searchOpen", true);
-    setState("paneUi", paneId, "searchFocusTick", (n) => n + 1);
-  });
 }
 
 export function setPaneSearchQuery(paneId: string, q: string) {

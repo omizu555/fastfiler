@@ -14,7 +14,7 @@ function extOf(name: string): string {
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 
-export function makeFileComparator(opts: SortOpts): (a: FileEntry, b: FileEntry) => number {
+function makeFileComparator(opts: SortOpts): (a: FileEntry, b: FileEntry) => number {
   const sign = opts.dir === "asc" ? 1 : -1;
   return (a, b) => {
     if (opts.foldersFirst && a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;

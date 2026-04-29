@@ -22,5 +22,3 @@ export function popUndo(): UndoEntry | null {
   setState("undoStack", (xs) => xs.slice(0, -1));
   return last;
 }
-
-export function clearUndo() { setState("undoStack", []); }

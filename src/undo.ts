@@ -1,5 +1,5 @@
 import { renamePath, movePath, deletePath } from "./fs";
-import { popUndo, state, pushToast } from "./store";
+import { popUndo, pushToast } from "./store";
 import type { UndoEntry, UndoOp } from "./types";
 
 async function applyInverse(op: UndoOp): Promise<void> {
@@ -40,9 +40,6 @@ export async function performUndo(): Promise<boolean> {
   return true;
 }
 
-export function canUndo(): boolean {
-  return state.undoStack.length > 0;
-}
 // UndoEntry を再エクスポートして外部 import 安定性を確保
 export type { UndoEntry };
 

@@ -1,6 +1,5 @@
 // v3.3: アイコンセット (+ v1.11 アイコンパック, v1.14 system / custom 対応)
 import type { IconSet, IconPackId } from "./types";
-import type { FileEntry } from "./types";
 import { iconForEntryPack } from "./icon-packs";
 import { requestSystemIcon } from "./icon-system";
 import { requestCustomIcon } from "./icon-custom";
@@ -23,17 +22,6 @@ const COLORED_EXT_MAP: Record<string, string> = {
   // 実行
   exe: "⚙", msi: "⚙", dll: "⚙", app: "⚙", deb: "⚙", rpm: "⚙",
 };
-
-export function iconForEntry(e: { kind: string; ext?: string | null; name?: string }): string {
-  const st = (typeof window !== "undefined" && (window as any).__ff?.state) as
-    | { iconSet?: IconSet; iconPack?: IconPackId }
-    | undefined;
-  const pack = st?.iconPack ?? "default";
-  if (pack !== "default" && pack !== "system" && !pack.startsWith("custom:")) {
-    return iconForEntryPack(e, pack);
-  }
-  return iconForEntryWith(e, st?.iconSet ?? "emoji", pack);
-}
 
 export function iconForEntryWith(e: { kind: string; ext?: string | null; name?: string }, set: IconSet, pack?: IconPackId): string {
   // v1.11: pack 指定があれば優先
@@ -67,8 +55,6 @@ export function iconImageForEntry(
   if (!pack) return "";
   if (pack === "system") {
     if (!absPath) return "";
-    // ディレクトリは絶対パス必須 (拡張子推測ではフォルダ判定不可)
-    if (e.kind === "dir") return requestSystemIcon(absPath, false);
     return requestSystemIcon(absPath, false);
   }
   if (pack.startsWith("custom:")) {
@@ -76,9 +62,4 @@ export function iconImageForEntry(
     return requestCustomIcon(id, e);
   }
   return "";
-}
-
-// FileEntry 互換ヘルパ (Thumbnail フォールバック用)
-export function fallbackIcon(entry: Pick<FileEntry, "kind" | "ext" | "name">, set: IconSet, pack?: IconPackId): string {
-  return iconForEntryWith(entry as { kind: string; ext?: string | null; name?: string }, set, pack);
 }

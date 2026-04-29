@@ -1,11 +1,6 @@
-import type { DockSlot, WorkspaceState } from "../types";
+import type { DockSlot } from "../types";
 import { state, setState, persist, ensureDock } from "./core";
 import { setPanelSlot, togglePanelVisible } from "./dock";
-
-export function setWorkspaceLayout(layout: WorkspaceState["layout"]) {
-  setState("workspace", "layout", layout);
-  persist();
-}
 
 export function cycleWorkspaceLayout() {
   // tabs パネルの slot を left → right → bottom → top → hidden で巡回
@@ -15,10 +10,6 @@ export function cycleWorkspaceLayout() {
   const idx = order.indexOf(cur as DockSlot);
   const next = order[(idx + 1) % order.length];
   setPanelSlot("tabs", next);
-}
-
-export function toggleWorkspaceTabs() {
-  togglePanelVisible("tabs");
 }
 
 export function toggleWorkspaceTree() {
@@ -38,11 +29,6 @@ export function setWorkspaceTreeWidth(w: number) {
   setState("workspace", "treeWidth", v);
   ensureDock();
   setState("workspace", "panelDock", "tree", "size", v);
-  persist();
-}
-
-export function setWorkspaceTreeApply(a: WorkspaceState["treeApply"]) {
-  setState("workspace", "treeApply", a);
   persist();
 }
 

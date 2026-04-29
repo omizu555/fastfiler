@@ -31,7 +31,7 @@ export async function templatesDirPath(): Promise<string> {
   return await invoke<string>("templates_dir");
 }
 
-export async function listUserTemplates(): Promise<TemplateInfo[]> {
+async function listUserTemplates(): Promise<TemplateInfo[]> {
   try {
     return await invoke<TemplateInfo[]>("list_templates");
   } catch {
@@ -39,7 +39,7 @@ export async function listUserTemplates(): Promise<TemplateInfo[]> {
   }
 }
 
-export async function createEmptyFile(destDir: string, fileName: string, body?: string): Promise<string> {
+async function createEmptyFile(destDir: string, fileName: string, body?: string): Promise<string> {
   return await invoke<string>("create_empty_file", { destDir, fileName, body: body ?? null });
 }
 

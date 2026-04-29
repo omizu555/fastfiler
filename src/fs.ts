@@ -168,10 +168,6 @@ export async function deleteToTrash(paths: string[]): Promise<void> {
   await invoke("delete_to_trash", { paths });
 }
 
-export async function copyPath(from: string, to: string): Promise<void> {
-  await invoke("copy_path", { from, to });
-}
-
 export async function movePath(from: string, to: string): Promise<void> {
   await invoke("move_path", { from, to });
 }
@@ -368,7 +364,7 @@ export async function oleStartDrag(
   return await invoke<number>("ole_dnd_start_drag", { paths, allowedEffects });
 }
 
-export { DRIVES_PATH, isDrivesPath, joinPath, parentPath } from "./path-util";
+export { DRIVES_PATH, isDrivesPath } from "./path-util";
 export async function writeClipboardPaths(
   paths: string[],
   op: "copy" | "cut",

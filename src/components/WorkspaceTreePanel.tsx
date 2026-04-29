@@ -5,7 +5,6 @@ import {
   focusedLeafPaneId,
   setPanePath,
   setPaneLinkGroup,
-  setWorkspaceTreeApply,
   setWorkspaceTreeWidth,
   state,
   panelsInSlot,

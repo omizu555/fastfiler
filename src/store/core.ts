@@ -17,7 +17,7 @@ import type {
 import { defaultHotkeys } from "../hotkeys";
 import { defaultPaneUi } from "../types";
 
-export const defaultWorkspace = (): WorkspaceState => ({
+const defaultWorkspace = (): WorkspaceState => ({
   layout: "tabsLeft",
   showTree: false,
   tabsWidth: 240,
@@ -27,7 +27,7 @@ export const defaultWorkspace = (): WorkspaceState => ({
   samePanelStack: false,
 });
 
-export function defaultPanelDock(): import("../types").PanelDockState {
+function defaultPanelDock(): import("../types").PanelDockState {
   return {
     tabs: { slot: "left", order: 0, size: 240, lastDockSlot: "left" },
     tree: { slot: "left", order: 1, size: 240, lastDockSlot: "left" },

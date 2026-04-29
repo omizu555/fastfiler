@@ -16,7 +16,7 @@ export interface SavedWindow {
   maximized?: boolean;
 }
 
-export function loadSavedWindow(): SavedWindow | null {
+function loadSavedWindow(): SavedWindow | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;

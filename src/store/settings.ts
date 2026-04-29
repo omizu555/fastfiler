@@ -1,5 +1,5 @@
 import { batch } from "solid-js";
-import type { HotkeyAction, IconPackId, IconSet, LinkChannel, ThemeMode, ThemePresetId } from "../types";
+import type { HotkeyAction, IconPackId, IconSet, ThemeMode, ThemePresetId } from "../types";
 import { defaultHotkeys } from "../hotkeys";
 import { state, setState, persist, loaded } from "./core";
 
@@ -14,19 +14,12 @@ export function setInitialPath(path: string) {
   }
 }
 
-export function toggleHidden() { setState("showHidden", (v) => !v); persist(); }
 export function setShowHidden(v: boolean) { setState("showHidden", v); persist(); }
 
 export function setShowThumbnails(v: boolean) { setState("showThumbnails", v); persist(); }
-export function setShowPreview(v: boolean) { setState("showPreview", v); persist(); }
 export function togglePreview() { setState("showPreview", (v) => !v); persist(); }
 export function togglePluginPanel() { setState("showPluginPanel", (v) => !v); persist(); }
 export function setHidePaneToolbar(v: boolean) { setState("hidePaneToolbar", v); persist(); }
-
-export function setLinkGroupChannel(groupId: string, channel: LinkChannel, enabled: boolean) {
-  setState("linkGroups", (g) => g.id === groupId, "channels", channel, enabled);
-  persist();
-}
 
 export function setHotkey(action: HotkeyAction, combo: string) {
   setState("hotkeys", action, combo);

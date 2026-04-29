@@ -9,22 +9,13 @@ import {
   setPanePath,
   setPaneSelection,
   setPaneScroll,
-  setPaneLinkGroup,
   splitPane,
   closePane,
-  addTab,
-  setPaneView,
-  focusPaneSearch,
   togglePaneSearch,
   togglePaneSearchFocused,
-  setPaneName,
   getPaneUi,
   setPaneSort,
   setFocusedPane,
-  navigateBack,
-  navigateForward,
-  canGoBack,
-  canGoForward,
   isPaneLocked,
   state,
   refreshTickFor,
@@ -43,7 +34,6 @@ import {
   doDelete as opDelete,
   doRename as opRename,
   doNewFolder as opNewFolder,
-  exportAsciiTree as opExportAsciiTree,
   type FileOpsCtx,
 } from "../file-list/file-ops";
 import { buildContextMenu } from "../file-list/build-context-menu";
@@ -226,7 +216,6 @@ export default function FileList(props: Props) {
   const doDelete = (permanent: boolean) => opDelete(fopsCtx, permanent);
   const doRename = () => opRename(fopsCtx);
   const doNewFolder = () => opNewFolder(fopsCtx);
-  const exportAsciiTree = (rootPath: string) => opExportAsciiTree(rootPath);
 
   // ----- インクリメンタルサーチ (英数キーで先頭一致選択) -----
   let typingBuffer = "";

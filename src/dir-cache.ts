@@ -71,17 +71,6 @@ export function setCachedListing(path: string, entries: FileEntry[]): void {
   scheduleSave();
 }
 
-export function clearCachedListing(path: string): void {
-  const c = load();
-  const k = norm(path);
-  if (c.data[k]) {
-    delete c.data[k];
-    const idx = c.order.indexOf(k);
-    if (idx >= 0) c.order.splice(idx, 1);
-    scheduleSave();
-  }
-}
-
 export function flushDirCacheImmediate(): void {
   if (saveTimer !== null) {
     window.clearTimeout(saveTimer);

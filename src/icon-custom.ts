@@ -42,7 +42,6 @@ export async function loadCustomPacks(): Promise<void> {
   }
 }
 
-export function customPacksLoaded(): boolean { return loaded(); }
 export function listLoadedPacks(): IconPackInfo[] { return Array.from(packs.values()); }
 
 function resolveRelPath(

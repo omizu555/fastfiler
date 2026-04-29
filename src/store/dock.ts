@@ -10,24 +10,6 @@ export function setPanelSlot(panel: PanelId, slot: DockSlot) {
   persist();
 }
 
-export function setPanelOrder(panel: PanelId, order: number) {
-  ensureDock();
-  setState("workspace", "panelDock", panel, "order", order);
-  persist();
-}
-
-export function setPanelSize(panel: PanelId, size: number) {
-  ensureDock();
-  setState("workspace", "panelDock", panel, "size", Math.max(120, Math.min(800, Math.round(size))));
-  persist();
-}
-
-export function setPanelFloatGeom(panel: PanelId, geom: { x: number; y: number; w: number; h: number }) {
-  ensureDock();
-  setState("workspace", "panelDock", panel, "floatGeom", geom);
-  persist();
-}
-
 export function togglePanelVisible(panel: PanelId) {
   ensureDock();
   const cur = state.workspace.panelDock![panel];

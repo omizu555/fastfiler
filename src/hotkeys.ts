@@ -67,7 +67,7 @@ interface ParsedKey {
   key: string; // 大文字化済み
 }
 
-export function parseHotkey(combo: string): ParsedKey | null {
+function parseHotkey(combo: string): ParsedKey | null {
   if (!combo) return null;
   const parts = combo.split("+").map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return null;

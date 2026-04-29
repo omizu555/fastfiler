@@ -11,7 +11,7 @@ export function isDrivesPath(p: string): boolean {
   return p === DRIVES_PATH;
 }
 
-export function isUncPath(p: string): boolean {
+function isUncPath(p: string): boolean {
   return p.startsWith("\\\\");
 }
 

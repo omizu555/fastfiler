@@ -32,15 +32,6 @@ export async function userCommandsDir(): Promise<string> {
   return await invoke<string>("user_commands_dir");
 }
 
-export async function fetchUserCommands(): Promise<UserCommand[]> {
-  try {
-    return await invoke<UserCommand[]>("list_user_commands");
-  } catch (e) {
-    console.warn("[user-commands] list failed:", e);
-    return [];
-  }
-}
-
 export async function runUserCommand(id: string, paths: string[], cwd: string): Promise<void> {
   await invoke<void>("run_user_command", { id, ctx: { paths, cwd } });
 }

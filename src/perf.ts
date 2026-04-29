@@ -30,15 +30,3 @@ export function clearPerf() {
   ring.length = 0;
   for (const l of listeners) l();
 }
-
-export async function measure<T>(kind: PerfSample["kind"], label: string, fn: () => Promise<T>, count?: () => number): Promise<T> {
-  const t0 = performance.now();
-  try {
-    const r = await fn();
-    recordPerf({ kind, label, ms: performance.now() - t0, count: count?.() });
-    return r;
-  } catch (e) {
-    recordPerf({ kind, label: label + " (error)", ms: performance.now() - t0 });
-    throw e;
-  }
-}
