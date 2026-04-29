@@ -109,7 +109,7 @@ const MONO_EXT: ExtMap = {
   exe: "★", msi: "★", dll: "★", bat: "★", ps1: "★", sh: "★",
 };
 
-const FOLDER_BY_PACK: Record<IconPackId, string> = {
+const FOLDER_BY_PACK: Record<string, string> = {
   default: "📁",
   emoji: "📁",
   material: "📁",
@@ -117,7 +117,7 @@ const FOLDER_BY_PACK: Record<IconPackId, string> = {
   mono: "▸",
 };
 
-const FILE_BY_PACK: Record<IconPackId, string> = {
+const FILE_BY_PACK: Record<string, string> = {
   default: "📄",
   emoji: "📄",
   material: "📄",
@@ -125,7 +125,7 @@ const FILE_BY_PACK: Record<IconPackId, string> = {
   mono: "·",
 };
 
-const PACK_MAP: Record<IconPackId, ExtMap> = {
+const PACK_MAP: Record<string, ExtMap> = {
   default: {},
   emoji: EMOJI_EXT,
   material: MATERIAL_EXT,
@@ -142,10 +142,10 @@ export function iconForEntryPack(
   // 拡張子なし special-case (.gitignore 等は ext が空でも name で判定)
   if (!ext && e.name?.startsWith(".")) {
     const tail = e.name.slice(1).toLowerCase();
-    const found = PACK_MAP[pack][tail];
+    const found = PACK_MAP[pack]?.[tail];
     if (found) return found;
   }
-  return PACK_MAP[pack][ext] ?? FILE_BY_PACK[pack] ?? "📄";
+  return PACK_MAP[pack]?.[ext] ?? FILE_BY_PACK[pack] ?? "📄";
 }
 
 export function fallbackIconPack(entry: Pick<FileEntry, "kind" | "ext" | "name">, pack: IconPackId): string {

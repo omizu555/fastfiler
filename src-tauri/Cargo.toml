@@ -32,6 +32,7 @@ ureq = { version = "2", default-features = false, features = ["json"] }
 urlencoding = "2"
 portable-pty = "0.8"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+lru = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

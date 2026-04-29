@@ -712,7 +712,7 @@ ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, is
 | テーマ プリセット (v1.11) | 既定 / GitHub Light / GitHub Dark / Solarized Light / Solarized Dark / Dracula / Nord / Monokai / Tokyo Night / Gruvbox Dark — 配色一式を切替 |
 | アクセント色 | 選択 / フォーカスのハイライト色 |
 | アイコンセット | emoji / minimal / colored (legacy) |
-| アイコン パック (v1.11) | 既定 / Emoji / Material / VSCode / Mono — 拡張子別アイコンの絵柄を切替 |
+| アイコン パック (v1.11 / v1.14) | 既定 / Emoji / Material(絵文字) / VSCode / Mono / **System (Windows シェル)** / **Custom: 〈名前〉** — 詳細は §12.6 |
 | 新規ファイル テンプレート (v1.11) | `%APPDATA%\fastfiler\templates` を開く / 再読込ボタン |
 | ユーザー コマンド (v1.13) | `%APPDATA%\fastfiler\commands\commands.json` を開く / 再読込ボタン (詳細は §4.6) |
 | タブ列数 | 縦タブの列数 (1〜8) |
@@ -788,6 +788,64 @@ ff.on("plugin.contextMenu.invoked", e => { /* { itemId, target: { path, name, is
 - OFF に戻せば Windows 標準のエクスプローラ動作に復帰します
 - **FastFiler をアンインストール / 移動する前に必ず OFF にしてください** (登録 exe パスが残ったままだとフォルダが開けなくなります)
 - 設定ダイアログの **🔍 診断** ボタンで現在のレジストリ値と exe パスを確認できます
+
+### 12.6 アイコン パック — v1.14
+
+FastFiler のファイル / フォルダ アイコンを次の方式で切替できます。設定 → 基本タブ → 「アイコン パック」プルダウンから選択。
+
+| 種別 | 内容 |
+|---|---|
+| 既定 / Emoji / Material(絵文字) / VSCode / Mono | 旧来の絵文字 / Unicode 記号ベース (オフライン、軽量) |
+| **System** | Windows シェル (エクスプローラ) と同じアイコンを取得して表示。`SHGetFileInfo` 経由 + LRU 1024 キャッシュ。**サイズが大きく初回描画に少しコスト**。インストールされている関連付けアプリ (Office / Photoshop など) のアイコンも反映 |
+| **Custom: 〈名前〉** | `%APPDATA%\fastfiler\icons\<パック名>\` 以下の SVG パック。同梱の Material パック (Material Icon Theme 由来 MIT) が初回起動時に展開されます |
+
+#### カスタム アイコン パックの追加方法
+
+1. 設定 → 基本タブ → 「📂 アイコンパック フォルダを開く」を押す (`%APPDATA%\fastfiler\icons\` が開きます)
+2. 新しいフォルダを作成 (例: `mypack`)
+3. その中に `manifest.json` と SVG / PNG ファイルを置く
+4. 設定タブの「🔄 再読み込み」を押すと、プルダウンに **Custom: mypack** が現れます
+
+#### `manifest.json` のスキーマ
+
+```json
+{
+  "name": "My Pack",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "Your Name",
+  "defaults": {
+    "folder": "folder.svg",
+    "folderOpen": "folder-open.svg",
+    "file": "file.svg",
+    "drive": "drive.svg"
+  },
+  "byExt": {
+    "ts": "ext/typescript.svg",
+    "py": "ext/python.svg"
+  },
+  "byName": {
+    "package.json": "name/nodejs.svg",
+    "Dockerfile": "name/docker.svg"
+  },
+  "byFolderName": {
+    ".git": "folder/git.svg",
+    "src": "folder/src.svg"
+  }
+}
+```
+
+- 全パスは `manifest.json` のあるフォルダからの相対パス。`..` や絶対パスは拒否されます (path traversal 対策)
+- `byName` (完全一致ファイル名) > `byExt` (拡張子) > `defaults.file` の優先順
+- フォルダは `byFolderName` (完全一致) > `defaults.folder`
+- 拡張子キーは小文字
+- SVG / PNG どちらでも OK (内部は base64 dataURL で渡されます)
+
+#### 同梱 Material パックについて
+
+`%APPDATA%\fastfiler\icons\material\` に約 60 種の SVG が初回起動時に展開されます。
+直接編集や置換も可能 — その場合は再起動 / 「再読み込み」で反映されます。
+ライセンスは MIT (詳細は同フォルダの `LICENSE` / `CREDITS.md` を参照)。
 
 ---
 

@@ -19,6 +19,7 @@ mod win_clipboard;
 mod templates;
 mod shell_assoc;
 mod user_commands;
+mod icons;
 mod error;
 
 pub use error::AppError;
@@ -76,6 +77,10 @@ pub fn run() {
             app.manage(initial);
             term::register(app.handle());
             ole_dnd::register(app.handle());
+            // v1.14: 同梱 Material アイコン パックを APPDATA に展開 (初回のみ)
+            if let Err(e) = icons::ensure_bundled_packs() {
+                eprintln!("[icons] ensure_bundled_packs failed: {}", e);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -148,6 +153,11 @@ pub fn run() {
             user_commands::user_commands_dir,
             user_commands::list_user_commands,
             user_commands::run_user_command,
+            // v1.14: アイコン パック (system + custom)
+            icons::icons_dir,
+            icons::list_icon_packs,
+            icons::read_icon_file,
+            icons::system_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FastFiler");

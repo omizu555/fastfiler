@@ -139,6 +139,11 @@ export default function App() {
       const { refreshUserCommands } = await import("./user-commands");
       void refreshUserCommands();
     } catch {/* ignore */}
+    // v1.14: カスタム アイコン パック一覧をロード
+    try {
+      const { loadCustomPacks } = await import("./icon-custom");
+      void loadCustomPacks();
+    } catch {/* ignore */}
     // v1.12: シェル統合 — 起動引数 / 二重起動の argv → 新規タブ
     try {
       const { invoke } = await import("@tauri-apps/api/core");

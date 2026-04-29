@@ -484,6 +484,13 @@ select {
 .icon {
     margin-right: 4px;
 }
+.icon-img {
+    width: 16px;
+    height: 16px;
+    vertical-align: -3px;
+    object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+}
 .empty {
     padding: 16px;
     color: var(--fg-dim);

@@ -22,6 +22,9 @@ import { loadSystemFonts, fallbackFonts } from "../../font-list";
 import { openWithShell } from "../../fs";
 import { templatesDirPath, refreshUserTemplates } from "../../templates";
 import { userCommandsDir, refreshUserCommands, userCommands, userCommandsError } from "../../user-commands";
+import { listLoadedPacks, loadCustomPacks, clearCustomIconCache } from "../../icon-custom";
+import { clearSystemIconCache } from "../../icon-system";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Props {
   columns: number;
@@ -149,11 +152,35 @@ export default function GeneralTab(props: Props) {
         >
           <option value="default">既定 (上のアイコンセットに従う)</option>
           <option value="emoji">Emoji (リッチ)</option>
-          <option value="material">Material (色ブロック)</option>
+          <option value="material">Material (色ブロック - 絵文字)</option>
           <option value="vscode">VSCode (Seti 風)</option>
           <option value="mono">Mono (モノクロ記号)</option>
+          <option value="system">System (Windows シェル)</option>
+          <For each={listLoadedPacks()}>
+            {(p) => <option value={`custom:${p.id}`}>Custom: {p.manifest.name ?? p.id}</option>}
+          </For>
         </select>
         <small class="muted" style={{ "margin-left": "8px" }}>拡張子別アイコン</small>
+      </div>
+      <div class="setting-row">
+        <label>アイコン パック フォルダ</label>
+        <button
+          class="ghost"
+          onClick={async () => {
+            try {
+              const dir = await invoke<string>("icons_dir");
+              await openWithShell(dir);
+            } catch (e) {
+              alert(`アイコンパック フォルダを開けませんでした: ${e}`);
+            }
+          }}
+        >📂 アイコンパック フォルダを開く</button>
+        <button
+          class="ghost"
+          style={{ "margin-left": "6px" }}
+          onClick={() => { clearCustomIconCache(); clearSystemIconCache(); void loadCustomPacks(); }}
+        >🔄 再読み込み</button>
+        <small class="muted" style={{ "margin-left": "8px" }}>%APPDATA%\fastfiler\icons\</small>
       </div>
 
       <div class="setting-row">

@@ -124,7 +124,15 @@ export type ThemePresetId =
 export type IconSet = "emoji" | "minimal" | "colored";
 
 // v1.11: アイコン パック (拡張子別アイコン)
-export type IconPackId = "default" | "emoji" | "material" | "vscode" | "mono";
+// v1.14: system (Windows シェル) と custom:<id> (ユーザー定義パック) を追加
+export type IconPackId =
+  | "default"
+  | "emoji"
+  | "material"
+  | "vscode"
+  | "mono"
+  | "system"
+  | `custom:${string}`;
 
 // v1.11: 新規ファイル ユーザー定義テンプレート
 export interface TemplateInfo {

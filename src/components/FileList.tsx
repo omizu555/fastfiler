@@ -34,7 +34,7 @@ import type { FileEntry, SortKey } from "../types";
 import ContextMenu from "./ContextMenu";
 import Thumbnail, { shouldThumb } from "./Thumbnail";
 import SearchPanel from "./SearchPanel";
-import { iconForEntryWith } from "../icons";
+import { iconForEntryWith, iconImageForEntry } from "../icons";
 import { matchKey } from "../hotkeys";
 import {
   cutSelection as opCut,
@@ -747,7 +747,15 @@ export default function FileList(props: Props) {
                     <td>
                       <Show
                         when={state.showThumbnails && shouldThumb(e.ext)}
-                        fallback={<span class="icon">{iconForEntryWith(e, state.iconSet, state.iconPack)}</span>}
+                        fallback={
+                          <Show
+                            when={iconImageForEntry(e, state.iconPack, joinPath(pane().path, e.name))}
+                            fallback={<span class="icon">{iconForEntryWith(e, state.iconSet, state.iconPack)}</span>}
+                            keyed
+                          >
+                            {(url) => <img class="icon icon-img" src={url} alt="" />}
+                          </Show>
+                        }
                       >
                         <Thumbnail
                           path={joinPath(pane().path, e.name)}
