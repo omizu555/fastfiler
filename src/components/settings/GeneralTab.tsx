@@ -68,22 +68,16 @@ export default function GeneralTab(props: Props) {
   return (
     <>
       <div class="setting-row">
-        <label>テーマ</label>
-        <label class="inline">
-          <input type="radio" name="theme" value="system"
-            checked={state.theme === "system"}
-            onChange={() => setTheme("system")} /> OS依存
-        </label>
-        <label class="inline" style={{ "margin-left": "10px" }}>
-          <input type="radio" name="theme" value="light"
-            checked={state.theme === "light"}
-            onChange={() => setTheme("light")} /> ☀ ライト
-        </label>
-        <label class="inline" style={{ "margin-left": "10px" }}>
-          <input type="radio" name="theme" value="dark"
-            checked={state.theme === "dark"}
-            onChange={() => setTheme("dark")} /> 🌙 ダーク
-        </label>
+        <label for="cfg-theme">テーマ</label>
+        <select
+          id="cfg-theme"
+          value={state.theme}
+          onChange={(e) => setTheme(e.currentTarget.value as never)}
+        >
+          <option value="system">OS依存</option>
+          <option value="light">☀ ライト</option>
+          <option value="dark">🌙 ダーク</option>
+        </select>
       </div>
 
       <div class="setting-row">
@@ -125,22 +119,16 @@ export default function GeneralTab(props: Props) {
       </div>
 
       <div class="setting-row">
-        <label>アイコンセット</label>
-        <label class="inline">
-          <input type="radio" name="iconset" value="emoji"
-            checked={state.iconSet === "emoji"}
-            onChange={() => setIconSet("emoji")} /> 📁 既定
-        </label>
-        <label class="inline" style={{ "margin-left": "10px" }}>
-          <input type="radio" name="iconset" value="colored"
-            checked={state.iconSet === "colored"}
-            onChange={() => setIconSet("colored")} /> 🎨 拡張子別
-        </label>
-        <label class="inline" style={{ "margin-left": "10px" }}>
-          <input type="radio" name="iconset" value="minimal"
-            checked={state.iconSet === "minimal"}
-            onChange={() => setIconSet("minimal")} /> ▸ ミニマル
-        </label>
+        <label for="cfg-iconset">アイコンセット</label>
+        <select
+          id="cfg-iconset"
+          value={state.iconSet}
+          onChange={(e) => setIconSet(e.currentTarget.value as never)}
+        >
+          <option value="emoji">📁 既定</option>
+          <option value="colored">🎨 拡張子別</option>
+          <option value="minimal">▸ ミニマル</option>
+        </select>
       </div>
 
       <div class="setting-row">
