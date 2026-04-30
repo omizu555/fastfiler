@@ -71,34 +71,32 @@ export default function GeneralTab(props: Props) {
         <label for="cfg-theme">テーマ</label>
         <select
           id="cfg-theme"
-          value={state.theme}
-          onChange={(e) => setTheme(e.currentTarget.value as never)}
+          value={`${state.theme}|${state.themePreset}`}
+          onChange={(e) => {
+            const [t, p] = e.currentTarget.value.split("|") as [never, never];
+            setTheme(t);
+            setThemePreset(p);
+          }}
         >
-          <option value="system">OS依存</option>
-          <option value="light">☀ ライト</option>
-          <option value="dark">🌙 ダーク</option>
+          <optgroup label="基本">
+            <option value="system|default">OS依存</option>
+            <option value="light|default">☀ ライト</option>
+            <option value="dark|default">🌙 ダーク</option>
+          </optgroup>
+          <optgroup label="プリセット (ライト)">
+            <option value="light|githubLight">GitHub Light</option>
+            <option value="light|solarizedLight">Solarized Light</option>
+          </optgroup>
+          <optgroup label="プリセット (ダーク)">
+            <option value="dark|githubDark">GitHub Dark</option>
+            <option value="dark|solarizedDark">Solarized Dark</option>
+            <option value="dark|dracula">Dracula</option>
+            <option value="dark|nord">Nord</option>
+            <option value="dark|monokai">Monokai</option>
+            <option value="dark|tokyoNight">Tokyo Night</option>
+            <option value="dark|gruvboxDark">Gruvbox Dark</option>
+          </optgroup>
         </select>
-      </div>
-
-      <div class="setting-row">
-        <label for="cfg-theme-preset">テーマ プリセット</label>
-        <select
-          id="cfg-theme-preset"
-          value={state.themePreset}
-          onChange={(e) => setThemePreset(e.currentTarget.value as never)}
-        >
-          <option value="default">既定 (上のテーマに従う)</option>
-          <option value="githubLight">GitHub Light</option>
-          <option value="githubDark">GitHub Dark</option>
-          <option value="solarizedLight">Solarized Light</option>
-          <option value="solarizedDark">Solarized Dark</option>
-          <option value="dracula">Dracula</option>
-          <option value="nord">Nord</option>
-          <option value="monokai">Monokai</option>
-          <option value="tokyoNight">Tokyo Night</option>
-          <option value="gruvboxDark">Gruvbox Dark</option>
-        </select>
-        <small class="muted" style={{ "margin-left": "8px" }}>選択すると配色一式を切替</small>
       </div>
 
       <div class="setting-row">
@@ -119,36 +117,36 @@ export default function GeneralTab(props: Props) {
       </div>
 
       <div class="setting-row">
-        <label for="cfg-iconset">アイコンセット</label>
+        <label for="cfg-icon">アイコン</label>
         <select
-          id="cfg-iconset"
-          value={state.iconSet}
-          onChange={(e) => setIconSet(e.currentTarget.value as never)}
+          id="cfg-icon"
+          value={`${state.iconSet}|${state.iconPack}`}
+          onChange={(e) => {
+            const [s, p] = e.currentTarget.value.split("|") as [never, never];
+            setIconSet(s);
+            setIconPack(p);
+          }}
         >
-          <option value="emoji">📁 既定</option>
-          <option value="colored">🎨 拡張子別</option>
-          <option value="minimal">▸ ミニマル</option>
+          <optgroup label="基本">
+            <option value="emoji|default">📁 既定 (絵文字)</option>
+            <option value="colored|default">🎨 拡張子別</option>
+            <option value="minimal|default">▸ ミニマル</option>
+          </optgroup>
+          <optgroup label="パック">
+            <option value="colored|emoji">Emoji (リッチ)</option>
+            <option value="colored|material">Material (色ブロック)</option>
+            <option value="colored|vscode">VSCode (Seti 風)</option>
+            <option value="minimal|mono">Mono (モノクロ記号)</option>
+            <option value="colored|system">System (Windows シェル)</option>
+          </optgroup>
+          <Show when={listLoadedPacks().length > 0}>
+            <optgroup label="カスタム">
+              <For each={listLoadedPacks()}>
+                {(p) => <option value={`colored|custom:${p.id}`}>Custom: {p.manifest.name ?? p.id}</option>}
+              </For>
+            </optgroup>
+          </Show>
         </select>
-      </div>
-
-      <div class="setting-row">
-        <label for="cfg-icon-pack">アイコン パック</label>
-        <select
-          id="cfg-icon-pack"
-          value={state.iconPack}
-          onChange={(e) => setIconPack(e.currentTarget.value as never)}
-        >
-          <option value="default">既定 (上のアイコンセットに従う)</option>
-          <option value="emoji">Emoji (リッチ)</option>
-          <option value="material">Material (色ブロック - 絵文字)</option>
-          <option value="vscode">VSCode (Seti 風)</option>
-          <option value="mono">Mono (モノクロ記号)</option>
-          <option value="system">System (Windows シェル)</option>
-          <For each={listLoadedPacks()}>
-            {(p) => <option value={`custom:${p.id}`}>Custom: {p.manifest.name ?? p.id}</option>}
-          </For>
-        </select>
-        <small class="muted" style={{ "margin-left": "8px" }}>拡張子別アイコン</small>
       </div>
       <div class="setting-row">
         <label>アイコン パック フォルダ</label>
