@@ -21,6 +21,7 @@ import StatusBarJobs from "./components/StatusBarJobs";
 import RightDragOverlay from "./components/RightDragOverlay";
 import { ensureRightDragInstalled } from "./file-list/right-drag";
 import PromptDialog from "./components/PromptDialog";
+import ConflictDialog from "./components/ConflictDialog";
 import { isAnyLoading } from "./loading-state";
 import {
   state,
@@ -415,6 +416,7 @@ export default function App() {
         />
       </Show>
       <PromptDialog />
+      <ConflictDialog />
       <RightDragOverlay />
     </div>
   );

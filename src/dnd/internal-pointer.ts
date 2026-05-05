@@ -53,6 +53,10 @@ function updateCursor(ctrl: boolean): void {
 
 function onMouseDownCapture(ev: MouseEvent): void {
   if (ev.button !== 0) return;
+  // Ctrl/Shift+クリックは選択操作 (toggle / range) のためのもの。
+  // ここで drag candidate を立てると行クリックハンドラ (onRowClick) と
+  // 選択を取り合って、Ctrl+クリックでトグルできなくなる不具合になる。
+  if (ev.ctrlKey || ev.shiftKey) return;
   const target = ev.target as HTMLElement | null;
   if (!target) return;
   const row = target.closest("tr[data-rd-name]") as HTMLElement | null;

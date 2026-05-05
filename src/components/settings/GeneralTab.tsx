@@ -24,6 +24,7 @@ import { templatesDirPath, refreshUserTemplates } from "../../templates";
 import { userCommandsDir, refreshUserCommands, userCommands, userCommandsError } from "../../user-commands";
 import { listLoadedPacks, loadCustomPacks, clearCustomIconCache } from "../../icon-custom";
 import { clearSystemIconCache } from "../../icon-system";
+import { THEME_CHOICES, ICON_CHOICES, findThemeChoice, findIconChoice, groupBy } from "../../theme-options";
 import { invoke } from "@tauri-apps/api/core";
 
 interface Props {
@@ -73,29 +74,21 @@ export default function GeneralTab(props: Props) {
           id="cfg-theme"
           value={`${state.theme}|${state.themePreset}`}
           onChange={(e) => {
-            const [t, p] = e.currentTarget.value.split("|") as [never, never];
-            setTheme(t);
-            setThemePreset(p);
+            const c = findThemeChoice(e.currentTarget.value);
+            if (!c) return;
+            setTheme(c.theme);
+            setThemePreset(c.preset);
           }}
         >
-          <optgroup label="基本">
-            <option value="system|default">OS依存</option>
-            <option value="light|default">☀ ライト</option>
-            <option value="dark|default">🌙 ダーク</option>
-          </optgroup>
-          <optgroup label="プリセット (ライト)">
-            <option value="light|githubLight">GitHub Light</option>
-            <option value="light|solarizedLight">Solarized Light</option>
-          </optgroup>
-          <optgroup label="プリセット (ダーク)">
-            <option value="dark|githubDark">GitHub Dark</option>
-            <option value="dark|solarizedDark">Solarized Dark</option>
-            <option value="dark|dracula">Dracula</option>
-            <option value="dark|nord">Nord</option>
-            <option value="dark|monokai">Monokai</option>
-            <option value="dark|tokyoNight">Tokyo Night</option>
-            <option value="dark|gruvboxDark">Gruvbox Dark</option>
-          </optgroup>
+          <For each={groupBy(THEME_CHOICES)}>
+            {([group, items]) => (
+              <optgroup label={group}>
+                <For each={items}>
+                  {(c) => <option value={c.value}>{c.label}</option>}
+                </For>
+              </optgroup>
+            )}
+          </For>
         </select>
       </div>
 
@@ -122,23 +115,30 @@ export default function GeneralTab(props: Props) {
           id="cfg-icon"
           value={`${state.iconSet}|${state.iconPack}`}
           onChange={(e) => {
-            const [s, p] = e.currentTarget.value.split("|") as [never, never];
-            setIconSet(s);
-            setIconPack(p);
+            const v = e.currentTarget.value;
+            const c = findIconChoice(v);
+            if (c) {
+              setIconSet(c.iconSet);
+              setIconPack(c.iconPack);
+              return;
+            }
+            // カスタムパック (`colored|custom:xxx`)
+            const [s, p] = v.split("|");
+            if (s && p) {
+              setIconSet(s as never);
+              setIconPack(p as never);
+            }
           }}
         >
-          <optgroup label="基本">
-            <option value="emoji|default">📁 既定 (絵文字)</option>
-            <option value="colored|default">🎨 拡張子別</option>
-            <option value="minimal|default">▸ ミニマル</option>
-          </optgroup>
-          <optgroup label="パック">
-            <option value="colored|emoji">Emoji (リッチ)</option>
-            <option value="colored|material">Material (色ブロック)</option>
-            <option value="colored|vscode">VSCode (Seti 風)</option>
-            <option value="minimal|mono">Mono (モノクロ記号)</option>
-            <option value="colored|system">System (Windows シェル)</option>
-          </optgroup>
+          <For each={groupBy(ICON_CHOICES)}>
+            {([group, items]) => (
+              <optgroup label={group}>
+                <For each={items}>
+                  {(c) => <option value={c.value}>{c.label}</option>}
+                </For>
+              </optgroup>
+            )}
+          </For>
           <Show when={listLoadedPacks().length > 0}>
             <optgroup label="カスタム">
               <For each={listLoadedPacks()}>

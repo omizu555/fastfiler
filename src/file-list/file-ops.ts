@@ -24,7 +24,8 @@ import {
 import { runFileJob } from "../jobs";
 import { openPrompt } from "../components/PromptDialog";
 import { invalidNameMessage, uniqueName } from "./name-utils";
-import { resolveDestinations, refreshTargets } from "../dnd/resolve-dest";
+import { resolveDestinations, refreshTargets, findConflicts, type ResolvedItem } from "../dnd/resolve-dest";
+import { openConflict } from "../components/ConflictDialog";
 import { buildAsciiTree, parseDepthInput } from "./ascii-tree";
 
 export interface FileOpsCtx {
@@ -79,13 +80,40 @@ export async function pasteHere(ctx: FileOpsCtx) {
     return;
   }
   const op = isCut ? "move" : "copy";
-  const items = await resolveDestinations(paths, dst, op);
+  // 衝突があればユーザーに確認
+  const conflicts = await findConflicts(paths, dst, op);
+  let policy: "rename" | "overwrite" | "skip" = "rename";
+  if (conflicts.length > 0) {
+    const choice = await openConflict({
+      op,
+      conflictCount: conflicts.length,
+      totalCount: paths.length,
+      sampleNames: conflicts,
+      destDir: dst,
+    });
+    if (choice === "cancel") {
+      pushToast("キャンセルしました", "info");
+      return;
+    }
+    policy = choice;
+  }
+  const items = await resolveDestinations(paths, dst, op, policy);
   if (items.length === 0) {
     pushToast("貼り付け対象がありません (同じ場所への移動)", "info");
     return;
   }
+  // 上書き対象を事前削除 (Windows の rename は既存があると失敗するため move でも必須)
+  for (const it of items as ResolvedItem[]) {
+    if (!it.overwrite) continue;
+    try {
+      await deletePath(it.to, true);
+    } catch (e) {
+      console.warn("[file-ops] overwrite preDelete failed:", it.to, e);
+    }
+  }
   if (fromInternal && isCut) clearClipboard();
   const renamedCount = items.filter((it) => it.renamed).length;
+  const overwriteCount = items.filter((it) => it.overwrite).length;
   const label = `${isCut ? "移動" : "コピー"} ${items.length}件 → ${dst}`;
   const r = await runFileJob(op, items.map(({ from, to }) => ({ from, to })), { label });
   if (r.ok) {
@@ -96,7 +124,10 @@ export async function pasteHere(ctx: FileOpsCtx) {
     );
     pushUndo(label, ops);
     bumpRefreshPaths(refreshTargets(items, dst, isCut));
-    const note = renamedCount > 0 ? ` (${renamedCount}件は名前変更)` : "";
+    const notes: string[] = [];
+    if (renamedCount > 0) notes.push(`${renamedCount}件は名前変更`);
+    if (overwriteCount > 0) notes.push(`${overwriteCount}件は上書き`);
+    const note = notes.length > 0 ? ` (${notes.join(", ")})` : "";
     pushToast(`${isCut ? "移動" : "コピー"} ${items.length}件 完了${note}`, "info");
   } else if (!r.canceled) {
     console.error(`[file-ops] ${label} 失敗`);
