@@ -96,7 +96,9 @@ export async function captureAndSaveWindow(): Promise<void> {
       console.info("[window-state] saved (maximized)", v);
       return;
     }
-    const pos = await w.innerPosition();
+    // setPosition は outer position を設定するため、保存も outerPosition を使う。
+    // innerPosition (クライアント領域) を保存すると毎回タイトルバー高さ分ずれる。
+    const pos = await w.outerPosition();
     const size = await w.innerSize();
     const v: SavedWindow = {
       x: pos.x,
