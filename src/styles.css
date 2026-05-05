@@ -661,9 +661,7 @@ button.primary:hover {
     color: #000;
 }
 .ctx-submenu {
-    position: absolute;
-    top: -4px;
-    left: 100%;
+    position: fixed;
     min-width: 200px;
     background: var(--bg2);
     border: 1px solid var(--border);

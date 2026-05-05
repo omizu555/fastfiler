@@ -22,7 +22,12 @@ export default function ContextMenu(props: Props) {
   let ref: HTMLDivElement | undefined;
   let subRef: HTMLDivElement | undefined;
   const [openIndex, setOpenIndex] = createSignal<number | null>(null);
-  const [subStyle, setSubStyle] = createSignal<Record<string, string>>({ top: "-4px", left: "100%" });
+  // サブメニューは fixed 配置 + 計算後に表示。初期は不可視で画面左上に置き測定する。
+  const [subStyle, setSubStyle] = createSignal<Record<string, string>>({
+    visibility: "hidden",
+    left: "0px",
+    top: "0px",
+  });
 
   const onDocClick = (e: MouseEvent) => {
     if (!ref) return;
@@ -68,10 +73,13 @@ export default function ContextMenu(props: Props) {
     document.removeEventListener("keydown", onKey);
   });
 
-  // サブメニューが画面外にはみ出る場合は上方向 / 左方向にフリップ
+  // サブメニューが画面外にはみ出る場合は上方向 / 左方向にフリップ。
+  // position: fixed で配置するため、ピクセル絶対座標を直接計算する。
   createEffect(() => {
     const idx = openIndex();
     if (idx === null) return;
+    // 開くたびに不可視状態にリセットしてから測定 (前回値の表示で一瞬ずれるのを防ぐ)
+    setSubStyle({ visibility: "hidden", left: "0px", top: "0px" });
     queueMicrotask(() => {
       if (!subRef) return;
       const trigger = subRef.parentElement as HTMLElement | null;
@@ -80,30 +88,32 @@ export default function ContextMenu(props: Props) {
       const sRect = subRef.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const style: Record<string, string> = {};
-      // 横: 右にはみ出すなら左側へ
-      if (tRect.right + sRect.width + 4 > vw) {
-        style.left = "auto";
-        style.right = "100%";
+      const style: Record<string, string> = { visibility: "visible" };
+
+      // 横: 右にはみ出すなら左側へ。両側ダメなら右端クランプ。
+      let left: number;
+      if (tRect.right + sRect.width + 4 <= vw) {
+        left = tRect.right;
+      } else if (tRect.left - sRect.width - 4 >= 0) {
+        left = tRect.left - sRect.width;
       } else {
-        style.left = "100%";
-        style.right = "auto";
+        left = Math.max(4, vw - sRect.width - 4);
       }
-      // 縦: 下にはみ出すなら上方向フリップ。両方収まらないなら上端クランプ + スクロール
-      if (tRect.top + sRect.height > vh - 4) {
-        if (tRect.bottom - sRect.height >= 4) {
-          style.top = "auto";
-          style.bottom = "-4px";
-        } else {
-          style.top = `${4 - tRect.top}px`;
-          style.bottom = "auto";
-          style.maxHeight = `${vh - 8}px`;
-          style.overflowY = "auto";
-        }
+
+      // 縦: 下にはみ出すなら上方向フリップ。両方ダメなら上端クランプ + スクロール。
+      let top: number;
+      if (tRect.top - 4 + sRect.height <= vh - 4) {
+        top = tRect.top - 4;
+      } else if (tRect.bottom - sRect.height >= 4) {
+        top = tRect.bottom - sRect.height + 4;
       } else {
-        style.top = "-4px";
-        style.bottom = "auto";
+        top = 4;
+        style.maxHeight = `${vh - 8}px`;
+        style.overflowY = "auto";
       }
+
+      style.left = `${left}px`;
+      style.top = `${top}px`;
       setSubStyle(style);
     });
   });
