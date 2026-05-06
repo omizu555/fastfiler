@@ -14,15 +14,21 @@ pub fn open_with_shell(path: String) -> AppResult<()> {
     {
         // ディスクイメージ (iso/img/vhd/vhdx) は "mount" verb を使用し
         // Windows エクスプローラと同じ「マウント」挙動にする (Win8 以降)。
+        // Office テンプレート (xltx/xltm/dotx/dotm/potx/potm 等) は verb を
+        // None にしてレジストリ上の既定 verb (通常 "new" = テンプレートから新規作成)
+        // を使用する。"open" を明示するとテンプレート自体が編集モードで開いてしまう。
         // それ以外は従来通り "open" verb を使用。
         let ext = std::path::Path::new(&path)
             .extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
-        let verb = match ext.as_str() {
-            "iso" | "img" | "vhd" | "vhdx" => "mount",
-            _ => "open",
+        let verb: Option<&str> = match ext.as_str() {
+            "iso" | "img" | "vhd" | "vhdx" => Some("mount"),
+            "xltx" | "xltm" | "xlt"
+            | "dotx" | "dotm" | "dot"
+            | "potx" | "potm" | "pot" => None,
+            _ => Some("open"),
         };
         win::shell_exec(verb, &path, None)
     }
@@ -39,7 +45,7 @@ pub fn reveal_in_explorer(path: String) -> AppResult<()> {
     {
         // explorer.exe /select,"path" でファイルを選択状態でフォルダを開く
         let arg = format!("/select,\"{}\"", path);
-        win::shell_exec("open", "explorer.exe", Some(&arg))
+        win::shell_exec(Some("open"), "explorer.exe", Some(&arg))
     }
     #[cfg(not(windows))]
     {
@@ -81,14 +87,16 @@ mod win {
         OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
     }
 
-    pub fn shell_exec(op: &str, file: &str, args: Option<&str>) -> AppResult<()> {
-        let op_w = wide(op);
+    pub fn shell_exec(op: Option<&str>, file: &str, args: Option<&str>) -> AppResult<()> {
+        let op_w = op.map(wide);
         let file_w = wide(file);
         let args_w = args.map(wide);
         let hinst = unsafe {
             ShellExecuteW(
                 None,
-                PCWSTR(op_w.as_ptr()),
+                op_w.as_ref()
+                    .map(|w| PCWSTR(w.as_ptr()))
+                    .unwrap_or(PCWSTR::null()),
                 PCWSTR(file_w.as_ptr()),
                 args_w
                     .as_ref()
