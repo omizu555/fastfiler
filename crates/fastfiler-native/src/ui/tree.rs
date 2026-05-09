@@ -35,9 +35,7 @@ impl TreeNode {
         }
     }
 
-    /// 子フォルダを 1 階層だけロード。
-    /// リアルタイム反映のため、呼ばれるたびに最新を取り直す。
-    /// ただし既存ノードの expanded/children 状態は path 一致で保持する。
+    /// 子フォルダを 1 階層だけロード。既存子の expanded/children 状態は path 一致で保持する。
     fn load_children(&self) {
         let s = self.path.to_string_lossy().into_owned();
         if let Ok(dirs) = ffs::list_dirs(s, Some(false)) {
@@ -63,6 +61,19 @@ impl TreeNode {
         }
         self.loaded.set(true);
     }
+}
+
+/// 展開済みノードを再帰的に reload。戻り値: reload した数。
+fn reload_expanded_recursive(node: &TreeNode) -> u32 {
+    let mut n = 0;
+    if node.expanded.get_untracked() {
+        node.load_children();
+        n += 1;
+        for c in node.children.get_untracked().iter() {
+            n += reload_expanded_recursive(c);
+        }
+    }
+    n
 }
 
 pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyView {
@@ -110,17 +121,6 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     });
 
     let app_for_kids = app.clone();
-    let tree_tick = app.tree_tick;
-    let node_for_effect = node.clone();
-    let path_for_log = node.path.clone();
-    // tree_tick 変化時に展開済みノードを自動再ロード (展開状態は保持)
-    floem::reactive::create_effect(move |_| {
-        let t = tree_tick.get();
-        if expanded.get_untracked() {
-            crate::flog!("[tree] reload children (tick={}) path={}", t, path_for_log.display());
-            node_for_effect.load_children();
-        }
-    });
     let kids = dyn_container(
         move || (expanded.get(), children.get()),
         move |(open, kids)| {
@@ -149,6 +149,22 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
         .map(|d| TreeNode::new(PathBuf::from(d)))
         .collect();
     let roots_sig = RwSignal::new(roots);
+
+    // tree_tick を track し、展開済みノードを再帰的に reload する単一 effect。
+    // tree_pane の scope に置くことで、レンダリング再生成で破棄されないようにする。
+    let tree_tick = app.tree_tick;
+    let roots_for_effect = roots_sig;
+    floem::reactive::create_effect(move |_| {
+        let t = tree_tick.get();
+        let roots = roots_for_effect.get_untracked();
+        let mut count = 0u32;
+        for r in roots.iter() {
+            count += reload_expanded_recursive(r);
+        }
+        if count > 0 {
+            crate::flog!("[tree] tick={} reloaded {} expanded nodes", t, count);
+        }
+    });
 
     let app_for_render = app.clone();
     let tree = dyn_container(
