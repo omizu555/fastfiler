@@ -649,10 +649,16 @@ impl AppState {
         let settings = AppSettings::new();
         let tab = Tab::new(start, settings.show_hidden);
         let id = tab.id;
+        let initial_cols = settings
+            .tab_columns
+            .get_untracked()
+            .parse::<usize>()
+            .unwrap_or(1)
+            .clamp(1, 4);
         Self {
             tabs: RwSignal::new(im::vector![tab]),
             active: RwSignal::new(id),
-            tab_cols: RwSignal::new(1),
+            tab_cols: RwSignal::new(initial_cols),
             settings,
             settings_open: RwSignal::new(false),
             pane_rects: RwSignal::new(im::HashMap::new()),
@@ -795,6 +801,7 @@ fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
 /// 列数セレクタ (1 / 2 / 3 / 4)
 fn cols_selector(app: AppState) -> impl IntoView {
     let cols = app.tab_cols;
+    let settings_tab_columns = app.settings.tab_columns;
     let make_btn = move |n: usize| {
         let cols = cols;
         label(move || format!("{}", n))
@@ -811,7 +818,10 @@ fn cols_selector(app: AppState) -> impl IntoView {
                     .cursor(CursorStyle::Pointer)
                     .color(Color::rgb8(220, 220, 220))
             })
-            .on_click_stop(move |_| cols.set(n))
+            .on_click_stop(move |_| {
+                cols.set(n);
+                settings_tab_columns.set(n.to_string());
+            })
     };
     h_stack((
         label(|| String::from("Cols:")).style(|s| s.padding_horiz(4).color(Color::rgb8(180, 180, 180))),
@@ -913,8 +923,14 @@ fn tabs_panel(app: AppState) -> impl IntoView {
     let body = v_stack((header, drives_section, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
         .style(|s| s.flex_col().size_full().gap(4).padding(4));
 
-    container(body).style(|s| {
-        s.width(220)
+    let tabs_width_sig = app.settings.tabs_width;
+    container(body).style(move |s| {
+        let w = tabs_width_sig
+            .get()
+            .parse::<f32>()
+            .unwrap_or(220.0)
+            .clamp(120.0, 600.0);
+        s.width(w)
             .height_full()
             .background(Color::rgb8(28, 28, 32))
             .border_right(1)
@@ -1638,8 +1654,14 @@ fn tree_pane(app: AppState) -> impl IntoView {
     let body = v_stack((header, scroll(tree).style(|s| s.flex_grow(1.0).width_full())))
         .style(|s| s.flex_col().size_full());
 
-    container(body).style(|s| {
-        s.width(240)
+    let tree_width_sig = app.settings.tree_width;
+    container(body).style(move |s| {
+        let w = tree_width_sig
+            .get()
+            .parse::<f32>()
+            .unwrap_or(240.0)
+            .clamp(120.0, 600.0);
+        s.width(w)
             .height_full()
             .background(Color::rgb8(28, 28, 32))
             .border_right(1)
@@ -1691,6 +1713,27 @@ fn app_view() -> impl IntoView {
     let app = AppState::new(initial_path());
     let settings_open = app.settings_open;
     let active = app.active;
+
+    // 設定値変化時の自動保存 (タブ列数 / タブペイン幅 / ツリーペイン幅)
+    {
+        let settings_for_save = app.settings.clone();
+        let tab_columns_sig = app.settings.tab_columns;
+        let tabs_width_sig = app.settings.tabs_width;
+        let tree_width_sig = app.settings.tree_width;
+        floem::reactive::create_effect(move |prev: Option<()>| {
+            // 全シグナルを track
+            let _ = tab_columns_sig.get();
+            let _ = tabs_width_sig.get();
+            let _ = tree_width_sig.get();
+            // 初回 (購読登録のための実行) は保存スキップ
+            if prev.is_none() {
+                return;
+            }
+            if let Err(e) = settings_for_save.save() {
+                eprintln!("[settings] auto-save error: {}", e);
+            }
+        });
+    }
     let tabs = app.tabs;
 
     let switcher = dyn_container(
