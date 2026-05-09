@@ -8,11 +8,13 @@
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, dyn_container, h_stack, label, scroll, text_input, v_stack, Decorators,
+    button, container, dropdown::Dropdown, dyn_container, h_stack, label, scroll, text_input,
+    v_stack, Decorators,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::fonts;
 use crate::theme;
 
 // ────────────────────────────────────────────────────────────────
@@ -459,6 +461,30 @@ fn row_select(
     .style(|s| s.padding(4).items_center().gap(8))
 }
 
+/// インストール済みフォントから選ぶコンボボックス。
+/// 空文字 (システムデフォルト) を先頭に、Windows レジストリから収集した family を並べる。
+fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
+    let mut items: Vec<String> = fonts::installed_fonts().to_vec();
+    if items.is_empty() {
+        // フォント一覧が取得できない環境は input にフォールバック
+        return row_input(title, sig).into_any();
+    }
+    let cur = sig.get_untracked();
+    if !cur.is_empty() && !items.iter().any(|f| f == &cur) {
+        items.insert(1, cur);
+    }
+    let dd = Dropdown::new_rw(sig, items.clone()).style(|s: floem::style::Style| {
+        s.width(260).background(theme::bg_modal()).color(theme::text_normal())
+    });
+    h_stack((
+        label(move || title.to_string())
+            .style(|s| s.width(220).padding(6).color(theme::text_label())),
+        dd,
+    ))
+    .style(|s| s.padding(4).items_center().gap(8))
+    .into_any()
+}
+
 // ────────────────────────────────────────────────────────────────
 // Tabs
 // ────────────────────────────────────────────────────────────────
@@ -483,7 +509,7 @@ fn tab_general(s: &AppSettings) -> floem::AnyView {
         row_select("アイコンセット (iconSet)", s.icon_set, vec!["emoji", "minimal", "colored"]),
         row_input("アイコンパック (iconPack)", s.icon_pack),
         section_label("Font"),
-        row_input("UI フォント (uiFont)", s.ui_font),
+        row_font("UI フォント (uiFont)", s.ui_font),
         row_input("UI フォントサイズ (uiFontSize)", s.ui_font_size),
     ))
     .style(|s| s.flex_col());

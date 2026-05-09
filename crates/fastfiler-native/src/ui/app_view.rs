@@ -275,13 +275,20 @@ pub fn app_view() -> impl IntoView {
     .style(|s| s.size_full());
 
     let ui_font_size_sig = app.settings.ui_font_size;
+    let ui_font_sig = app.settings.ui_font;
     container(switcher)
         .style(move |s| {
             let fs = ui_font_size_sig.get().parse::<f32>().unwrap_or(13.0).clamp(8.0, 32.0);
-            s.size_full()
+            let family = ui_font_sig.get();
+            let s = s.size_full()
                 .background(theme::bg_root())
                 .color(theme::text_normal())
-                .font_size(fs)
+                .font_size(fs);
+            if family.trim().is_empty() {
+                s
+            } else {
+                s.font_family(family)
+            }
         })
         .on_event_cont(EventListener::PointerMove, {
             let app_for_split = app.clone();

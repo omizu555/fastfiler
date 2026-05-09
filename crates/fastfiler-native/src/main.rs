@@ -1,6 +1,7 @@
 // FastFiler — エントリポイント
 
 mod actions;
+mod fonts;
 mod fs_model;
 mod hotkeys;
 mod logger;

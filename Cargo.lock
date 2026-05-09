@@ -901,6 +901,7 @@ dependencies = [
  "ron",
  "serde",
  "serde_json",
+ "winreg 0.52.0",
 ]
 
 [[package]]
