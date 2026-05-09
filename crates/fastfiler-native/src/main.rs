@@ -1,18 +1,17 @@
-// Phase 3 step 2: タブペイン + フォルダペインの GUI 実装。
+// Phase 3 step 3: 縦型タブ (N 列) + フォルダペインの GUI 実装。
 //
 // 構造:
 //   App
-//     ├─ Sidebar (ドライブ一覧 — グローバル)
-//     └─ Main
-//         ├─ TabBar  ([Tab1] [Tab2] [+])     ← active を切り替え
-//         └─ ActivePane                      ← 1 タブ = 1 PaneState
-//               ├─ Toolbar (← → ↑ ⟳ パス入力 Open)
-//               ├─ FileList (virtual_stack)
-//               └─ Footer (status)
+//     ├─ Sidebar      (ドライブ一覧 — グローバル, 左端)
+//     ├─ TabsPanel    (縦型タブを N 列で表示 + 列数セレクタ + [+])
+//     └─ ActivePane   (1 タブ = 1 PaneState)
+//           ├─ Toolbar (← → ↑ ⟳ パス入力 Open)
+//           ├─ FileList (virtual_stack)
+//           └─ Footer (status)
 //
-// PaneState は全フィールドが RwSignal/Arc で Clone 可能。各タブが独立した
-// cur_path / history / rows / 監視を持つ。サイドバーから navigate するときは
-// アクティブタブのペインに対して操作する。
+// タブはブラウザのような上部水平タブではなく、左側に縦に並ぶ。
+// ユーザーは列数 (1〜4) を選択でき、タブを行優先で N 列に分割して表示する。
+// PaneState は全フィールドが RwSignal/Arc で Clone 可能。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,7 +27,7 @@ use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, dyn_container, dyn_stack, h_stack, label, scroll, text, text_input,
+    button, container, dyn_container, h_stack, label, scroll, text, text_input,
     v_stack, virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
 };
 use parking_lot::Mutex;
@@ -246,6 +245,7 @@ impl PaneState {
 struct AppState {
     tabs: RwSignal<im::Vector<PaneState>>,
     active: RwSignal<u64>,
+    tab_cols: RwSignal<usize>,
 }
 
 impl AppState {
@@ -255,6 +255,7 @@ impl AppState {
         Self {
             tabs: RwSignal::new(im::vector![pane]),
             active: RwSignal::new(id),
+            tab_cols: RwSignal::new(1),
         }
     }
 
@@ -302,12 +303,12 @@ fn tab_button(app: AppState, pane: PaneState) -> impl IntoView {
         let t = title.get();
         if t.is_empty() { String::from("(root)") } else { t }
     })
-    .style(|s| s.padding_horiz(8));
+    .style(|s| s.flex_grow(1.0).padding_horiz(8));
 
     let close_btn = label(|| String::from("×"))
         .style(|s| {
-            s.padding_horiz(6)
-                .color(Color::rgb8(180, 180, 180))
+            s.padding_horiz(8)
+                .color(Color::rgb8(200, 200, 200))
                 .cursor(CursorStyle::Pointer)
         })
         .on_click_stop({
@@ -318,44 +319,111 @@ fn tab_button(app: AppState, pane: PaneState) -> impl IntoView {
     h_stack((title_label, close_btn))
         .style(move |s| {
             let is_active = active.get() == id;
-            let bg = if is_active { Color::rgb8(50, 50, 60) } else { Color::rgb8(34, 34, 38) };
+            let bg = if is_active { Color::rgb8(58, 96, 158) } else { Color::rgb8(34, 34, 38) };
             s.height(28)
+                .width_full()
                 .items_center()
                 .background(bg)
-                .border_right(1)
+                .border(1)
                 .border_color(Color::rgb8(60, 60, 60))
                 .cursor(CursorStyle::Pointer)
         })
         .on_click_stop(move |_| active.set(id))
 }
 
-fn tab_bar(app: AppState) -> impl IntoView {
-    let tabs_for_iter = app.tabs;
+/// 列数セレクタ (1 / 2 / 3 / 4)
+fn cols_selector(app: AppState) -> impl IntoView {
+    let cols = app.tab_cols;
+    let make_btn = move |n: usize| {
+        let cols = cols;
+        label(move || format!("{}", n))
+            .style(move |s| {
+                let active = cols.get() == n;
+                let bg = if active { Color::rgb8(58, 96, 158) } else { Color::rgb8(40, 40, 44) };
+                s.width(22)
+                    .height(22)
+                    .items_center()
+                    .padding_horiz(4)
+                    .background(bg)
+                    .border(1)
+                    .border_color(Color::rgb8(60, 60, 60))
+                    .cursor(CursorStyle::Pointer)
+                    .color(Color::rgb8(220, 220, 220))
+            })
+            .on_click_stop(move |_| cols.set(n))
+    };
+    h_stack((
+        label(|| String::from("Cols:")).style(|s| s.padding_horiz(4).color(Color::rgb8(180, 180, 180))),
+        make_btn(1),
+        make_btn(2),
+        make_btn(3),
+        make_btn(4),
+    ))
+    .style(|s| s.gap(2).items_center().padding(4))
+}
+
+/// タブを N 列に行優先でチャンク分割した縦型タブパネル。
+fn tabs_panel(app: AppState) -> impl IntoView {
+    let tabs_sig = app.tabs;
+    let cols_sig = app.tab_cols;
     let app_for_add = app.clone();
 
-    let plus = label(|| String::from("+"))
+    let plus = label(|| String::from("+ New Tab"))
         .style(|s| {
-            s.padding_horiz(12)
-                .height(28)
+            s.height(26)
+                .width_full()
                 .items_center()
+                .padding_horiz(8)
                 .color(Color::rgb8(180, 220, 180))
                 .cursor(CursorStyle::Pointer)
                 .background(Color::rgb8(34, 34, 38))
+                .border(1)
+                .border_color(Color::rgb8(60, 60, 60))
         })
         .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
 
-    let app_for_tabs = app.clone();
-    let tabs_view = dyn_stack(
-        move || tabs_for_iter.get().into_iter(),
-        |p: &PaneState| p.id,
-        move |p: PaneState| tab_button(app_for_tabs.clone(), p),
+    let app_for_grid = app.clone();
+    let grid = dyn_container(
+        move || (tabs_sig.get(), cols_sig.get().max(1)),
+        move |(tabs, cols)| {
+            let app = app_for_grid.clone();
+            let total = tabs.len();
+            let per_col = if total == 0 { 0 } else { (total + cols - 1) / cols };
+            let mut columns: Vec<floem::AnyView> = Vec::with_capacity(cols);
+            for c in 0..cols {
+                let start = c * per_col;
+                let end = ((c + 1) * per_col).min(total);
+                let mut col_items: Vec<floem::AnyView> = Vec::new();
+                if start < end {
+                    for p in tabs.iter().skip(start).take(end - start) {
+                        col_items.push(tab_button(app.clone(), p.clone()).into_any());
+                    }
+                }
+                let col_view = floem::views::stack_from_iter(col_items)
+                    .style(|s| s.flex_col().flex_grow(1.0).gap(2));
+                columns.push(container(col_view).style(|s| s.flex_grow(1.0)).into_any());
+            }
+            floem::views::stack_from_iter(columns)
+                .style(|s| s.flex_row().gap(2).width_full())
+                .into_any()
+        },
     )
-    .style(|s| s.flex_row());
+    .style(|s| s.flex_col().width_full());
 
-    h_stack((tabs_view, plus)).style(|s| {
-        s.flex_row()
+    let header = h_stack((
+        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().color(Color::rgb8(200, 200, 200))),
+        cols_selector(app.clone()),
+    ))
+    .style(|s| s.items_center());
+
+    let body = v_stack((header, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
+        .style(|s| s.flex_col().size_full().gap(4).padding(4));
+
+    container(body).style(|s| {
+        s.width(220)
+            .height_full()
             .background(Color::rgb8(28, 28, 32))
-            .border_bottom(1)
+            .border_right(1)
             .border_color(Color::rgb8(60, 60, 60))
     })
 }
@@ -559,12 +627,11 @@ fn app_view() -> impl IntoView {
                 .into_any(),
         },
     )
-    .style(|s| s.size_full().flex_col());
+    .style(|s| s.size_full().flex_col().flex_grow(1.0));
 
-    let main_col = v_stack((tab_bar(app.clone()), active_pane))
-        .style(|s| s.flex_col().flex_grow(1.0).height_full());
+    let main_col = active_pane;
 
-    let body = h_stack((sidebar(app.clone()), main_col))
+    let body = h_stack((sidebar(app.clone()), tabs_panel(app.clone()), main_col))
         .style(|s| s.size_full().flex_grow(1.0));
 
     body.style(|s| {
