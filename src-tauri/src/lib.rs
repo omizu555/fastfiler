@@ -21,6 +21,7 @@ mod shell_assoc;
 mod user_commands;
 mod icons;
 mod error;
+mod events;
 
 pub use error::AppError;
 
