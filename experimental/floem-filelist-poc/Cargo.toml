@@ -11,6 +11,9 @@ publish = false
 [dependencies]
 floem = "0.2"
 im = "15"
+fastfiler-domain = { path = "../../crates/fastfiler-domain" }
+parking_lot = "0.12"
+serde_json = "1"
 
 [profile.release]
 opt-level = 3

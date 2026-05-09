@@ -1,14 +1,25 @@
 // FastFiler 脱 Tauri PoC: floem の virtual_stack で FileList の描画性能を実測する。
 //
+// Phase 2C-3:
+//   - 実フォルダ読み込みを `fastfiler_domain::fs::list_dir` に切り替え
+//     (Tauri なしでもドメインロジックがそのまま使えることを実証)
+//   - `WatcherCore::watch_with_sink` でディレクトリ監視を起動し、変更件数を
+//     ステータスバーに表示。Reload ボタンで一覧を更新する
+//
 // 目的:
 //  - 1k / 10k / 100k / 1M 件の合成データ + 実フォルダ読み込みでロード時間 (ms) を測る
 //  - スクロール / 選択操作中の体感 (フレーム落ち) を確認する
+//  - ドメイン crate (Tauri 非依存) を別 GUI から再利用できることを確認する
 //
 // 非目的: アイコン取得 / D&D / シェル統合 (Phase 後段)。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
+use fastfiler_domain::events::EventSink;
+use fastfiler_domain::fs as ffs;
+use fastfiler_domain::watcher::WatcherCore;
 use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
 use floem::peniko::Color;
@@ -18,6 +29,7 @@ use floem::views::{
     button, h_stack, label, scroll, text, text_input, v_stack, virtual_stack, Decorators,
     VirtualDirection, VirtualItemSize,
 };
+use parking_lot::Mutex;
 
 #[derive(Clone, Debug)]
 struct FileRow {
@@ -60,16 +72,17 @@ fn make_synthetic(n: usize) -> im::Vector<FileRow> {
         .collect()
 }
 
-fn read_folder(path: &std::path::Path) -> std::io::Result<im::Vector<FileRow>> {
-    let mut tmp: Vec<FileRow> = Vec::with_capacity(256);
-    for ent in std::fs::read_dir(path)? {
-        let Ok(ent) = ent else { continue };
-        let name = ent.file_name().to_string_lossy().into_owned();
-        let md = ent.metadata().ok();
-        let is_dir = md.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let size = md.as_ref().map(|m| m.len()).unwrap_or(0);
-        tmp.push(FileRow::new(name, size, is_dir));
-    }
+/// Phase 2C-3: read_folder は fastfiler-domain の list_dir を使う。
+fn read_folder(path: &std::path::Path) -> Result<im::Vector<FileRow>, String> {
+    let s = path.to_string_lossy().into_owned();
+    let entries = ffs::list_dir(s).map_err(|e| e.to_string())?;
+    let mut tmp: Vec<FileRow> = entries
+        .into_iter()
+        .map(|e| {
+            let is_dir = e.kind == "dir";
+            FileRow::new(e.name, e.size, is_dir)
+        })
+        .collect();
     tmp.sort_by(|a, b| match (a.is_dir, b.is_dir) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
@@ -84,11 +97,35 @@ struct Stats {
     count: usize,
 }
 
+/// fs-change イベントを受け取るシンプルな EventSink。
+/// イベント数を atomic にカウントするだけ。
+struct CounterSink {
+    count: Mutex<u32>,
+    last_path: Mutex<String>,
+}
+
+impl EventSink for CounterSink {
+    fn emit_json(&self, _event: &str, payload: serde_json::Value) {
+        *self.count.lock() += 1;
+        if let Some(p) = payload.get("path").and_then(|v| v.as_str()) {
+            *self.last_path.lock() = p.to_string();
+        }
+    }
+}
+
 fn app_view() -> impl IntoView {
     let rows: RwSignal<im::Vector<FileRow>> = RwSignal::new(make_synthetic(1_000));
     let stats = RwSignal::new(Stats { load_ms: 0.0, count: 1_000 });
     let selected: RwSignal<Option<usize>> = RwSignal::new(None);
     let path_input = RwSignal::new(String::new());
+    let watch_msg: RwSignal<String> = RwSignal::new(String::new());
+
+    let watcher = Arc::new(WatcherCore::default());
+    let sink: Arc<CounterSink> = Arc::new(CounterSink {
+        count: Mutex::new(0),
+        last_path: Mutex::new(String::new()),
+    });
+    let watched_path: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let load_synth = move |n: usize| {
         let t = Instant::now();
@@ -100,19 +137,45 @@ fn app_view() -> impl IntoView {
         stats.set(Stats { load_ms: ms, count: len });
     };
 
-    let load_real = move |p: PathBuf| {
-        let t = Instant::now();
-        match read_folder(&p) {
-            Ok(v) => {
-                let ms = t.elapsed().as_secs_f64() * 1000.0;
-                let len = v.len();
-                rows.set(v);
-                selected.set(None);
-                stats.set(Stats { load_ms: ms, count: len });
+    let load_real = {
+        let watcher = watcher.clone();
+        let sink = sink.clone();
+        let watched_path = watched_path.clone();
+        move |p: PathBuf| {
+            let t = Instant::now();
+            match read_folder(&p) {
+                Ok(v) => {
+                    let ms = t.elapsed().as_secs_f64() * 1000.0;
+                    let len = v.len();
+                    rows.set(v);
+                    selected.set(None);
+                    stats.set(Stats { load_ms: ms, count: len });
+
+                    let path_str = p.to_string_lossy().into_owned();
+                    let mut wp = watched_path.lock();
+                    if let Some(old) = wp.as_ref() {
+                        watcher.unwatch(old);
+                    }
+                    *wp = Some(path_str.clone());
+                    *sink.count.lock() = 0;
+                    *sink.last_path.lock() = String::new();
+                    let sink_dyn: Arc<dyn EventSink> = sink.clone();
+                    if let Err(e) = watcher.watch_with_sink(path_str, sink_dyn) {
+                        watch_msg.set(format!("watch failed: {}", e));
+                    } else {
+                        watch_msg.set(String::from("watching"));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[poc] read_folder failed: {}", e);
+                    watch_msg.set(format!("read failed: {}", e));
+                }
             }
-            Err(e) => eprintln!("[poc] read_folder failed: {}", e),
         }
     };
+
+    let load_real_for_open = load_real.clone();
+    let load_real_for_reload = load_real;
 
     let toolbar = h_stack((
         button("1k").action(move || load_synth(1_000)),
@@ -126,9 +189,18 @@ fn app_view() -> impl IntoView {
             let s = path_input.get();
             let p = PathBuf::from(s.trim());
             if p.is_dir() {
-                load_real(p);
+                load_real_for_open(p);
             } else {
                 eprintln!("[poc] not a directory: {:?}", p);
+            }
+        }),
+        button("Reload").action({
+            let watched_path = watched_path.clone();
+            move || {
+                let cur = watched_path.lock().clone();
+                if let Some(p) = cur {
+                    load_real_for_reload(PathBuf::from(p));
+                }
             }
         }),
     ))
@@ -180,10 +252,18 @@ fn app_view() -> impl IntoView {
 
     let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0));
 
-    let status = label(move || {
-        let st = stats.get();
-        let sel = selected.get();
-        format!("items: {}   load: {:.2} ms   selected: {:?}", st.count, st.load_ms, sel)
+    let status = label({
+        let sink = sink.clone();
+        move || {
+            let st = stats.get();
+            let sel = selected.get();
+            let watched = sink.count.lock();
+            let msg = watch_msg.get();
+            format!(
+                "items: {}   load: {:.2} ms   selected: {:?}   fs-change: {}   {}",
+                st.count, st.load_ms, sel, *watched, msg
+            )
+        }
     })
     .style(|s| {
         s.height(22)
