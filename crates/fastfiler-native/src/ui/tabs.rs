@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 
-use floem::event::EventListener;
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::style::{CursorStyle, FlexWrap};
@@ -15,9 +14,6 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let id = tab.id;
     let root_sig = tab.root;
     let active = app.active;
-    let tab_dragging = app.tab_dragging;
-    let tab_drag_pending = app.tab_drag_pending;
-    let tab_drag_last_swap = app.tab_drag_last_swap;
 
     let title_label = label(move || {
         // first leaf の title を反応的に取得
@@ -43,69 +39,21 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
             move |_| app.close_tab(id)
         });
 
-    let app_for_drag = app.clone();
     h_stack((title_label, close_btn))
         .style(move |s| {
             let is_active = active.get() == id;
-            let is_drop_target =
-                tab_dragging.get().map_or(false, |d| d != id);
             let bg = if is_active {
                 theme::accent_select()
             } else {
                 theme::bg_zebra_b()
-            };
-            let border_col = if is_drop_target {
-                theme::accent_select()
-            } else {
-                theme::border_default()
             };
             s.height(28)
                 .width_full()
                 .items_center()
                 .background(bg)
                 .border(1)
-                .border_color(border_col)
+                .border_color(theme::border_default())
                 .cursor(CursorStyle::Pointer)
-        })
-        .on_event_cont(EventListener::PointerDown, move |e| {
-            // 押した瞬間は pending のみ。実際のドラッグは threshold 超え後に発火
-            if let floem::event::Event::PointerDown(p) = e {
-                tab_drag_pending.set(Some((id, p.pos)));
-                tab_dragging.set(None);
-                tab_drag_last_swap.set(None);
-            }
-        })
-        .on_event_cont(EventListener::PointerMove, move |e| {
-            if let floem::event::Event::PointerMove(p) = e {
-                if let Some((pid, start)) = tab_drag_pending.get_untracked() {
-                    let dx = p.pos.x - start.x;
-                    let dy = p.pos.y - start.y;
-                    if (dx * dx + dy * dy) >= 100.0 {
-                        // 10px 超え: ドラッグ確定
-                        crate::logger::write_line(format!("[tab-drag] start id={} dx={:.1} dy={:.1}", pid, dx, dy));
-                        tab_dragging.set(Some(pid));
-                        tab_drag_pending.set(None);
-                        tab_drag_last_swap.set(Some(pid));
-                    }
-                }
-            }
-        })
-        .on_event_cont(EventListener::PointerEnter, move |_| {
-            if let Some(from) = tab_dragging.get_untracked() {
-                if from != id {
-                    if tab_drag_last_swap.get_untracked() == Some(id) {
-                        return;
-                    }
-                    crate::logger::write_line(format!("[tab-drag] swap from={} to={}", from, id));
-                    app_for_drag.reorder_tab(from, id);
-                    tab_drag_last_swap.set(Some(id));
-                }
-            }
-        })
-        .on_event_cont(EventListener::PointerUp, move |_| {
-            tab_dragging.set(None);
-            tab_drag_pending.set(None);
-            tab_drag_last_swap.set(None);
         })
         .on_click_stop(move |_| active.set(id))
 }
@@ -150,6 +98,28 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
     let tabs_sig = app.tabs;
     let cols_sig = app.tab_cols;
     let app_for_add = app.clone();
+
+    let app_for_up = app.clone();
+    let app_for_dn = app.clone();
+    let nav_btn = move |label_str: &'static str, delta: i32, app_n: AppState| -> floem::AnyView {
+        label(move || String::from(label_str))
+            .style(|s| {
+                s.height(22)
+                    .width(22)
+                    .items_center()
+                    .justify_center()
+                    .color(theme::text_label())
+                    .cursor(CursorStyle::Pointer)
+                    .background(theme::bg_zebra_b())
+                    .border(1)
+                    .border_color(theme::border_default())
+                    .font_bold()
+            })
+            .on_click_stop(move |_| app_n.shift_active_tab(delta))
+            .into_any()
+    };
+    let up_btn = nav_btn("↑", -1, app_for_up);
+    let dn_btn = nav_btn("↓", 1, app_for_dn);
 
     let plus = label(|| String::from("+"))
         .style(|s| {
@@ -203,11 +173,13 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
     )
     .style(|s| s.flex_col().width_full());
 
-    // ヘッダー右側に + を配置して縦スペース節約
+    // ヘッダー右側に ↑↓ + を配置して縦スペース節約
     let header = h_stack((
         label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(theme::text_label())),
         cols_selector(app.clone()),
         plus,
+        up_btn,
+        dn_btn,
     ))
     .style(|s| s.items_center().gap(4).padding(2));
 

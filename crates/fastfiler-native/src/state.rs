@@ -495,12 +495,6 @@ pub struct AppState {
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
     /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
     pub tree_tick: RwSignal<u64>,
-    /// タブ並び替え中のドラッグ元タブ id (実際にドラッグ開始したもののみ)
-    pub tab_dragging: RwSignal<Option<u64>>,
-    /// PointerDown 直後の保留状態 (タブid, 押した位置)。距離しきい値を超えたら tab_dragging に昇格する
-    pub tab_drag_pending: RwSignal<Option<(u64, floem::kurbo::Point)>>,
-    /// 直前に swap した先 (oscillation 防止用)
-    pub tab_drag_last_swap: RwSignal<Option<u64>>,
 }
 
 impl AppState {
@@ -547,9 +541,6 @@ impl AppState {
             dragging: RwSignal::new(None),
             splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
-            tab_dragging: RwSignal::new(None),
-            tab_drag_pending: RwSignal::new(None),
-            tab_drag_last_swap: RwSignal::new(None),
         }
     }
 
@@ -570,6 +561,20 @@ impl AppState {
         if self.active.get_untracked() != id {
             self.active.set(id);
         }
+    }
+
+    /// active タブを delta 個分シフトする (-1=上/左, +1=下/右)。範囲外ならクランプ。
+    pub fn shift_active_tab(&self, delta: i32) {
+        let active_id = self.active.get_untracked();
+        self.tabs.update(|t| {
+            if let Some(idx) = t.iter().position(|x| x.id == active_id) {
+                let new_idx = (idx as i32 + delta).clamp(0, t.len() as i32 - 1) as usize;
+                if new_idx != idx {
+                    let item = t.remove(idx);
+                    t.insert(new_idx, item);
+                }
+            }
+        });
     }
 
     /// from_id のタブを to_id の位置に並び替える。同じなら何もしない。
