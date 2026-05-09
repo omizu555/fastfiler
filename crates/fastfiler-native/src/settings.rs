@@ -5,7 +5,6 @@
 //
 // 設定値は元 Tauri 版 (src/store/core.ts の AppState) を踏襲。
 
-use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
@@ -13,6 +12,8 @@ use floem::views::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+use crate::theme;
 
 // ────────────────────────────────────────────────────────────────
 // AppSettings (元 Tauri 版の AppState を踏襲)
@@ -384,21 +385,23 @@ fn section_label(text_str: &'static str) -> impl IntoView {
     label(move || text_str.to_string()).style(|s| {
         s.padding(8)
             .font_bold()
-            .color(Color::rgb8(220, 220, 220))
+            .color(theme::text_normal())
             .border_bottom(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     })
 }
 
 fn row_input(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
     h_stack((
         label(move || title.to_string())
-            .style(|s| s.width(220).padding(6).color(Color::rgb8(200, 200, 200))),
+            .style(|s| s.width(220).padding(6).color(theme::text_label())),
         text_input(sig).style(|s| {
             s.flex_grow(1.0)
                 .padding(4)
                 .border(1)
-                .border_color(Color::rgb8(120, 120, 120))
+                .border_color(theme::border_strong())
+                .background(theme::bg_modal())
+                .color(theme::text_normal())
         }),
     ))
     .style(|s| s.padding(4).items_center().gap(8))
@@ -410,7 +413,7 @@ fn row_check(title: &'static str, sig: RwSignal<bool>) -> impl IntoView {
             let mark = if sig.get() { "[v]" } else { "[ ]" };
             format!("{} {}", mark, title)
         })
-        .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(Color::rgb8(220, 220, 220)))
+        .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(theme::text_normal()))
         .on_click_stop(move |_| sig.set(!sig.get())),
     ))
     .style(|s| s.padding(4))
@@ -428,14 +431,14 @@ fn row_select(
             label(move || opt.to_string())
                 .style(move |st| {
                     let active = s.get() == opt;
-                    let bg = if active { Color::rgb8(58, 96, 158) } else { Color::rgb8(40, 40, 44) };
+                    let bg = if active { theme::accent_select() } else { theme::bg_chrome() };
                     st.padding_horiz(10)
                         .padding_vert(4)
                         .background(bg)
                         .border(1)
-                        .border_color(Color::rgb8(60, 60, 60))
+                        .border_color(theme::border_default())
                         .cursor(CursorStyle::Pointer)
-                        .color(Color::rgb8(220, 220, 220))
+                        .color(theme::text_normal())
                 })
                 .on_click_stop(move |_| s.set(opt.to_string()))
                 .into_any()
@@ -444,7 +447,7 @@ fn row_select(
 
     h_stack((
         label(move || title.to_string())
-            .style(|s| s.width(220).padding(6).color(Color::rgb8(200, 200, 200))),
+            .style(|s| s.width(220).padding(6).color(theme::text_label())),
         floem::views::stack_from_iter(buttons).style(|s| s.flex_row().gap(2)),
     ))
     .style(|s| s.padding(4).items_center().gap(8))
@@ -541,12 +544,14 @@ fn tab_hotkeys(s: &AppSettings) -> floem::AnyView {
         let sig = *sig;
         let row = h_stack((
             label(move || action_text.clone())
-                .style(|s| s.width(220).padding(6).color(Color::rgb8(200, 200, 200))),
+                .style(|s| s.width(220).padding(6).color(theme::text_label())),
             text_input(sig).style(|s| {
                 s.flex_grow(1.0)
                     .padding(4)
                     .border(1)
-                    .border_color(Color::rgb8(120, 120, 120))
+                    .border_color(theme::border_strong())
+                    .background(theme::bg_modal())
+                    .color(theme::text_normal())
             }),
         ))
         .style(|s| s.padding(4).items_center().gap(8));
@@ -563,7 +568,7 @@ fn tab_plugins(s: &AppSettings) -> floem::AnyView {
         v_stack((
             section_label("Plugins"),
             label(|| String::from("(プラグインは検出されていません)"))
-                .style(|s| s.padding(12).color(Color::rgb8(180, 180, 180))),
+                .style(|s| s.padding(12).color(theme::text_dim())),
         ))
         .style(|s| s.flex_col())
         .into_any()
@@ -578,7 +583,7 @@ fn tab_plugins(s: &AppSettings) -> floem::AnyView {
                     let mark = if sig.get() { "[v]" } else { "[ ]" };
                     format!("{} {}", mark, id_text)
                 })
-                .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(Color::rgb8(220, 220, 220)))
+                .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(theme::text_normal()))
                 .on_click_stop(move |_| sig.set(!sig.get()))
                 .into_any(),
             );
@@ -603,23 +608,23 @@ pub fn settings_view(
         label(move || title.to_string())
             .style(move |s| {
                 let on = active_tab.get() == id;
-                let bg = if on { Color::rgb8(58, 96, 158) } else { Color::rgb8(34, 34, 38) };
+                let bg = if on { theme::accent_select() } else { theme::bg_chrome() };
                 s.height(32)
                     .width_full()
                     .items_center()
                     .padding_horiz(12)
                     .background(bg)
                     .border_bottom(1)
-                    .border_color(Color::rgb8(60, 60, 60))
+                    .border_color(theme::border_default())
                     .cursor(CursorStyle::Pointer)
-                    .color(Color::rgb8(220, 220, 220))
+                    .color(theme::text_normal())
             })
             .on_click_stop(move |_| active_tab.set(id))
     };
 
     let tabs_col = v_stack((
         label(|| String::from("Settings"))
-            .style(|s| s.padding(12).font_bold().color(Color::rgb8(220, 220, 220)).font_size(15.0)),
+            .style(|s| s.padding(12).font_bold().color(theme::text_normal()).font_size(15.0)),
         make_tab("general", "General"),
         make_tab("workspace", "Workspace"),
         make_tab("search", "Search"),
@@ -630,9 +635,9 @@ pub fn settings_view(
     .style(|s| {
         s.width(180)
             .height_full()
-            .background(Color::rgb8(28, 28, 32))
+            .background(theme::bg_panel())
             .border_right(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
             .flex_col()
     });
 
@@ -661,16 +666,16 @@ pub fn settings_view(
 
     let header = h_stack((
         label(|| String::from("⚙ Settings"))
-            .style(|s| s.padding(8).font_bold().font_size(15.0).color(Color::rgb8(220, 220, 220)).flex_grow(1.0)),
+            .style(|s| s.padding(8).font_bold().font_size(15.0).color(theme::text_normal()).flex_grow(1.0)),
         close_btn,
     ))
     .style(|s| {
         s.height(40)
             .items_center()
             .padding_horiz(8)
-            .background(Color::rgb8(34, 34, 38))
+            .background(theme::bg_chrome())
             .border_bottom(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     });
 
     let content = h_stack((tabs_col, scroll(body).style(|s| s.size_full().flex_grow(1.0))))
@@ -679,7 +684,7 @@ pub fn settings_view(
     v_stack((header, content)).style(|s| {
         s.size_full()
             .flex_col()
-            .background(Color::rgb8(24, 24, 28))
-            .color(Color::rgb8(220, 220, 220))
+            .background(theme::bg_root())
+            .color(theme::text_normal())
     })
 }

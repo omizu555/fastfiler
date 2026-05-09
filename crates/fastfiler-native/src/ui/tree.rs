@@ -37,12 +37,26 @@ impl TreeNode {
 
     /// 子フォルダを 1 階層だけロード。
     /// リアルタイム反映のため、呼ばれるたびに最新を取り直す。
+    /// ただし既存ノードの expanded/children 状態は path 一致で保持する。
     fn load_children(&self) {
         let s = self.path.to_string_lossy().into_owned();
         if let Ok(dirs) = ffs::list_dirs(s, Some(false)) {
+            let existing: std::collections::HashMap<PathBuf, TreeNode> = self
+                .children
+                .get_untracked()
+                .into_iter()
+                .map(|c| (c.path.clone(), c))
+                .collect();
             let mut tmp: Vec<TreeNode> = dirs
                 .into_iter()
-                .map(|e| TreeNode::new(self.path.join(&e.name)))
+                .map(|e| {
+                    let p = self.path.join(&e.name);
+                    if let Some(node) = existing.get(&p) {
+                        node.clone()
+                    } else {
+                        TreeNode::new(p)
+                    }
+                })
                 .collect();
             tmp.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
             self.children.set(tmp.into_iter().collect());
@@ -96,6 +110,15 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     });
 
     let app_for_kids = app.clone();
+    let tree_tick = app.tree_tick;
+    let node_for_effect = node.clone();
+    // tree_tick 変化時に展開済みノードを自動再ロード (展開状態は保持)
+    floem::reactive::create_effect(move |_| {
+        let _t = tree_tick.get();
+        if expanded.get_untracked() {
+            node_for_effect.load_children();
+        }
+    });
     let kids = dyn_container(
         move || (expanded.get(), children.get()),
         move |(open, kids)| {

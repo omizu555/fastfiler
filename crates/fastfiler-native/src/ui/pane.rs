@@ -37,25 +37,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
     // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
     let pane_for_fs = pane.clone();
+    let app_for_fs = app.clone();
     floem::reactive::create_effect(move |_| {
         // signal を track して変化時に rows のみ更新
         if fs_event_signal.get().is_some() {
             fs_change_tick.update(|n| *n = n.wrapping_add(1));
             pane_for_fs.refresh_rows_only();
+            // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
+            app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
         }
     });
 
-    let pane_for_open = pane.clone();
-    let pane_for_back = pane.clone();
-    let pane_for_forward = pane.clone();
     let pane_for_up = pane.clone();
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
     let pane_for_addr_enter = pane.clone();
-    let pane_for_newfolder = pane.clone();
-    let pane_for_newfile = pane.clone();
-    let pane_for_rename = pane.clone();
-    let pane_for_delete = pane.clone();
     let pane_for_modal_ok = pane.clone();
     let pane_for_modal_cancel = pane.clone();
     let pane_for_modal_enter = pane.clone();
@@ -74,8 +70,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let pane_id_for_close = pane.id;
     let hide_toolbar_sig = app.settings.hide_pane_toolbar;
     let toolbar = h_stack((
-        button("←").action(move || pane_for_back.back()),
-        button("→").action(move || pane_for_forward.forward()),
         button("↑").action(move || pane_for_up.up()),
         button("⟳").action(move || pane_for_reload.reload()),
         text_input(path_input)
@@ -94,15 +88,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     }
                 }
             }),
-        button("Open").action(move || {
-            let s = path_input.get();
-            let p = PathBuf::from(s.trim());
-            pane_for_open.navigate(p, true);
-        }),
-        button("New Folder").action(move || pane_for_newfolder.open_new_folder_modal()),
-        button("New File").action(move || pane_for_newfile.open_new_file_modal()),
-        button("Rename").action(move || pane_for_rename.open_rename_modal()),
-        button("Delete").action(move || pane_for_delete.delete_selected()),
         button("⊟+").action(move || app_for_split_h.split_active(false)),
         button("⊞+").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),

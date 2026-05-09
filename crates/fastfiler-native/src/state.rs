@@ -323,6 +323,8 @@ pub struct AppState {
     pub dragging: RwSignal<Option<DragState>>,
     /// スプリッタドラッグ中のターゲット (タブペイン / ツリーペイン 右端)
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
+    /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
+    pub tree_tick: RwSignal<u64>,
 }
 
 impl AppState {
@@ -358,6 +360,7 @@ impl AppState {
             pane_rects: RwSignal::new(im::HashMap::new()),
             dragging: RwSignal::new(None),
             splitter_drag: RwSignal::new(None),
+            tree_tick: RwSignal::new(0),
         }
     }
 
