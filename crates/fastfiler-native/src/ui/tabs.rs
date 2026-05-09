@@ -28,7 +28,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
                 .unwrap_or_else(|| String::from("(empty)"))
         })
     })
-    .style(|s| s.flex_grow(1.0).padding_horiz(8));
+    .style(|s| s.flex_grow(1.0).min_width(0).padding_horiz(8));
 
     let close_btn = label(|| String::from("×"))
         .style(|s| {
@@ -137,13 +137,18 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
         })
         .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
 
+    let tabs_width_sig = app.settings.tabs_width;
     let app_for_grid = app.clone();
     let grid = dyn_container(
-        move || (tabs_sig.get(), cols_sig.get().max(1)),
-        move |(tabs, cols)| {
+        move || (tabs_sig.get(), cols_sig.get().max(1), tabs_width_sig.get()),
+        move |(tabs, cols, width_str)| {
             let app = app_for_grid.clone();
             let total = tabs.len();
             let per_col = if total == 0 { 0 } else { (total + cols - 1) / cols };
+            // パネル幅から固定列幅を算出 (padding 8 + gap 2 * (cols-1))
+            let panel_w = width_str.parse::<f32>().unwrap_or(220.0).clamp(120.0, 600.0);
+            let inner = (panel_w - 8.0 - 2.0 * (cols.saturating_sub(1) as f32)).max(60.0);
+            let col_w = (inner / cols as f32).max(50.0);
             let mut columns: Vec<floem::AnyView> = Vec::with_capacity(cols);
             for c in 0..cols {
                 let start = c * per_col;
@@ -155,8 +160,12 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
                     }
                 }
                 let col_view = floem::views::stack_from_iter(col_items)
-                    .style(|s| s.flex_col().flex_grow(1.0).gap(2));
-                columns.push(container(col_view).style(|s| s.flex_grow(1.0)).into_any());
+                    .style(|s| s.flex_col().width_full().gap(2));
+                columns.push(
+                    container(col_view)
+                        .style(move |s| s.width(col_w))
+                        .into_any(),
+                );
             }
             floem::views::stack_from_iter(columns)
                 .style(|s| s.flex_row().gap(2).width_full())
@@ -213,9 +222,9 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
     let body = v_stack((header, drives_section, scroll(grid).style(|s| s.flex_grow(1.0).min_height(0).width_full())))
         .style(|s| s.flex_col().size_full().gap(4).padding(4));
 
-    let tabs_width_sig = app.settings.tabs_width;
+    let tabs_width_sig2 = app.settings.tabs_width;
     container(body).style(move |s| {
-        let w = tabs_width_sig
+        let w = tabs_width_sig2
             .get()
             .parse::<f32>()
             .unwrap_or(220.0)

@@ -102,14 +102,18 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             if editing {
                 let path_input = path_input;
                 let pane_enter = pane_for_addr_enter2.clone();
-                container(
+                h_stack((
                     text_input(path_input)
                         .style(|s| {
                             s.flex_grow(1.0)
-                                .height(20)
+                                .min_width(0)
+                                .height(22)
                                 .padding_horiz(6)
+                                .padding_vert(2)
                                 .border(1)
                                 .border_color(theme::border_focus())
+                                .background(theme::bg_modal())
+                                .color(theme::text_normal())
                         })
                         .on_event_stop(EventListener::KeyDown, move |e| {
                             if let Event::KeyDown(ke) = e {
@@ -123,8 +127,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                                 }
                             }
                         }),
-                )
-                .style(|s| s.padding_horiz(4).padding_vert(1).width_full())
+                ))
+                .style(|s| s.padding_horiz(4).padding_vert(1).width_full().items_center())
                 .into_any()
             } else {
                 let mut acc = PathBuf::new();
