@@ -22,8 +22,10 @@ use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::fs as ffs;
 use fastfiler_domain::watcher::WatcherCore;
+use fastfiler_domain::win_clipboard as wcb;
 use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
+use floem::menu::{Menu, MenuItem};
 use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
@@ -44,6 +46,8 @@ use settings::{settings_view, AppSettings};
 struct FileRow {
     name: String,
     is_dir: bool,
+    size: u64,
+    modified: i64,
     size_text: String,
     mtime_text: String,
 }
@@ -78,22 +82,50 @@ fn format_dt(dt: chrono::DateTime<chrono::Local>) -> String {
 fn read_folder(path: &Path, show_hidden: bool) -> Result<im::Vector<FileRow>, String> {
     let s = path.to_string_lossy().into_owned();
     let entries = ffs::list_dir(s).map_err(|e| e.to_string())?;
-    let mut tmp: Vec<FileRow> = entries
+    let tmp: Vec<FileRow> = entries
         .into_iter()
         .filter(|e| show_hidden || !e.hidden)
         .map(|e| {
             let is_dir = e.kind == "dir";
             let size_text = if is_dir { String::from("<DIR>") } else { human_size(e.size) };
             let mtime_text = format_mtime(e.modified);
-            FileRow { name: e.name, is_dir, size_text, mtime_text }
+            FileRow {
+                name: e.name,
+                is_dir,
+                size: e.size,
+                modified: e.modified,
+                size_text,
+                mtime_text,
+            }
         })
         .collect();
-    tmp.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
     Ok(tmp.into())
+}
+
+fn sort_rows(rows: &mut im::Vector<FileRow>, key: SortKey, desc: bool) {
+    let mut tmp: Vec<FileRow> = rows.iter().cloned().collect();
+    tmp.sort_by(|a, b| {
+        // ディレクトリ優先 (常に上)
+        match (a.is_dir, b.is_dir) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+        let ord = match key {
+            SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            SortKey::Size => a.size.cmp(&b.size),
+            SortKey::Modified => a.modified.cmp(&b.modified),
+        };
+        if desc { ord.reverse() } else { ord }
+    });
+    *rows = tmp.into();
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SortKey {
+    Name,
+    Size,
+    Modified,
 }
 
 #[cfg(windows)]
@@ -177,13 +209,16 @@ struct PaneState {
     /// モーダル種別 (新規フォルダ / リネーム)
     modal_kind: RwSignal<ModalKind>,
     modal_input: RwSignal<String>,
+    sort_key: RwSignal<SortKey>,
+    sort_desc: RwSignal<bool>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
 
 impl PaneState {
     fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
-        let initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
+        let mut initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
+        sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
@@ -203,6 +238,8 @@ impl PaneState {
             show_hidden,
             modal_kind: RwSignal::new(ModalKind::None),
             modal_input: RwSignal::new(String::new()),
+            sort_key: RwSignal::new(SortKey::Name),
+            sort_desc: RwSignal::new(false),
         }
     }
 
@@ -215,7 +252,8 @@ impl PaneState {
         }
         let t = Instant::now();
         match read_folder(&target, self.show_hidden.get()) {
-            Ok(v) => {
+            Ok(mut v) => {
+                sort_rows(&mut v, self.sort_key.get(), self.sort_desc.get());
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 let len = v.len();
                 if push_history {
@@ -415,6 +453,96 @@ impl PaneState {
             }
         }
     }
+
+    /// ソート列をクリック (同じ列なら方向トグル / 別列なら昇順)
+    fn click_sort(&self, key: SortKey) {
+        if self.sort_key.get() == key {
+            self.sort_desc.update(|d| *d = !*d);
+        } else {
+            self.sort_key.set(key);
+            self.sort_desc.set(false);
+        }
+        self.rows.update(|v| sort_rows(v, self.sort_key.get(), self.sort_desc.get()));
+        self.selected.set(im::OrdSet::new());
+        self.anchor.set(None);
+    }
+
+    /// 選択行をクリップボードへ書き込み (op = "copy" or "move")
+    fn clipboard_write(&self, op: &str) {
+        let paths: Vec<String> = self
+            .selected_paths()
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            self.status_msg.set(String::from("選択がありません"));
+            return;
+        }
+        let n = paths.len();
+        match wcb::clipboard_write_paths(paths, op.to_string()) {
+            Ok(()) => self
+                .status_msg
+                .set(format!("{} ({} 件) をクリップボードへ", op, n)),
+            Err(e) => self.status_msg.set(format!("クリップボード失敗: {}", e)),
+        }
+    }
+
+    /// クリップボードから貼り付け (Copy / Move を自動判別)
+    fn clipboard_paste(&self) {
+        let cb = match wcb::clipboard_read_paths() {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                self.status_msg.set(String::from("クリップボードに項目がありません"));
+                return;
+            }
+            Err(e) => {
+                self.status_msg.set(format!("クリップボード読込失敗: {}", e));
+                return;
+            }
+        };
+        let dst_dir = self.cur_path.get();
+        let is_move = cb.op.eq_ignore_ascii_case("move");
+        let mut ok = 0usize;
+        let mut err = 0usize;
+        for src in &cb.paths {
+            let from = PathBuf::from(src);
+            let name = from.file_name().map(|s| s.to_string_lossy().into_owned());
+            let Some(name) = name else { err += 1; continue };
+            let dst = unique_dest(&dst_dir, &name);
+            let res = if is_move {
+                fops::move_path(src.clone(), dst.to_string_lossy().into_owned())
+            } else {
+                fops::copy_path(src.clone(), dst.to_string_lossy().into_owned())
+            };
+            match res {
+                Ok(()) => ok += 1,
+                Err(_) => err += 1,
+            }
+        }
+        let label = if is_move { "移動" } else { "コピー" };
+        self.status_msg
+            .set(format!("{} 完了 OK={} / NG={}", label, ok, err));
+        self.reload();
+    }
+}
+
+/// 同名ファイルがあれば " (2)", " (3)"... を付与してユニークな宛先を返す。
+fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+    let p = dir.join(name);
+    if !p.exists() {
+        return p;
+    }
+    let (base, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    for n in 2..=9999u32 {
+        let cand = dir.join(format!("{} ({}){}", base, n, ext));
+        if !cand.exists() {
+            return cand;
+        }
+    }
+    p
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -673,6 +801,12 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let pane_for_modal_enter = pane.clone();
     let pane_for_keys = pane.clone();
     let pane_for_click = pane.clone();
+    let pane_for_ctxmenu = pane.clone();
+    let pane_for_sort_name = pane.clone();
+    let pane_for_sort_size = pane.clone();
+    let pane_for_sort_mtime = pane.clone();
+    let sort_key_sig = pane.sort_key;
+    let sort_desc_sig = pane.sort_desc;
 
     let toolbar = h_stack((
         button("←").action(move || pane_for_back.back()),
@@ -706,11 +840,25 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     ))
     .style(|s| s.gap(6).padding(6).items_center());
 
+    let arrow = move |k: SortKey| -> String {
+        if sort_key_sig.get() == k {
+            if sort_desc_sig.get() { String::from(" ▼") } else { String::from(" ▲") }
+        } else {
+            String::new()
+        }
+    };
+
     let header = h_stack((
         text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
-        text("Name").style(|s| s.flex_grow(1.0).padding_horiz(6).font_bold()),
-        text("Size").style(|s| s.width(110).padding_horiz(6).font_bold()),
-        text("Modified").style(|s| s.width(140).padding_horiz(6).font_bold()),
+        label(move || format!("Name{}", arrow(SortKey::Name)))
+            .style(|s| s.flex_grow(1.0).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .on_click_stop(move |_| pane_for_sort_name.click_sort(SortKey::Name)),
+        label(move || format!("Size{}", arrow(SortKey::Size)))
+            .style(|s| s.width(110).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .on_click_stop(move |_| pane_for_sort_size.click_sort(SortKey::Size)),
+        label(move || format!("Modified{}", arrow(SortKey::Modified)))
+            .style(|s| s.width(140).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .on_click_stop(move |_| pane_for_sort_mtime.click_sort(SortKey::Modified)),
     ))
     .style(|s| {
         s.height(24)
@@ -773,6 +921,62 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                     let _ = fastfiler_domain::shell::open_with_shell(
                         target.to_string_lossy().into_owned(),
                     );
+                }
+            })
+            .context_menu({
+                let pane_ctx = pane_for_ctxmenu.clone();
+                move || {
+                    let p_open = pane_ctx.clone();
+                    let p_reveal = pane_ctx.clone();
+                    let p_cut = pane_ctx.clone();
+                    let p_copy = pane_ctx.clone();
+                    let p_paste = pane_ctx.clone();
+                    let p_rename = pane_ctx.clone();
+                    let p_delete = pane_ctx.clone();
+                    // 右クリックされた行が未選択なら単独選択にする
+                    if !p_open.selected.with(|s| s.contains(&bg_idx)) {
+                        p_open.click_row(bg_idx, false, false);
+                    }
+                    Menu::new("")
+                        .entry(MenuItem::new("開く").action({
+                            let p = p_open.clone();
+                            move || {
+                                let cur = p.cur_path.get();
+                                let name =
+                                    p.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                                let isd =
+                                    p.rows.with(|v| v.get(bg_idx).map(|r| r.is_dir).unwrap_or(false));
+                                if let Some(n) = name {
+                                    let target = cur.join(n);
+                                    if isd {
+                                        p.navigate(target, true);
+                                    } else {
+                                        let _ = fastfiler_domain::shell::open_with_shell(
+                                            target.to_string_lossy().into_owned(),
+                                        );
+                                    }
+                                }
+                            }
+                        }))
+                        .entry(MenuItem::new("エクスプローラで表示").action(move || {
+                            let cur = p_reveal.cur_path.get();
+                            let name = p_reveal
+                                .rows
+                                .with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                            if let Some(n) = name {
+                                let target = cur.join(n);
+                                let _ = fastfiler_domain::shell::reveal_in_explorer(
+                                    target.to_string_lossy().into_owned(),
+                                );
+                            }
+                        }))
+                        .separator()
+                        .entry(MenuItem::new("切り取り").action(move || p_cut.clipboard_write("move")))
+                        .entry(MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")))
+                        .entry(MenuItem::new("貼り付け").action(move || p_paste.clipboard_paste()))
+                        .separator()
+                        .entry(MenuItem::new("名前の変更").action(move || p_rename.open_rename_modal()))
+                        .entry(MenuItem::new("削除").action(move || p_delete.delete_selected()))
                 }
             })
         },
@@ -865,8 +1069,24 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                         pane_for_keys.open_rename_modal();
                         return;
                     }
+                    Key::Named(NamedKey::Escape) => {
+                        pane_for_keys.close_modal();
+                        return;
+                    }
                     Key::Character(c) if ctrl && (c == "a" || c == "A") => {
                         pane_for_keys.select_all();
+                        return;
+                    }
+                    Key::Character(c) if ctrl && (c == "c" || c == "C") => {
+                        pane_for_keys.clipboard_write("copy");
+                        return;
+                    }
+                    Key::Character(c) if ctrl && (c == "x" || c == "X") => {
+                        pane_for_keys.clipboard_write("move");
+                        return;
+                    }
+                    Key::Character(c) if ctrl && (c == "v" || c == "V") => {
+                        pane_for_keys.clipboard_paste();
                         return;
                     }
                     _ => {}
