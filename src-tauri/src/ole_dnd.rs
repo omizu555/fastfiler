@@ -15,13 +15,17 @@
 //   3. Drop で AppHandle.emit("ole-drop", { paths, effect, x, y }) を発火。
 
 use crate::error::{AppError, AppResult};
+use crate::events::{self, EventSink};
 use serde::Serialize;
+use std::sync::Arc;
 
 #[cfg(windows)]
 use std::sync::OnceLock;
 
+// Phase 2A: AppHandle ではなく EventSink を保持する。
+// OLE COM コールバック (DragEnter/Over/Leave/Drop) からの emit に使用。
 #[cfg(windows)]
-static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+static EVENT_SINK: OnceLock<Arc<dyn EventSink>> = OnceLock::new();
 
 // ウィンドウ HWND (座標変換用)
 #[cfg(windows)]
@@ -53,7 +57,8 @@ pub struct OleDragOverPayload {
 #[cfg(windows)]
 pub fn register(app: &tauri::AppHandle) {
     use tauri::Manager;
-    let _ = APP_HANDLE.set(app.clone());
+    let sink: Arc<dyn EventSink> = Arc::new(events::tauri_sink(app.clone()));
+    let _ = EVENT_SINK.set(sink);
     let app2 = app.clone();
     // ウィンドウが用意されてから登録 (Tauri 2 では setup 時点で取得可能)
     std::thread::Builder::new()
@@ -264,9 +269,8 @@ mod impl_target {
             if accepts {
                 let (cx, cy) = screen_to_client(pt.x, pt.y);
                 eprintln!("[ole-dnd] DragEnter -> client=({},{})", cx, cy);
-                if let Some(app) = APP_HANDLE.get() {
-                    use tauri::Emitter;
-                    let _ = app.emit("ole-drag-over", OleDragOverPayload { effect: chosen, x: cx, y: cy });
+                if let Some(s) = EVENT_SINK.get() {
+                    events::emit(&**s, "ole-drag-over", &OleDragOverPayload { effect: chosen, x: cx, y: cy });
                 }
             }
             Ok(())
@@ -299,9 +303,8 @@ mod impl_target {
                 if now - LAST_DRAG_OVER_MS.load(std::sync::atomic::Ordering::Relaxed) >= 50 {
                     LAST_DRAG_OVER_MS.store(now, std::sync::atomic::Ordering::Relaxed);
                     let (cx, cy) = screen_to_client(pt.x, pt.y);
-                    if let Some(app) = APP_HANDLE.get() {
-                        use tauri::Emitter;
-                        let _ = app.emit("ole-drag-over", OleDragOverPayload { effect: chosen, x: cx, y: cy });
+                    if let Some(s) = EVENT_SINK.get() {
+                        events::emit(&**s, "ole-drag-over", &OleDragOverPayload { effect: chosen, x: cx, y: cy });
                     }
                 }
             }
@@ -310,9 +313,8 @@ mod impl_target {
         fn DragLeave(&self) -> windows::core::Result<()> {
             DROP_ACCEPTS_HDROP.store(false, std::sync::atomic::Ordering::Relaxed);
             LAST_DRAG_OVER_MS.store(0, std::sync::atomic::Ordering::Relaxed);
-            if let Some(app) = APP_HANDLE.get() {
-                use tauri::Emitter;
-                let _ = app.emit("ole-drag-leave", ());
+            if let Some(s) = EVENT_SINK.get() {
+                events::emit(&**s, "ole-drag-leave", &());
             }
             Ok(())
         }
@@ -339,13 +341,12 @@ mod impl_target {
                 eprintln!("[ole-dnd]   path[{}]={}", i, p);
             }
             if !paths.is_empty() {
-                if let Some(app) = APP_HANDLE.get() {
-                    use tauri::Emitter;
-                    let _ = app.emit("ole-drop", OleDropPayload {
+                if let Some(s) = EVENT_SINK.get() {
+                    events::emit(&**s, "ole-drop", &OleDropPayload {
                         paths, effect, x: cx, y: cy,
                     });
                 } else {
-                    eprintln!("[ole-dnd] APP_HANDLE not initialized!");
+                    eprintln!("[ole-dnd] EVENT_SINK not initialized!");
                 }
             } else {
                 eprintln!("[ole-dnd] Drop with empty paths (CF_HDROP extraction failed?)");
