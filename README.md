@@ -1,6 +1,6 @@
 # FastFiler
 
-縦タブ（列数指定可）+ 任意分割ペイン + ペイン連動を備えた **Windows 向け高速ファイラ**。
+縦タブ（列数指定可）+ 任意分割ペイン を備えた **Windows 向け高速ファイラ**。
 Tauri 2 + Solid.js + Rust。アニメーションは全面廃止。
 
 Windowsのエクスプローラが遅くて仕方なかったから、とりあえずAIに作ってもらった次第。
@@ -9,9 +9,6 @@ AIの進化によって、できた次第。
 
 ![alt text](image.png)
 
-
-
-- 詳細設計: [`doc/plan.md`](./doc/plan.md)
 - **使い方ガイド**: [`doc/USAGE.md`](./doc/USAGE.md)（操作・ホットキー・連動・プラグイン等を網羅）
 - **ビルド & インストール**: [`doc/BUILD.md`](./doc/BUILD.md)（必要環境・開発起動・リリース手順）
 
@@ -19,8 +16,8 @@ AIの進化によって、できた次第。
 
 ```
 E:\temp\Files\
-├ doc\plan.md             # 全体計画
 ├ doc\USAGE.md            # 使い方ガイド
+├ doc\BUILD.md            # ビルドガイド
 ├ doc\plugins-sample\     # サンプルプラグイン
 ├ mock\                   # 旧 UI モック（参照用）
 ├ src\                    # フロントエンド (Solid + TS)
