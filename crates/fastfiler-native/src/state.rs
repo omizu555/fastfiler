@@ -17,15 +17,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fastfiler_domain::events::EventSink;
-use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::watcher::WatcherCore;
-use fastfiler_domain::win_clipboard as wcb;
 use floem::kurbo::{Point, Rect};
 use floem::reactive::{RwSignal, SignalGet, SignalUpdate, SignalWith};
 use parking_lot::Mutex;
 
 use crate::fs_model::{
-    initial_path, pretty_title, read_folder, sort_rows, unique_dest, FileRow, History, SortKey,
+    initial_path, pretty_title, read_folder, sort_rows, FileRow, History, SortKey,
     Stats,
 };
 use crate::settings::AppSettings;
@@ -211,35 +209,6 @@ impl PaneState {
         }
     }
 
-    pub fn back(&self) {
-        let mut h = self.history.get();
-        if let Some(prev) = h.back.pop_back() {
-            let cur = self.cur_path.get();
-            h.forward.push_back(cur);
-            self.history.set(h);
-            self.navigate(prev, false);
-        }
-    }
-    pub fn forward(&self) {
-        let mut h = self.history.get();
-        if let Some(next) = h.forward.pop_back() {
-            let cur = self.cur_path.get();
-            h.back.push_back(cur);
-            self.history.set(h);
-            self.navigate(next, false);
-        }
-    }
-    pub fn up(&self) {
-        let cur = self.cur_path.get();
-        if let Some(parent) = cur.parent() {
-            self.navigate(parent.to_path_buf(), true);
-        }
-    }
-    pub fn reload(&self) {
-        let cur = self.cur_path.get_untracked();
-        self.navigate(cur, false);
-    }
-
     /// ファイル監視イベントによる軽量再読込。
     /// navigate と違い cur_path/title/path_input/history/watcher を触らず、
     /// rows と stats のみを差分検出して更新する。シグナル更新の連鎖を抑える。
@@ -249,10 +218,12 @@ impl PaneState {
         let Ok(mut v) = read_folder(&cur, show_hidden) else { return; };
         sort_rows(&mut v, self.sort_key.get_untracked(), self.sort_desc.get_untracked());
         let new_len = v.len();
-        // 簡易差分: 件数 + name 列が同じなら更新スキップ
+        // 簡易差分: 件数 + name + size + mtime が同じなら更新スキップ
         let same = self.rows.with_untracked(|r| {
             r.len() == new_len
-                && r.iter().zip(v.iter()).all(|(a, b)| a.name == b.name && a.size == b.size && a.modified == b.modified)
+                && r.iter().zip(v.iter()).all(|(a, b)| {
+                    a.name == b.name && a.size == b.size && a.modified == b.modified
+                })
         });
         if same {
             return;
@@ -267,274 +238,6 @@ impl PaneState {
         }
         self.rows.set(v);
         self.stats.update(|s| s.count = new_len);
-    }
-
-    /// 選択行のフルパスを返す
-    pub fn selected_paths(&self) -> Vec<PathBuf> {
-        let rows = self.rows.get();
-        let cur = self.cur_path.get();
-        self.selected
-            .get()
-            .iter()
-            .filter_map(|i| rows.get(*i).map(|r| cur.join(&r.name)))
-            .collect()
-    }
-
-    /// 選択行が 1 件のときのみインデックスを返す
-    pub fn single_selected(&self) -> Option<usize> {
-        let s = self.selected.get();
-        if s.len() == 1 {
-            s.iter().next().copied()
-        } else {
-            None
-        }
-    }
-
-    /// 行 idx をクリック (修飾キー対応)
-    pub fn click_row(&self, idx: usize, ctrl: bool, shift: bool) {
-        // 範囲外を即弾く (sort/reload 直後の古いインデックスでクラッシュさせない)
-        let len = self.rows.with(|v| v.len());
-        if idx >= len {
-            return;
-        }
-        if shift {
-            let anchor = self.anchor.get().unwrap_or(idx);
-            let (lo, hi) = if anchor <= idx {
-                (anchor, idx)
-            } else {
-                (idx, anchor)
-            };
-            let mut set = if ctrl {
-                self.selected.get()
-            } else {
-                im::OrdSet::new()
-            };
-            for i in lo..=hi.min(len.saturating_sub(1)) {
-                set.insert(i);
-            }
-            self.selected.set(set);
-        } else if ctrl {
-            self.selected.update(|s| {
-                if s.contains(&idx) {
-                    s.remove(&idx);
-                } else {
-                    s.insert(idx);
-                }
-            });
-            self.anchor.set(Some(idx));
-        } else {
-            let mut set = im::OrdSet::new();
-            set.insert(idx);
-            self.selected.set(set);
-            self.anchor.set(Some(idx));
-        }
-    }
-
-    pub fn select_all(&self) {
-        let len = self.rows.with(|v| v.len());
-        let mut set = im::OrdSet::new();
-        for i in 0..len {
-            set.insert(i);
-        }
-        self.selected.set(set);
-    }
-
-    /// 選択をゴミ箱へ送る
-    pub fn delete_selected(&self) {
-        let paths: Vec<String> = self
-            .selected_paths()
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
-        if paths.is_empty() {
-            return;
-        }
-        let n = paths.len();
-        // SHFileOperationW は通常 panic しないが、念のため catch_unwind で保護
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            fops::delete_to_trash(paths)
-        }));
-        // 削除後はインデックスがズレるので必ず選択をクリア
-        self.selected.set(im::OrdSet::new());
-        self.anchor.set(None);
-        match result {
-            Ok(Ok(())) => {
-                self.status_msg
-                    .set(format!("ごみ箱へ送りました ({} 件)", n));
-                self.reload();
-            }
-            Ok(Err(e)) => {
-                self.status_msg.set(format!("削除失敗: {}", e));
-                self.reload();
-            }
-            Err(_) => {
-                self.status_msg
-                    .set(String::from("削除失敗: 内部例外 (詳細はログ参照)"));
-                self.reload();
-            }
-        }
-    }
-
-    pub fn open_new_folder_modal(&self) {
-        self.modal_input.set(String::from("New Folder"));
-        self.modal_kind.set(ModalKind::NewFolder);
-    }
-
-    pub fn open_new_file_modal(&self) {
-        self.modal_input.set(String::from("new.txt"));
-        self.modal_kind.set(ModalKind::NewFile);
-    }
-
-    pub fn open_rename_modal(&self) {
-        let Some(idx) = self.single_selected() else {
-            self.status_msg
-                .set(String::from("リネームは 1 件のみ選択時"));
-            return;
-        };
-        let name = self.rows.with(|v| v.get(idx).map(|r| r.name.clone()));
-        if let Some(name) = name {
-            self.modal_input.set(name.clone());
-            self.modal_kind.set(ModalKind::Rename(name));
-        }
-    }
-
-    pub fn close_modal(&self) {
-        self.modal_kind.set(ModalKind::None);
-        self.modal_input.set(String::new());
-    }
-
-    pub fn confirm_modal(&self) {
-        let kind = self.modal_kind.get();
-        let input = self.modal_input.get().trim().to_string();
-        if input.is_empty() {
-            self.close_modal();
-            return;
-        }
-        let cur = self.cur_path.get();
-        match kind {
-            ModalKind::None => {}
-            ModalKind::NewFolder => {
-                let target = cur.join(&input);
-                match fops::create_dir(target.to_string_lossy().into_owned()) {
-                    Ok(()) => {
-                        self.status_msg.set(format!("作成: {}", input));
-                        self.close_modal();
-                        self.reload();
-                    }
-                    Err(e) => self.status_msg.set(format!("作成失敗: {}", e)),
-                }
-            }
-            ModalKind::NewFile => {
-                match fastfiler_domain::templates::create_empty_file(
-                    cur.to_string_lossy().into_owned(),
-                    input.clone(),
-                    None,
-                ) {
-                    Ok(p) => {
-                        self.status_msg.set(format!("作成: {}", p));
-                        self.close_modal();
-                        self.reload();
-                    }
-                    Err(e) => self.status_msg.set(format!("作成失敗: {}", e)),
-                }
-            }
-            ModalKind::Rename(orig) => {
-                if input == orig {
-                    self.close_modal();
-                    return;
-                }
-                let from = cur.join(&orig);
-                let to = cur.join(&input);
-                match fops::rename_path(
-                    from.to_string_lossy().into_owned(),
-                    to.to_string_lossy().into_owned(),
-                ) {
-                    Ok(()) => {
-                        self.status_msg
-                            .set(format!("リネーム: {} → {}", orig, input));
-                        self.close_modal();
-                        self.reload();
-                    }
-                    Err(e) => self.status_msg.set(format!("リネーム失敗: {}", e)),
-                }
-            }
-        }
-    }
-
-    /// ソート列をクリック (同じ列なら方向トグル / 別列なら昇順)
-    pub fn click_sort(&self, key: SortKey) {
-        if self.sort_key.get() == key {
-            self.sort_desc.update(|d| *d = !*d);
-        } else {
-            self.sort_key.set(key);
-            self.sort_desc.set(false);
-        }
-        self.rows
-            .update(|v| sort_rows(v, self.sort_key.get(), self.sort_desc.get()));
-        self.selected.set(im::OrdSet::new());
-        self.anchor.set(None);
-    }
-
-    /// 選択行をクリップボードへ書き込み (op = "copy" or "move")
-    pub fn clipboard_write(&self, op: &str) {
-        let paths: Vec<String> = self
-            .selected_paths()
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
-        if paths.is_empty() {
-            self.status_msg.set(String::from("選択がありません"));
-            return;
-        }
-        let n = paths.len();
-        match wcb::clipboard_write_paths(paths, op.to_string()) {
-            Ok(()) => self
-                .status_msg
-                .set(format!("{} ({} 件) をクリップボードへ", op, n)),
-            Err(e) => self.status_msg.set(format!("クリップボード失敗: {}", e)),
-        }
-    }
-
-    /// クリップボードから貼り付け (Copy / Move を自動判別)
-    pub fn clipboard_paste(&self) {
-        let cb = match wcb::clipboard_read_paths() {
-            Ok(Some(c)) => c,
-            Ok(None) => {
-                self.status_msg
-                    .set(String::from("クリップボードに項目がありません"));
-                return;
-            }
-            Err(e) => {
-                self.status_msg.set(format!("クリップボード読込失敗: {}", e));
-                return;
-            }
-        };
-        let dst_dir = self.cur_path.get();
-        let is_move = cb.op.eq_ignore_ascii_case("move");
-        let mut ok = 0usize;
-        let mut err = 0usize;
-        for src in &cb.paths {
-            let from = PathBuf::from(src);
-            let name = from.file_name().map(|s| s.to_string_lossy().into_owned());
-            let Some(name) = name else {
-                err += 1;
-                continue;
-            };
-            let dst = unique_dest(&dst_dir, &name);
-            let res = if is_move {
-                fops::move_path(src.clone(), dst.to_string_lossy().into_owned())
-            } else {
-                fops::copy_path(src.clone(), dst.to_string_lossy().into_owned())
-            };
-            match res {
-                Ok(()) => ok += 1,
-                Err(_) => err += 1,
-            }
-        }
-        let label = if is_move { "移動" } else { "コピー" };
-        self.status_msg
-            .set(format!("{} 完了 OK={} / NG={}", label, ok, err));
-        self.reload();
     }
 }
 

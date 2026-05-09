@@ -1,5 +1,6 @@
 // FastFiler — エントリポイント
 
+mod actions;
 mod fs_model;
 mod settings;
 mod state;
