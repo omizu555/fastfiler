@@ -261,6 +261,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     } else {
                         vec![row_path]
                     };
+                    crate::flog!("[drag] start pane={} row={} in_sel={} paths={}",
+                        pane_for_drag.id, bg_idx, in_sel, paths.len());
                     app_for_drag.dragging.set(Some(DragState {
                         source_pane: pane_for_drag.id,
                         paths,
@@ -499,7 +501,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let drag_opt = app_for_up.dragging.get_untracked();
                 let Some(ds) = drag_opt else { return };
                 app_for_up.dragging.set(None);
+                crate::flog!("[drop] PointerUp pane={} ds.active={} ds.source_pane={} ds.paths={}",
+                    pane_id, ds.active, ds.source_pane, ds.paths.len());
                 if !ds.active || ds.source_pane != pane_id {
+                    crate::flog!("[drop] skip (active={}, source_match={})",
+                        ds.active, ds.source_pane == pane_id);
                     return;
                 }
                 let pane_origin = app_for_up
@@ -507,17 +513,32 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
                 let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
                 let copy = p.modifiers.control();
+                let rects_dump: Vec<(u64, Rect)> = app_for_up.pane_rects.with_untracked(|m| {
+                    m.iter().map(|(k, v)| (*k, *v)).collect()
+                });
+                crate::flog!("[drop] win_pt=({:.1},{:.1}) copy={} pane_rects={:?}",
+                    win_pt.x, win_pt.y, copy, rects_dump);
                 let target_id = app_for_up.pane_rects.with_untracked(|m| {
                     m.iter()
                         .find_map(|(id, r)| if r.contains(win_pt) { Some(*id) } else { None })
                 });
-                let Some(target_id) = target_id else { return };
+                let Some(target_id) = target_id else {
+                    crate::flog!("[drop] no target pane found at win_pt");
+                    return;
+                };
+                crate::flog!("[drop] target_id={} (source_pane={})", target_id, ds.source_pane);
                 if target_id == ds.source_pane {
+                    crate::flog!("[drop] same pane, skip");
                     return;
                 }
                 let target_pane = app_for_up.find_pane(target_id);
-                let Some(tp) = target_pane else { return };
+                let Some(tp) = target_pane else {
+                    crate::flog!("[drop] target pane not found in tabs");
+                    return;
+                };
                 let dest_dir = tp.cur_path.get_untracked();
+                crate::flog!("[drop] dest_dir={} mode={}", dest_dir.display(),
+                    if copy { "COPY" } else { "MOVE" });
                 let mut ok = 0u32;
                 let mut err = 0u32;
                 for src in &ds.paths {
@@ -529,6 +550,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         }
                     };
                     let dst = unique_dest(&dest_dir, &name);
+                    crate::flog!("[drop] {} src={} dst={}",
+                        if copy { "copy_path" } else { "move_path" },
+                        src.display(), dst.display());
                     let res = if copy {
                         fops::copy_path(
                             src.to_string_lossy().into_owned(),
@@ -542,7 +566,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     };
                     match res {
                         Ok(()) => ok += 1,
-                        Err(_) => err += 1,
+                        Err(e) => { crate::flog!("[drop] op error: {}", e); err += 1; }
                     }
                 }
                 let label = if copy { "コピー" } else { "移動" };

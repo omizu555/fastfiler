@@ -3,6 +3,7 @@
 mod actions;
 mod fs_model;
 mod hotkeys;
+mod logger;
 mod settings;
 mod state;
 mod theme;
@@ -15,7 +16,11 @@ fn main() {
     use floem::window::WindowConfig;
     use settings::PersistedSettings;
 
+    logger::init();
+    flog!("[main] settings load start");
     let p = PersistedSettings::load_or_default();
+    flog!("[main] settings loaded: theme={} accent={} window=({:?}x{:?} @ {:?},{:?})",
+        p.theme, p.accent_color, p.window_w, p.window_h, p.window_x, p.window_y);
     // テーマ・アクセントカラーをグローバル設定として反映 (起動時1回)
     crate::theme::set_mode_from_str(&p.theme);
     crate::theme::set_accent_from_str(&p.accent_color);

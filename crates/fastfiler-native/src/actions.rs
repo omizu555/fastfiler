@@ -126,9 +126,11 @@ impl PaneState {
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
         if paths.is_empty() {
+            crate::flog!("[delete] no selection, skip");
             return;
         }
         let n = paths.len();
+        crate::flog!("[delete] -> trash: {} files: {:?}", n, paths);
         // SHFileOperationW は通常 panic しないが、念のため catch_unwind で保護
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fops::delete_to_trash(paths)
@@ -294,6 +296,8 @@ impl PaneState {
         };
         let dst_dir = self.cur_path.get_untracked();
         let is_move = cb.op.eq_ignore_ascii_case("move");
+        crate::flog!("[paste] dst={} is_move={} count={}",
+            dst_dir.display(), is_move, cb.paths.len());
         let mut ok = 0usize;
         let mut err = 0usize;
         for src in &cb.paths {
@@ -304,6 +308,8 @@ impl PaneState {
                 continue;
             };
             let dst = unique_dest(&dst_dir, &name);
+            crate::flog!("[paste] {} src={} dst={}",
+                if is_move { "move" } else { "copy" }, src, dst.display());
             let res = if is_move {
                 fops::move_path(src.clone(), dst.to_string_lossy().into_owned())
             } else {
@@ -311,7 +317,7 @@ impl PaneState {
             };
             match res {
                 Ok(()) => ok += 1,
-                Err(_) => err += 1,
+                Err(e) => { crate::flog!("[paste] op error: {}", e); err += 1; }
             }
         }
         let label = if is_move { "移動" } else { "コピー" };
