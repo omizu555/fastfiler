@@ -105,6 +105,10 @@ pub struct PaneState {
     pub search_query: RwSignal<String>,
     /// 検索バー表示中か
     pub search_open: RwSignal<bool>,
+    /// Everything 検索結果 (Some なら rows の代わりに表示。None なら通常表示)
+    pub search_results: RwSignal<Option<im::Vector<FileRow>>>,
+    /// Everything リクエスト世代 (古い結果を捨てる)
+    pub search_request_gen: RwSignal<u64>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
@@ -148,6 +152,8 @@ impl PaneState {
             sort_desc: s.create_rw_signal(false),
             search_query: s.create_rw_signal(String::new()),
             search_open: s.create_rw_signal(false),
+            search_results: s.create_rw_signal(None),
+            search_request_gen: s.create_rw_signal(0),
         }
     }
 

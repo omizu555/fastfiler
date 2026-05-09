@@ -57,6 +57,95 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         prev.unwrap_or(0).wrapping_add(1)
     });
 
+    // Everything 検索: search_open && backend=="everything" のとき、search_query 変化を
+    // debounce して fastfiler_domain::everything::query を別スレッドで実行し、
+    // 結果を pane.search_results に詰める。閉じる/builtin/空クエリで search_results を None に。
+    {
+        let pane_for_es = pane.clone();
+        let cur_path_sig = pane.cur_path;
+        let backend_sig = app.settings.search_backend;
+        let port_sig = app.settings.everything_port;
+        let scope_sig = app.settings.everything_scope;
+        let req_gen_sig = pane.search_request_gen;
+        let results_sig = pane.search_results;
+        let status_sig = pane.status_msg;
+        let search_query_sig = pane.search_query;
+        let search_open_sig = pane.search_open;
+        floem::reactive::create_effect(move |_prev: Option<()>| {
+            let q = search_query_sig.get();
+            let open = search_open_sig.get();
+            let backend = backend_sig.get();
+            let port_s = port_sig.get();
+            let scope = scope_sig.get();
+            let cwd = cur_path_sig.get();
+            if !open || backend != "everything" || q.trim().is_empty() {
+                if results_sig.with_untracked(|r| r.is_some()) {
+                    results_sig.set(None);
+                }
+                return ();
+            }
+            let port_u: u16 = port_s.parse().unwrap_or(80);
+            let scope_path: Option<String> = if scope {
+                Some(cwd.to_string_lossy().into_owned())
+            } else {
+                None
+            };
+            let scope_path_for_cb = scope_path.clone();
+            let gen = req_gen_sig.get_untracked().wrapping_add(1);
+            req_gen_sig.set(gen);
+            let req_gen_for_cb = req_gen_sig;
+            let results_for_cb = results_sig;
+            let status_for_cb = status_sig;
+            let cb = floem::ext_event::create_ext_action(
+                floem::reactive::Scope::current(),
+                move |hits: Result<Vec<fastfiler_domain::everything::EverythingHit>, String>| {
+                    if req_gen_for_cb.get_untracked() != gen {
+                        return;
+                    }
+                    match hits {
+                        Ok(list) => {
+                            let mut v: im::Vector<FileRow> = im::Vector::new();
+                            for h in list {
+                                v.push_back(FileRow {
+                                    name: if scope_path_for_cb.is_some() {
+                                        h.name.clone()
+                                    } else {
+                                        h.path.clone()
+                                    },
+                                    is_dir: h.is_dir,
+                                    size: 0,
+                                    modified: 0,
+                                    size_text: String::new(),
+                                    mtime_text: String::new(),
+                                });
+                            }
+                            results_for_cb.set(Some(v));
+                        }
+                        Err(e) => {
+                            status_for_cb.set(format!("Everything: {}", e));
+                            results_for_cb.set(Some(im::Vector::new()));
+                        }
+                    }
+                },
+            );
+            let q_for_thread = q.clone();
+            let _ = pane_for_es.id;
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let res = fastfiler_domain::everything::query(
+                    port_u,
+                    &q_for_thread,
+                    scope_path.as_deref(),
+                    false,
+                    false,
+                    1000,
+                );
+                cb(res.map_err(|e| e.0));
+            });
+            ()
+        });
+    }
+
     let pane_for_up = pane.clone();
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
@@ -234,9 +323,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
     let app_for_rows = app.clone();
     let pane_for_rows = pane.clone();
-    // 検索クエリで絞り込んだ (orig_idx, FileRow) のリストを生成。
-    // orig_idx は元 rows のインデックス → selected/anchor との整合を保つ。
+    let search_results_sig = pane.search_results;
+    // 表示行: search_results が Some なら Everything 結果をそのまま表示 (orig_idx は擬似)。
+    // None なら従来の builtin filter (search_query で部分一致)。
     let filtered_rows = move || -> im::Vector<(usize, FileRow)> {
+        if let Some(ev) = search_results_sig.get() {
+            return ev.iter().enumerate().map(|(i, r)| (i, r.clone())).collect();
+        }
         let q = search_query.get().to_lowercase();
         let rs = rows.get();
         let mut out: im::Vector<(usize, FileRow)> = im::Vector::new();
