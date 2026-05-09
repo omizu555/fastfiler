@@ -51,6 +51,7 @@ impl EventSink for CounterSink {
 pub enum ModalKind {
     None,
     NewFolder,
+    #[allow(dead_code)]
     NewFile,
     /// 元の名前 (リネーム対象)
     Rename(String),
@@ -578,22 +579,6 @@ impl AppState {
     }
 
     /// from_id のタブを to_id の位置に並び替える。同じなら何もしない。
-    pub fn reorder_tab(&self, from_id: u64, to_id: u64) {
-        if from_id == to_id { return; }
-        self.tabs.update(|t| {
-            let from = t.iter().position(|x| x.id == from_id);
-            if let Some(f) = from {
-                let item = t.remove(f);
-                // 取り出し後の to_id の位置に挿入 (target のところに割り込む)
-                if let Some(to) = t.iter().position(|x| x.id == to_id) {
-                    t.insert(to, item);
-                } else {
-                    t.push_back(item);
-                }
-            }
-        });
-    }
-
     pub fn close_tab(&self, id: u64) {
         let prev_active = self.active.get_untracked();
         self.tabs.update(|t| {

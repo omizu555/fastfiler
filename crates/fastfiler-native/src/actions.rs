@@ -160,6 +160,7 @@ impl PaneState {
         self.modal_kind.set(ModalKind::NewFolder);
     }
 
+    #[allow(dead_code)]
     pub fn open_new_file_modal(&self) {
         self.modal_input.set(String::from("new.txt"));
         self.modal_kind.set(ModalKind::NewFile);

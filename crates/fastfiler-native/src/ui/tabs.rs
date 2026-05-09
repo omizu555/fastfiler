@@ -143,31 +143,29 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
         move |(tabs, cols, width_str)| {
             let app = app_for_grid.clone();
             let total = tabs.len();
-            let per_col = if total == 0 { 0 } else { (total + cols - 1) / cols };
+            let rows = if total == 0 { 0 } else { (total + cols - 1) / cols };
             // パネル幅から固定列幅を算出 (padding 8 + gap 2 * (cols-1))
             let panel_w = width_str.parse::<f32>().unwrap_or(220.0).clamp(120.0, 600.0);
             let inner = (panel_w - 8.0 - 2.0 * (cols.saturating_sub(1) as f32)).max(60.0);
             let col_w = (inner / cols as f32).max(50.0);
-            let mut columns: Vec<floem::AnyView> = Vec::with_capacity(cols);
-            for c in 0..cols {
-                let start = c * per_col;
-                let end = ((c + 1) * per_col).min(total);
-                let mut col_items: Vec<floem::AnyView> = Vec::new();
-                if start < end {
-                    for t in tabs.iter().skip(start).take(end - start) {
-                        col_items.push(tab_button(app.clone(), t.clone()).into_any());
-                    }
+            let mut row_views: Vec<floem::AnyView> = Vec::with_capacity(rows);
+            for r in 0..rows {
+                let start = r * cols;
+                let end = (start + cols).min(total);
+                let mut row_items: Vec<floem::AnyView> = Vec::with_capacity(cols);
+                for t in tabs.iter().skip(start).take(end - start) {
+                    row_items.push(
+                        container(tab_button(app.clone(), t.clone()))
+                            .style(move |s| s.width(col_w))
+                            .into_any(),
+                    );
                 }
-                let col_view = floem::views::stack_from_iter(col_items)
-                    .style(|s| s.flex_col().width_full().gap(2));
-                columns.push(
-                    container(col_view)
-                        .style(move |s| s.width(col_w))
-                        .into_any(),
-                );
+                let row_view = floem::views::stack_from_iter(row_items)
+                    .style(|s| s.flex_row().gap(2).width_full());
+                row_views.push(row_view.into_any());
             }
-            floem::views::stack_from_iter(columns)
-                .style(|s| s.flex_row().gap(2).width_full())
+            floem::views::stack_from_iter(row_views)
+                .style(|s| s.flex_col().gap(2).width_full())
                 .into_any()
         },
     )
