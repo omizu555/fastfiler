@@ -106,7 +106,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     text_input(path_input)
                         .style(|s| {
                             s.flex_grow(1.0)
+                                .flex_basis(0)
                                 .min_width(0)
+                                .width_full()
                                 .height(24)
                                 .padding_horiz(8)
                                 .padding_vert(4)
@@ -193,7 +195,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     )
     .style(|s| {
         s.min_height(28)
+            .min_width(0)
             .flex_grow(1.0)
+            .flex_basis(0)
             .background(theme::bg_modal())
     });
 
