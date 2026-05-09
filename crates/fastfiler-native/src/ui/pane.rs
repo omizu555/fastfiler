@@ -120,7 +120,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             } else {
                 None
             };
-            let scope_path_for_cb = scope_path.clone();
             let gen = req_gen_sig.get_untracked().wrapping_add(1);
             req_gen_sig.set(gen);
             let req_gen_for_cb = req_gen_sig;
@@ -137,16 +136,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             let mut v: im::Vector<FileRow> = im::Vector::new();
                             for h in list {
                                 v.push_back(FileRow {
-                                    name: if scope_path_for_cb.is_some() {
-                                        h.name.clone()
-                                    } else {
-                                        h.path.clone()
-                                    },
+                                    name: h.name.clone(),
                                     is_dir: h.is_dir,
                                     size: 0,
                                     modified: 0,
                                     size_text: String::new(),
                                     mtime_text: String::new(),
+                                    full_path: Some(h.path.clone()),
                                 });
                             }
                             results_for_cb.set(Some(v));
@@ -330,6 +326,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         }
     };
 
+    let header_search_open = pane.search_open;
     let header = h_stack((
         text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
         label(move || format!("Name{}", arrow(SortKey::Name)))
@@ -341,6 +338,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         label(move || format!("Modified{}", arrow(SortKey::Modified)))
             .style(|s| s.width(140).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
             .on_click_stop(move |_| pane_for_sort_mtime.click_sort(SortKey::Modified)),
+        label(|| String::from("Path")).style(move |s| {
+            let s = s.padding_horiz(6).font_bold();
+            if header_search_open.get() {
+                s.flex_grow(1.0).flex_basis(0).min_width(0)
+            } else {
+                s.width(0).hide()
+            }
+        }),
     ))
     .style(|s| {
         s.height(24)
@@ -357,6 +362,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     // 表示行: search_results が Some なら Everything 結果をそのまま表示 (orig_idx は擬似)。
     // None なら従来の builtin filter (search_query で部分一致)。
     let filtered_rows = move || -> im::Vector<(usize, FileRow)> {
+        // search_open を依存に入れて、検索バー開閉時に list を再構築させる
+        // (path 列の出し入れを反映するため)
+        let _ = search_open.get();
         if let Some(ev) = search_results_sig.get() {
             return ev.iter().enumerate().map(|(i, r)| (i, r.clone())).collect();
         }
@@ -413,6 +421,35 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 .into_any()
             };
 
+            let show_path_col = pane_for_rows.search_open.get_untracked();
+            let path_text = if show_path_col {
+                row.full_path.clone().unwrap_or_else(|| {
+                    pane_for_rows
+                        .cur_path
+                        .get_untracked()
+                        .join(&row.name)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+            } else {
+                String::new()
+            };
+            let path_label: floem::AnyView = if show_path_col {
+                text(path_text)
+                    .style(|s| {
+                        s.flex_grow(1.0)
+                            .flex_basis(0)
+                            .min_width(0)
+                            .padding_horiz(6)
+                            .color(theme::text_dim())
+                    })
+                    .into_any()
+            } else {
+                container(label(|| String::new()))
+                    .style(|s| s.width(0))
+                    .into_any()
+            };
+
             h_stack((
                 container(icon).style(|s| s.width(24).items_center()),
                 text(row.name).style(move |s| {
@@ -423,6 +460,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .style(|s| s.width(110).padding_horiz(6).color(theme::text_dim())),
                 text(row.mtime_text)
                     .style(|s| s.width(140).padding_horiz(6).color(theme::text_dim())),
+                path_label,
             ))
             .style(move |s| {
                 let zebra = if bg_idx % 2 == 0 {

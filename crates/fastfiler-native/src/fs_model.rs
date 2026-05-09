@@ -23,6 +23,9 @@ pub struct FileRow {
     pub modified: i64,
     pub size_text: String,
     pub mtime_text: String,
+    /// 検索結果用の絶対パス。通常 (read_folder) では None。
+    /// Everything 検索結果や builtin filter 表示で path 列を出すために使用。
+    pub full_path: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,6 +99,7 @@ pub fn read_folder(path: &Path, show_hidden: bool) -> Result<im::Vector<FileRow>
                 modified: e.modified,
                 size_text,
                 mtime_text,
+                full_path: None,
             }
         })
         .collect();
