@@ -1,20 +1,21 @@
-// Phase 3 minimal explorer — floem 単独 (Tauri / WebView2 なし) で動く最小ファイラ。
+// Phase 3 step 2: タブペイン + フォルダペインの GUI 実装。
 //
-// 機能:
-//   - パスバー (text_input + Open)
-//   - 戻る / 進む / 親へ ボタン (履歴スタック)
-//   - virtual_stack によるファイル一覧 (1M件耐性)
-//   - フォルダのダブルクリックで階層降下
-//   - ドライブサイドバー (Windows のみ・C: 〜 Z: を実存チェック)
-//   - WatcherCore による fs-change カウント表示
-//   - ステータスバー (件数 / ロード時間 / fs-change 件数)
+// 構造:
+//   App
+//     ├─ Sidebar (ドライブ一覧 — グローバル)
+//     └─ Main
+//         ├─ TabBar  ([Tab1] [Tab2] [+])     ← active を切り替え
+//         └─ ActivePane                      ← 1 タブ = 1 PaneState
+//               ├─ Toolbar (← → ↑ ⟳ パス入力 Open)
+//               ├─ FileList (virtual_stack)
+//               └─ Footer (status)
 //
-// 非機能 (Phase 3+ 以降):
-//   - アイコン / サムネ / D&D / シェル統合 / 設定 / プラグイン / プレビュー / 検索
-//
-// fastfiler-domain (Tauri 非依存の純粋 Rust ロジック) を直接利用する。
+// PaneState は全フィールドが RwSignal/Arc で Clone 可能。各タブが独立した
+// cur_path / history / rows / 監視を持つ。サイドバーから navigate するときは
+// アクティブタブのペインに対して操作する。
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -27,10 +28,14 @@ use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, h_stack, label, scroll, text, text_input, v_stack, virtual_stack,
-    Decorators, VirtualDirection, VirtualItemSize,
+    button, container, dyn_container, dyn_stack, h_stack, label, scroll, text, text_input,
+    v_stack, virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
 };
 use parking_lot::Mutex;
+
+// ────────────────────────────────────────────────────────────────
+// Data
+// ────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 struct FileRow {
@@ -92,13 +97,24 @@ fn initial_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn pretty_title(p: &Path) -> String {
+    p.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| p.to_string_lossy().into_owned())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Stats {
     load_ms: f64,
     count: usize,
 }
 
-/// fs-change イベントを受け取る簡易 sink。
+#[derive(Default, Clone)]
+struct History {
+    back: im::Vector<PathBuf>,
+    forward: im::Vector<PathBuf>,
+}
+
 struct CounterSink(Mutex<u32>);
 impl EventSink for CounterSink {
     fn emit_json(&self, _event: &str, _payload: serde_json::Value) {
@@ -106,182 +122,278 @@ impl EventSink for CounterSink {
     }
 }
 
-/// 戻る/進むの履歴スタック。
-#[derive(Default, Clone)]
-struct History {
-    back: im::Vector<PathBuf>,
-    forward: im::Vector<PathBuf>,
+// ────────────────────────────────────────────────────────────────
+// PaneState (1 タブ = 1 ペイン)
+// ────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+struct PaneState {
+    id: u64,
+    title: RwSignal<String>,
+    cur_path: RwSignal<PathBuf>,
+    path_input: RwSignal<String>,
+    rows: RwSignal<im::Vector<FileRow>>,
+    stats: RwSignal<Stats>,
+    selected: RwSignal<Option<usize>>,
+    status_msg: RwSignal<String>,
+    history: RwSignal<History>,
+    watcher: Arc<WatcherCore>,
+    sink: Arc<CounterSink>,
+    watched: Arc<Mutex<Option<String>>>,
+    fs_change_tick: RwSignal<u32>,
 }
 
-fn app_view() -> impl IntoView {
-    let start = initial_path();
-    let initial_rows = read_folder(&start).unwrap_or_default();
-    let initial_count = initial_rows.len();
+static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
 
-    let cur_path: RwSignal<PathBuf> = RwSignal::new(start.clone());
-    let path_input: RwSignal<String> =
-        RwSignal::new(start.to_string_lossy().into_owned());
-    let rows: RwSignal<im::Vector<FileRow>> = RwSignal::new(initial_rows);
-    let stats = RwSignal::new(Stats { load_ms: 0.0, count: initial_count });
-    let selected: RwSignal<Option<usize>> = RwSignal::new(None);
-    let status_msg: RwSignal<String> = RwSignal::new(String::from("ready"));
-    let history: RwSignal<History> = RwSignal::new(History::default());
+impl PaneState {
+    fn new(start: PathBuf) -> Self {
+        let initial_rows = read_folder(&start).unwrap_or_default();
+        let initial_count = initial_rows.len();
+        Self {
+            id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
+            title: RwSignal::new(pretty_title(&start)),
+            cur_path: RwSignal::new(start.clone()),
+            path_input: RwSignal::new(start.to_string_lossy().into_owned()),
+            rows: RwSignal::new(initial_rows),
+            stats: RwSignal::new(Stats { load_ms: 0.0, count: initial_count }),
+            selected: RwSignal::new(None),
+            status_msg: RwSignal::new(String::from("ready")),
+            history: RwSignal::new(History::default()),
+            watcher: Arc::new(WatcherCore::default()),
+            sink: Arc::new(CounterSink(Mutex::new(0))),
+            watched: Arc::new(Mutex::new(None)),
+            fs_change_tick: RwSignal::new(0),
+        }
+    }
 
-    let watcher = Arc::new(WatcherCore::default());
-    let sink: Arc<CounterSink> = Arc::new(CounterSink(Mutex::new(0)));
-    let watched: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-
-    // 共通ナビゲーション。push_history=true のときは現在パスを back に積む。
-    let navigate = {
-        let watcher = watcher.clone();
-        let sink = sink.clone();
-        let watched = watched.clone();
-        move |target: PathBuf, push_history: bool| {
-            if !target.is_dir() {
-                status_msg.set(format!("not a directory: {}", target.display()));
-                return;
-            }
-            let t = Instant::now();
-            match read_folder(&target) {
-                Ok(v) => {
-                    let ms = t.elapsed().as_secs_f64() * 1000.0;
-                    let len = v.len();
-                    if push_history {
-                        let prev = cur_path.get();
-                        history.update(|h| {
-                            h.back.push_back(prev);
-                            h.forward.clear();
-                        });
-                    }
-                    cur_path.set(target.clone());
-                    path_input.set(target.to_string_lossy().into_owned());
-                    rows.set(v);
-                    selected.set(None);
-                    stats.set(Stats { load_ms: ms, count: len });
-                    status_msg.set(String::from("ok"));
-
-                    let s = target.to_string_lossy().into_owned();
-                    let mut wp = watched.lock();
-                    if let Some(old) = wp.as_ref() {
-                        watcher.unwatch(old);
-                    }
-                    *wp = Some(s.clone());
-                    *sink.0.lock() = 0;
-                    let sd: Arc<dyn EventSink> = sink.clone();
-                    let _ = watcher.watch_with_sink(s, sd);
+    /// 別フォルダへナビゲーションする。push_history=true で現在パスを back に積む。
+    fn navigate(&self, target: PathBuf, push_history: bool) {
+        if !target.is_dir() {
+            self.status_msg
+                .set(format!("not a directory: {}", target.display()));
+            return;
+        }
+        let t = Instant::now();
+        match read_folder(&target) {
+            Ok(v) => {
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                let len = v.len();
+                if push_history {
+                    let prev = self.cur_path.get();
+                    self.history.update(|h| {
+                        h.back.push_back(prev);
+                        h.forward.clear();
+                    });
                 }
-                Err(e) => status_msg.set(format!("read failed: {}", e)),
+                self.cur_path.set(target.clone());
+                self.path_input.set(target.to_string_lossy().into_owned());
+                self.title.set(pretty_title(&target));
+                self.rows.set(v);
+                self.selected.set(None);
+                self.stats.set(Stats { load_ms: ms, count: len });
+                self.status_msg.set(String::from("ok"));
+
+                let s = target.to_string_lossy().into_owned();
+                let mut wp = self.watched.lock();
+                if let Some(old) = wp.as_ref() {
+                    self.watcher.unwatch(old);
+                }
+                *wp = Some(s.clone());
+                *self.sink.0.lock() = 0;
+                self.fs_change_tick.set(0);
+                let sd: Arc<dyn EventSink> = self.sink.clone();
+                let _ = self.watcher.watch_with_sink(s, sd);
+            }
+            Err(e) => self.status_msg.set(format!("read failed: {}", e)),
+        }
+    }
+
+    fn back(&self) {
+        let mut h = self.history.get();
+        if let Some(prev) = h.back.pop_back() {
+            let cur = self.cur_path.get();
+            h.forward.push_back(cur);
+            self.history.set(h);
+            self.navigate(prev, false);
+        }
+    }
+    fn forward(&self) {
+        let mut h = self.history.get();
+        if let Some(next) = h.forward.pop_back() {
+            let cur = self.cur_path.get();
+            h.back.push_back(cur);
+            self.history.set(h);
+            self.navigate(next, false);
+        }
+    }
+    fn up(&self) {
+        let cur = self.cur_path.get();
+        if let Some(parent) = cur.parent() {
+            self.navigate(parent.to_path_buf(), true);
+        }
+    }
+    fn reload(&self) {
+        let cur = self.cur_path.get();
+        self.navigate(cur, false);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────
+// AppState (タブ集合)
+// ────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+struct AppState {
+    tabs: RwSignal<im::Vector<PaneState>>,
+    active: RwSignal<u64>,
+}
+
+impl AppState {
+    fn new(start: PathBuf) -> Self {
+        let pane = PaneState::new(start);
+        let id = pane.id;
+        Self {
+            tabs: RwSignal::new(im::vector![pane]),
+            active: RwSignal::new(id),
+        }
+    }
+
+    fn active_pane(&self) -> Option<PaneState> {
+        let id = self.active.get();
+        self.tabs.get().iter().find(|p| p.id == id).cloned()
+    }
+
+    fn add_tab(&self, start: PathBuf) {
+        let pane = PaneState::new(start);
+        let id = pane.id;
+        self.tabs.update(|t| t.push_back(pane));
+        self.active.set(id);
+    }
+
+    fn close_tab(&self, id: u64) {
+        self.tabs.update(|t| {
+            if let Some(idx) = t.iter().position(|p| p.id == id) {
+                t.remove(idx);
+            }
+        });
+        let remaining = self.tabs.get();
+        if remaining.is_empty() {
+            // 最後の 1 つは閉じない代わりに、初期パスで新規作成して維持する
+            self.add_tab(initial_path());
+        } else if !remaining.iter().any(|p| p.id == self.active.get()) {
+            // アクティブが消えたら末尾を選ぶ
+            if let Some(last) = remaining.last() {
+                self.active.set(last.id);
             }
         }
-    };
+    }
+}
 
-    // 各操作で navigate を呼べるよう Rc/Box でなく Arc<Fn> にする
-    let navigate = Arc::new(navigate);
+// ────────────────────────────────────────────────────────────────
+// Views
+// ────────────────────────────────────────────────────────────────
 
-    let do_open = {
-        let navigate = navigate.clone();
-        move || {
-            let s = path_input.get();
-            let p = PathBuf::from(s.trim());
-            navigate(p, true);
-        }
-    };
+fn tab_button(app: AppState, pane: PaneState) -> impl IntoView {
+    let id = pane.id;
+    let title = pane.title;
+    let active = app.active;
 
-    let do_up = {
-        let navigate = navigate.clone();
-        move || {
-            let cur = cur_path.get();
-            if let Some(parent) = cur.parent() {
-                navigate(parent.to_path_buf(), true);
-            }
-        }
-    };
+    let title_label = label(move || {
+        let t = title.get();
+        if t.is_empty() { String::from("(root)") } else { t }
+    })
+    .style(|s| s.padding_horiz(8));
 
-    let do_back = {
-        let navigate = navigate.clone();
-        move || {
-            let mut h = history.get();
-            if let Some(prev) = h.back.pop_back() {
-                let cur = cur_path.get();
-                h.forward.push_back(cur);
-                history.set(h);
-                navigate(prev, false);
-            }
-        }
-    };
+    let close_btn = label(|| String::from("×"))
+        .style(|s| {
+            s.padding_horiz(6)
+                .color(Color::rgb8(180, 180, 180))
+                .cursor(CursorStyle::Pointer)
+        })
+        .on_click_stop({
+            let app = app.clone();
+            move |_| app.close_tab(id)
+        });
 
-    let do_forward = {
-        let navigate = navigate.clone();
-        move || {
-            let mut h = history.get();
-            if let Some(next) = h.forward.pop_back() {
-                let cur = cur_path.get();
-                h.back.push_back(cur);
-                history.set(h);
-                navigate(next, false);
-            }
-        }
-    };
+    h_stack((title_label, close_btn))
+        .style(move |s| {
+            let is_active = active.get() == id;
+            let bg = if is_active { Color::rgb8(50, 50, 60) } else { Color::rgb8(34, 34, 38) };
+            s.height(28)
+                .items_center()
+                .background(bg)
+                .border_right(1)
+                .border_color(Color::rgb8(60, 60, 60))
+                .cursor(CursorStyle::Pointer)
+        })
+        .on_click_stop(move |_| active.set(id))
+}
 
-    let do_reload = {
-        let navigate = navigate.clone();
-        move || {
-            let cur = cur_path.get();
-            navigate(cur, false);
-        }
-    };
+fn tab_bar(app: AppState) -> impl IntoView {
+    let tabs_for_iter = app.tabs;
+    let app_for_add = app.clone();
+
+    let plus = label(|| String::from("+"))
+        .style(|s| {
+            s.padding_horiz(12)
+                .height(28)
+                .items_center()
+                .color(Color::rgb8(180, 220, 180))
+                .cursor(CursorStyle::Pointer)
+                .background(Color::rgb8(34, 34, 38))
+        })
+        .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
+
+    let app_for_tabs = app.clone();
+    let tabs_view = dyn_stack(
+        move || tabs_for_iter.get().into_iter(),
+        |p: &PaneState| p.id,
+        move |p: PaneState| tab_button(app_for_tabs.clone(), p),
+    )
+    .style(|s| s.flex_row());
+
+    h_stack((tabs_view, plus)).style(|s| {
+        s.flex_row()
+            .background(Color::rgb8(28, 28, 32))
+            .border_bottom(1)
+            .border_color(Color::rgb8(60, 60, 60))
+    })
+}
+
+fn pane_view(pane: PaneState) -> impl IntoView {
+    let cur_path = pane.cur_path;
+    let path_input = pane.path_input;
+    let rows = pane.rows;
+    let stats = pane.stats;
+    let selected = pane.selected;
+    let status_msg = pane.status_msg;
+    let sink = pane.sink.clone();
+
+    let pane_for_open = pane.clone();
+    let pane_for_back = pane.clone();
+    let pane_for_forward = pane.clone();
+    let pane_for_up = pane.clone();
+    let pane_for_reload = pane.clone();
+    let pane_for_dblclick = pane.clone();
 
     let toolbar = h_stack((
-        button("←").action(do_back),
-        button("→").action(do_forward),
-        button("↑").action(do_up),
-        button("⟳").action(do_reload),
+        button("←").action(move || pane_for_back.back()),
+        button("→").action(move || pane_for_forward.forward()),
+        button("↑").action(move || pane_for_up.up()),
+        button("⟳").action(move || pane_for_reload.reload()),
         text_input(path_input).style(|s| {
             s.flex_grow(1.0)
                 .padding(4)
                 .border(1)
                 .border_color(Color::rgb8(120, 120, 120))
         }),
-        button("Open").action(do_open),
+        button("Open").action(move || {
+            let s = path_input.get();
+            let p = PathBuf::from(s.trim());
+            pane_for_open.navigate(p, true);
+        }),
     ))
     .style(|s| s.gap(6).padding(6).items_center());
-
-    // サイドバー (ドライブ一覧)
-    let drives = list_drives();
-    let sidebar_navigate = navigate.clone();
-    let sidebar_items: Vec<_> = drives
-        .into_iter()
-        .map(|d| {
-            let nav = sidebar_navigate.clone();
-            let d_label = d.clone();
-            label(move || d_label.clone())
-                .style(|s| {
-                    s.padding(6)
-                        .cursor(CursorStyle::Pointer)
-                        .color(Color::rgb8(220, 220, 220))
-                })
-                .on_click_stop(move |_| {
-                    nav(PathBuf::from(d.clone()), true);
-                })
-                .into_any()
-        })
-        .collect();
-    let sidebar = scroll(
-        v_stack((
-            label(|| String::from("Drives"))
-                .style(|s| s.padding(6).font_bold().color(Color::rgb8(180, 180, 180))),
-            container(floem::views::stack_from_iter(sidebar_items))
-                .style(|s| s.flex_col()),
-        ))
-        .style(|s| s.flex_col()),
-    )
-    .style(|s| {
-        s.width(160)
-            .height_full()
-            .background(Color::rgb8(28, 28, 32))
-            .border_right(1)
-            .border_color(Color::rgb8(60, 60, 60))
-    });
 
     let header = h_stack((
         text("#").style(|s| s.width(70).padding_horiz(6).font_bold()),
@@ -296,7 +408,6 @@ fn app_view() -> impl IntoView {
     });
 
     let row_height: f64 = 22.0;
-    let nav_for_dblclick = navigate.clone();
 
     let list = virtual_stack(
         VirtualDirection::Vertical,
@@ -307,7 +418,7 @@ fn app_view() -> impl IntoView {
             let is_dir = row.is_dir;
             let bg_idx = idx;
             let name_for_open = row.name.clone();
-            let nav = nav_for_dblclick.clone();
+            let pane = pane_for_dblclick.clone();
             h_stack((
                 text(format!("{}", idx)).style(|s| s.width(70).padding_horiz(6)),
                 text(row.name).style(move |s| {
@@ -337,7 +448,7 @@ fn app_view() -> impl IntoView {
                 if is_dir {
                     let cur = cur_path.get();
                     let target = cur.join(&name_for_open);
-                    nav(target, true);
+                    pane.navigate(target, true);
                 }
             })
         },
@@ -346,18 +457,15 @@ fn app_view() -> impl IntoView {
 
     let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0));
 
-    let status = label({
-        let sink = sink.clone();
-        move || {
-            let st = stats.get();
-            let sel = selected.get();
-            let cnt = sink.0.lock();
-            let msg = status_msg.get();
-            format!(
-                "items: {}   load: {:.2} ms   selected: {:?}   fs-change: {}   {}",
-                st.count, st.load_ms, sel, *cnt, msg
-            )
-        }
+    let status = label(move || {
+        let st = stats.get();
+        let sel = selected.get();
+        let cnt = sink.0.lock();
+        let msg = status_msg.get();
+        format!(
+            "items: {}   load: {:.2} ms   selected: {:?}   fs-change: {}   {}",
+            st.count, st.load_ms, sel, *cnt, msg
+        )
     })
     .style(|s| {
         s.height(22)
@@ -368,18 +476,8 @@ fn app_view() -> impl IntoView {
             .border_color(Color::rgb8(60, 60, 60))
     });
 
-    let main_area = v_stack((header, scrollable))
-        .style(|s| s.flex_col().flex_grow(1.0).height_full());
-
-    let body = h_stack((sidebar, main_area)).style(|s| s.flex_grow(1.0).width_full());
-
-    v_stack((toolbar, body, status))
-        .style(|s| {
-            s.size_full()
-                .background(Color::rgb8(24, 24, 28))
-                .color(Color::rgb8(220, 220, 220))
-                .font_size(13.0)
-        })
+    v_stack((toolbar, header, scrollable, status))
+        .style(|s| s.size_full().flex_col())
         .on_event_stop(EventListener::KeyDown, move |e| {
             if let Event::KeyDown(ke) = e {
                 let len = rows.with(|v| v.len());
@@ -401,6 +499,80 @@ fn app_view() -> impl IntoView {
                 }
             }
         })
+}
+
+fn sidebar(app: AppState) -> impl IntoView {
+    let drives = list_drives();
+    let items: Vec<_> = drives
+        .into_iter()
+        .map(|d| {
+            let app = app.clone();
+            let d_label = d.clone();
+            label(move || d_label.clone())
+                .style(|s| {
+                    s.padding(6)
+                        .cursor(CursorStyle::Pointer)
+                        .color(Color::rgb8(220, 220, 220))
+                })
+                .on_click_stop(move |_| {
+                    if let Some(p) = app.active_pane() {
+                        p.navigate(PathBuf::from(d.clone()), true);
+                    }
+                })
+                .into_any()
+        })
+        .collect();
+
+    scroll(
+        v_stack((
+            label(|| String::from("Drives"))
+                .style(|s| s.padding(6).font_bold().color(Color::rgb8(180, 180, 180))),
+            container(floem::views::stack_from_iter(items)).style(|s| s.flex_col()),
+        ))
+        .style(|s| s.flex_col()),
+    )
+    .style(|s| {
+        s.width(160)
+            .height_full()
+            .background(Color::rgb8(28, 28, 32))
+            .border_right(1)
+            .border_color(Color::rgb8(60, 60, 60))
+    })
+}
+
+fn app_view() -> impl IntoView {
+    let app = AppState::new(initial_path());
+
+    let active = app.active;
+    let tabs = app.tabs;
+
+    let active_pane = dyn_container(
+        move || {
+            // active id と tabs の両方を依存に取り込む
+            let id = active.get();
+            tabs.get().iter().find(|p| p.id == id).cloned()
+        },
+        move |maybe_pane| match maybe_pane {
+            Some(p) => container(pane_view(p)).style(|s| s.size_full()).into_any(),
+            None => label(|| String::from("(no tab)"))
+                .style(|s| s.size_full().padding(20))
+                .into_any(),
+        },
+    )
+    .style(|s| s.size_full().flex_col());
+
+    let main_col = v_stack((tab_bar(app.clone()), active_pane))
+        .style(|s| s.flex_col().flex_grow(1.0).height_full());
+
+    let body = h_stack((sidebar(app.clone()), main_col))
+        .style(|s| s.size_full().flex_grow(1.0));
+
+    body.style(|s| {
+        s.size_full()
+            .background(Color::rgb8(24, 24, 28))
+            .color(Color::rgb8(220, 220, 220))
+            .font_size(13.0)
+    })
 }
 
 fn main() {
