@@ -1006,6 +1006,8 @@ name = "fastfiler-domain"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "image",
+ "lru",
  "once_cell",
  "parking_lot",
  "serde",

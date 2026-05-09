@@ -17,4 +17,6 @@ pub mod preview;
 pub mod shell;
 pub mod shell_assoc;
 pub mod templates;
+pub mod thumbnail;
+pub mod user_commands;
 pub mod win_clipboard;
