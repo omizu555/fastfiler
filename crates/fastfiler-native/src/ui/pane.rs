@@ -540,6 +540,15 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerUp, move |e| {
             if let Event::PointerUp(p) = e {
+                // 左ボタン以外 (戻る/進む/中ボタン等) では drop 処理しない。
+                // dragging 状態は安全のためクリアする。
+                if !p.button.is_primary() {
+                    if app_for_up.dragging.get_untracked().is_some() {
+                        crate::flog!("[drop] PointerUp non-primary button, cancel drag");
+                        app_for_up.dragging.set(None);
+                    }
+                    return;
+                }
                 let drag_opt = app_for_up.dragging.get_untracked();
                 let Some(ds) = drag_opt else { return };
                 app_for_up.dragging.set(None);
@@ -561,7 +570,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 crate::flog!("[drop] win_pt=({:.1},{:.1}) copy={} pane_rects={:?}",
                     win_pt.x, win_pt.y, copy, rects_dump);
                 let target_id = app_for_up.pane_rects.with_untracked(|m| {
+                    let allowed: std::collections::HashSet<u64> = app_for_up
+                        .active_tab()
+                        .map(|t| t.all_panes().iter().map(|p| p.id).collect())
+                        .unwrap_or_default();
                     m.iter()
+                        .filter(|(id, _)| allowed.contains(id))
                         .find_map(|(id, r)| if r.contains(win_pt) { Some(*id) } else { None })
                 });
                 let Some(target_id) = target_id else {
