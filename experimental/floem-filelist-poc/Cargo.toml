@@ -1,0 +1,19 @@
+[package]
+name = "floem-filelist-poc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# 単独 crate として動かすため、ワークスペース機能から外す。
+# (FastFiler 本体側に Cargo workspace は無いが、誤って取り込まれないよう明示)
+[workspace]
+
+[dependencies]
+floem = "0.2"
+im = "15"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
