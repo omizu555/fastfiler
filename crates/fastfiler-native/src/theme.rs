@@ -1,23 +1,51 @@
-// テーマカラー定義 (Light テーマ既定)
+// テーマカラー定義
 //
-// main.rs 内で `theme::xxx()` で参照される全ての色を集約。
-// 将来的にダークテーマへ切替えできるよう関数経由でアクセスする。
+// `MODE_VAL` (AtomicU8) でアプリ全体の Light/Dark を切替。
+// 設定変更時は次回起動から反映 (再起動不要にすると全 view 再構築が必要なため)。
+// アクセントカラー (`ACCENT`) は selection 色等に使用。
+
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use floem::peniko::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    Light,
-    #[allow(dead_code)]
-    Dark,
+    Light = 0,
+    Dark = 1,
 }
 
-// 既定はライトテーマ
-pub const MODE: Mode = Mode::Light;
+static MODE_VAL: AtomicU8 = AtomicU8::new(Mode::Light as u8);
+/// アクセントカラー (RGB を 0x00RRGGBB に詰める。0xFF000000 ビットが立っていれば「未設定」)
+static ACCENT: AtomicU32 = AtomicU32::new(0xFF00_0000);
+
+pub fn set_mode_from_str(s: &str) {
+    let m = match s {
+        "dark" => Mode::Dark,
+        // "light" / "system" / その他は Light にフォールバック
+        _ => Mode::Light,
+    };
+    MODE_VAL.store(m as u8, Ordering::Relaxed);
+}
+
+pub fn set_accent_from_str(s: &str) {
+    let s = s.trim().trim_start_matches('#');
+    if s.len() == 6 {
+        if let Ok(v) = u32::from_str_radix(s, 16) {
+            ACCENT.store(v, Ordering::Relaxed);
+            return;
+        }
+    }
+    ACCENT.store(0xFF00_0000, Ordering::Relaxed);
+}
+
+#[inline]
+fn current_mode() -> Mode {
+    if MODE_VAL.load(Ordering::Relaxed) == Mode::Dark as u8 { Mode::Dark } else { Mode::Light }
+}
 
 #[inline]
 fn pick(light: (u8, u8, u8), dark: (u8, u8, u8)) -> Color {
-    let (r, g, b) = match MODE {
+    let (r, g, b) = match current_mode() {
         Mode::Light => light,
         Mode::Dark => dark,
     };
@@ -49,5 +77,15 @@ pub fn text_emphasis() -> Color { pick((30, 90, 200),  (180, 200, 230)) }
 pub fn text_success() -> Color  { pick((30, 120, 50),  (180, 220, 180)) }
 pub fn text_dir() -> Color      { pick((20, 80, 180),  (120, 200, 255)) }
 
-// アクセント (選択ハイライト等)
-pub fn accent_select() -> Color { pick((180, 210, 255), (58, 96, 158)) }
+// アクセント (選択ハイライト等) — accent_color が指定されていればそれを優先
+pub fn accent_select() -> Color {
+    let v = ACCENT.load(Ordering::Relaxed);
+    if v & 0xFF00_0000 == 0 {
+        let r = ((v >> 16) & 0xFF) as u8;
+        let g = ((v >> 8) & 0xFF) as u8;
+        let b = (v & 0xFF) as u8;
+        Color::rgb8(r, g, b)
+    } else {
+        pick((180, 210, 255), (58, 96, 158))
+    }
+}

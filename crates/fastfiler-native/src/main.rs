@@ -16,6 +16,10 @@ fn main() {
     use settings::PersistedSettings;
 
     let p = PersistedSettings::load_or_default();
+    // テーマ・アクセントカラーをグローバル設定として反映 (起動時1回)
+    crate::theme::set_mode_from_str(&p.theme);
+    crate::theme::set_accent_from_str(&p.accent_color);
+
     let mut cfg = WindowConfig::default().title("FastFiler");
     if let (Some(w), Some(h)) = (p.window_w, p.window_h) {
         if w >= 200 && h >= 150 {

@@ -3,7 +3,7 @@
 use floem::event::{Event, EventListener, EventPropagation};
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
-use floem::views::{container, dyn_container, h_stack, label, v_stack, Decorators};
+use floem::views::{container, dyn_container, label, v_stack, Decorators};
 
 use crate::fs_model::initial_path;
 use crate::settings::{settings_view, AppSettings};
@@ -185,13 +185,58 @@ pub fn app_view() -> impl IntoView {
                         },
                     )
                     .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
-                    let main_row = h_stack((
-                        tabs_panel(app.clone()),
-                        splitter(app.clone(), SplitterTarget::Tabs),
-                        tree_pane(app.clone()),
-                        splitter(app.clone(), SplitterTarget::Tree),
-                        active_panes,
-                    ))
+                    let app_for_layout = app.clone();
+                    let active_panes_view = active_panes.into_any();
+                    let layout_sig = app.settings.workspace_layout;
+                    let dock_tabs_sig = app.settings.panel_dock_tabs;
+                    let dock_tree_sig = app.settings.panel_dock_tree;
+                    let active_panes_holder = std::rc::Rc::new(std::cell::RefCell::new(Some(active_panes_view)));
+                    let main_row = dyn_container(
+                        move || {
+                            let layout = layout_sig.get();
+                            let dt = dock_tabs_sig.get();
+                            let dr = dock_tree_sig.get();
+                            (layout, dt, dr)
+                        },
+                        move |(layout, dock_tabs, dock_tree)| {
+                            let app = app_for_layout.clone();
+                            let tabs_hidden = layout == "tabsHidden" || dock_tabs == "hidden";
+                            let tree_hidden = dock_tree == "hidden";
+                            let tabs_right = dock_tabs == "right" || layout == "tabsRight";
+                            let tree_right = dock_tree == "right";
+
+                            let mut items: Vec<floem::AnyView> = Vec::new();
+                            if !tabs_hidden && !tabs_right {
+                                items.push(tabs_panel(app.clone()).into_any());
+                                items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
+                            }
+                            if !tree_hidden && !tree_right {
+                                items.push(tree_pane(app.clone()).into_any());
+                                items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
+                            }
+                            // 中央 active_panes (ホルダから取り出し、再構築の都度新規生成)
+                            let center = active_panes_holder
+                                .borrow_mut()
+                                .take()
+                                .unwrap_or_else(|| {
+                                    label(|| String::from("(no center)"))
+                                        .style(|s| s.size_full())
+                                        .into_any()
+                                });
+                            items.push(center);
+                            if !tree_hidden && tree_right {
+                                items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
+                                items.push(tree_pane(app.clone()).into_any());
+                            }
+                            if !tabs_hidden && tabs_right {
+                                items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
+                                items.push(tabs_panel(app.clone()).into_any());
+                            }
+                            floem::views::stack_from_iter(items)
+                                .style(|s| s.flex_row().flex_grow(1.0).min_height(0).width_full())
+                                .into_any()
+                        },
+                    )
                     .style(|s| s.flex_grow(1.0).min_height(0).width_full());
                     v_stack((main_row, footer_bar(app.clone())))
                         .style(|s| s.size_full().flex_col())
@@ -202,12 +247,14 @@ pub fn app_view() -> impl IntoView {
     )
     .style(|s| s.size_full());
 
+    let ui_font_size_sig = app.settings.ui_font_size;
     container(switcher)
-        .style(|s| {
+        .style(move |s| {
+            let fs = ui_font_size_sig.get().parse::<f32>().unwrap_or(13.0).clamp(8.0, 32.0);
             s.size_full()
                 .background(theme::bg_root())
                 .color(theme::text_normal())
-                .font_size(13.0)
+                .font_size(fs)
         })
         .on_event_cont(EventListener::PointerMove, {
             let app_for_split = app.clone();

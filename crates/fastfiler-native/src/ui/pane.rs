@@ -72,6 +72,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_split_v = app.clone();
     let app_for_close_pane = app.clone();
     let pane_id_for_close = pane.id;
+    let hide_toolbar_sig = app.settings.hide_pane_toolbar;
     let toolbar = h_stack((
         button("←").action(move || pane_for_back.back()),
         button("→").action(move || pane_for_forward.forward()),
@@ -106,7 +107,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         button("⊞+").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
     ))
-    .style(|s| s.gap(6).padding(6).items_center());
+    .style(move |s| {
+        let s = s.gap(6).padding(6).items_center();
+        if hide_toolbar_sig.get() {
+            s.height(0).padding(0).hide()
+        } else {
+            s
+        }
+    });
 
     // パンくずリスト (現在パスを「>」区切りでクリック可能セグメント表示)
     let pane_for_crumb = pane.clone();
