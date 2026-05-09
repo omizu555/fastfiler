@@ -478,8 +478,9 @@ fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
             .background(theme::bg_modal())
             .color(theme::text_normal())
             .class(floem::views::scroll::ScrollClass, |s| {
-                s.max_height(320).background(theme::bg_modal())
+                s.height(320).max_height(320).background(theme::bg_modal())
             })
+            .class(floem::prelude::ListClass, |s| s.min_height(0))
     });
     h_stack((
         label(move || title.to_string())
