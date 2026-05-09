@@ -599,23 +599,58 @@ static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 struct Tab {
     id: u64,
-    panes: RwSignal<im::Vector<PaneState>>,
-    /// false = 横分割 (flex_row), true = 縦分割 (flex_col)
-    vertical: RwSignal<bool>,
+    /// 2D 列レイアウト: 外 = 左→右の列, 各列 = 上→下のペイン
+    columns: RwSignal<im::Vector<RwSignal<im::Vector<PaneState>>>>,
+    /// 現在フォーカスされているペイン id (split_active や close_pane の起点)
+    active_pane: RwSignal<u64>,
 }
 
 impl Tab {
     fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
         let p = PaneState::new(start, show_hidden);
+        let pid = p.id;
+        let col = RwSignal::new(im::vector![p]);
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
-            panes: RwSignal::new(im::vector![p]),
-            vertical: RwSignal::new(false),
+            columns: RwSignal::new(im::vector![col]),
+            active_pane: RwSignal::new(pid),
         }
     }
 
     fn primary(&self) -> PaneState {
-        self.panes.with(|v| v[0].clone())
+        self.columns.with(|cols| cols[0].with(|c| c[0].clone()))
+    }
+
+    /// 全ペインを上→下、左→右順にフラット化
+    fn all_panes(&self) -> Vec<PaneState> {
+        self.columns.with(|cols| {
+            let mut out = Vec::new();
+            for col in cols.iter() {
+                col.with(|panes| {
+                    for p in panes.iter() {
+                        out.push(p.clone());
+                    }
+                });
+            }
+            out
+        })
+    }
+
+    fn pane_count(&self) -> usize {
+        self.columns
+            .with(|cols| cols.iter().map(|c| c.with(|p| p.len())).sum())
+    }
+
+    /// 指定ペインの (列 index, 行 index) を返す
+    fn locate(&self, pane_id: u64) -> Option<(usize, usize)> {
+        self.columns.with(|cols| {
+            for (ci, col) in cols.iter().enumerate() {
+                if let Some(ri) = col.with(|panes| panes.iter().position(|p| p.id == pane_id)) {
+                    return Some((ci, ri));
+                }
+            }
+            None
+        })
     }
 }
 
@@ -690,46 +725,82 @@ impl AppState {
     fn find_pane(&self, pane_id: u64) -> Option<PaneState> {
         self.tabs.with(|tabs| {
             for t in tabs.iter() {
-                let found = t.panes.with(|ps| ps.iter().find(|p| p.id == pane_id).cloned());
-                if let Some(p) = found {
-                    return Some(p);
+                for p in t.all_panes() {
+                    if p.id == pane_id {
+                        return Some(p);
+                    }
                 }
             }
             None
         })
     }
 
-    /// アクティブタブにペインを 1 つ追加 (最大 4)。vertical=true で縦分割
+    /// アクティブタブにペインを 1 つ追加 (最大 4)。
+    /// vertical=false: 横分割 (アクティブペインの右側に新しい列を挿入、ペイン 1 つ)
+    /// vertical=true:  縦分割 (アクティブペインを含む列に、その下にペイン追加)
     fn split_active(&self, vertical: bool) {
         if let Some(tab) = self.active_tab() {
-            let cur = tab.panes.with(|v| v.len());
-            if cur >= 4 {
+            if tab.pane_count() >= 4 {
                 return;
             }
-            // 1 ペインしか無い時は方向を確定、2 個目以降は既存方向に従う (混在不可)
-            if cur <= 1 {
-                tab.vertical.set(vertical);
-            }
-            let base = tab.primary().cur_path.get_untracked();
+            let active_id = tab.active_pane.get_untracked();
+            let loc = tab.locate(active_id);
+            let (col_idx, row_idx) = loc.unwrap_or((0, 0));
+            let base = tab
+                .all_panes()
+                .into_iter()
+                .find(|p| p.id == active_id)
+                .map(|p| p.cur_path.get_untracked())
+                .unwrap_or_else(|| tab.primary().cur_path.get_untracked());
             let show_hidden = self.settings.show_hidden;
-            tab.panes.update(|v| {
-                v.push_back(PaneState::new(base.clone(), show_hidden));
-            });
+            let new_pane = PaneState::new(base, show_hidden);
+            let new_id = new_pane.id;
+
+            if vertical {
+                tab.columns.with(|cols| {
+                    if let Some(col) = cols.get(col_idx) {
+                        col.update(|panes| {
+                            panes.insert(row_idx + 1, new_pane);
+                        });
+                    }
+                });
+            } else {
+                let new_col = RwSignal::new(im::vector![new_pane]);
+                tab.columns.update(|cols| {
+                    cols.insert(col_idx + 1, new_col);
+                });
+            }
+            tab.active_pane.set(new_id);
         }
     }
 
-    /// 指定 pane を含むタブからその pane を削除 (primary は削除不可)
+    /// 指定 pane を削除 (最後の 1 ペインは削除不可)
     fn close_pane(&self, pane_id: u64) {
         self.tabs.with(|tabs| {
             for t in tabs.iter() {
-                let pos = t.panes.with(|v| v.iter().position(|p| p.id == pane_id));
-                if let Some(idx) = pos {
-                    if idx == 0 {
-                        return;
-                    }
-                    t.panes.update(|v| {
-                        v.remove(idx);
+                if t.pane_count() <= 1 {
+                    continue;
+                }
+                let loc = t.locate(pane_id);
+                if let Some((ci, ri)) = loc {
+                    let mut empty_col = false;
+                    t.columns.with(|cols| {
+                        if let Some(col) = cols.get(ci) {
+                            col.update(|panes| {
+                                panes.remove(ri);
+                            });
+                            empty_col = col.with(|p| p.is_empty());
+                        }
                     });
+                    if empty_col {
+                        t.columns.update(|cols| {
+                            cols.remove(ci);
+                        });
+                    }
+                    // 残ったペインから新しいアクティブを選ぶ
+                    if let Some(first) = t.all_panes().first() {
+                        t.active_pane.set(first.id);
+                    }
                     return;
                 }
             }
@@ -743,16 +814,20 @@ impl AppState {
 
 fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let id = tab.id;
-    let panes_sig = tab.panes;
+    let columns_sig = tab.columns;
     let active = app.active;
 
     let title_label = label(move || {
-        // primary ペインの title を反応的に取得
-        panes_sig.with(|v| {
-            v.head()
-                .map(|p| {
-                    let t = p.title.get();
-                    if t.is_empty() { String::from("(root)") } else { t }
+        // primary ペインの title を反応的に取得 (columns[0][0])
+        columns_sig.with(|cols| {
+            cols.head()
+                .and_then(|col| {
+                    col.with(|panes| {
+                        panes.head().map(|p| {
+                            let t = p.title.get();
+                            if t.is_empty() { String::from("(root)") } else { t }
+                        })
+                    })
                 })
                 .unwrap_or_else(|| String::from("(empty)"))
         })
@@ -1107,7 +1182,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         VirtualDirection::Vertical,
         VirtualItemSize::Fixed(Box::new(move || row_height)),
         move || rows.get().enumerate(),
-        move |(idx, _)| *idx,
+        move |(idx, row): &(usize, FileRow)| (*idx, row.name.clone(), row.is_dir),
         move |(idx, row): (usize, FileRow)| {
             let is_dir = row.is_dir;
             let bg_idx = idx;
@@ -1274,7 +1349,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     )
     .style(|s| s.flex_col().width_full());
 
-    let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0));
+    let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0).min_height(0));
 
     let status = label(move || {
         let st = stats.get();
@@ -1351,8 +1426,17 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_rect2 = app.clone();
     let app_for_move = app.clone();
     let app_for_up = app.clone();
+    let app_for_focus = app.clone();
     v_stack((toolbar, breadcrumb, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
+        .on_event_cont(EventListener::PointerDown, move |_| {
+            // クリックされたペインを active に
+            if let Some(t) = app_for_focus.active_tab() {
+                if t.locate(pane_id).is_some() {
+                    t.active_pane.set(pane_id);
+                }
+            }
+        })
         .on_resize(move |rect| {
             app_for_rect.pane_rects.update(|m| {
                 let cur = m.get(&pane_id).copied().unwrap_or(Rect::ZERO);
@@ -1774,56 +1858,75 @@ fn app_view() -> impl IntoView {
                             let tabs_v = tabs.get();
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
-                            let (panes, vertical) = if let Some(t) = active_tab {
-                                // ensure_panes は reactive scope 外で行う必要があるためここでは呼ばない
-                                let v = t.vertical.get();
-                                let ps: Vec<PaneState> =
-                                    t.panes.with(|v| v.iter().cloned().collect());
-                                (ps, v)
+                            // 各列の (col_index, Vec<PaneState>) を集める
+                            let layout: Vec<Vec<PaneState>> = if let Some(t) = active_tab {
+                                t.columns.with(|cols| {
+                                    cols.iter()
+                                        .map(|col| col.with(|panes| panes.iter().cloned().collect()))
+                                        .collect()
+                                })
                             } else {
-                                (Vec::new(), false)
+                                Vec::new()
                             };
-                            (panes, vertical)
+                            layout
                         },
-                        move |(panes, vertical)| {
-                            if panes.is_empty() {
+                        move |layout: Vec<Vec<PaneState>>| {
+                            if layout.is_empty() || layout.iter().all(|c| c.is_empty()) {
                                 return label(|| String::from("(no tab)"))
                                     .style(|s| s.size_full().padding(20))
                                     .into_any();
                             }
-                            let views: Vec<floem::AnyView> = panes
+                            let col_count = layout.len();
+                            let columns_views: Vec<floem::AnyView> = layout
                                 .into_iter()
                                 .enumerate()
-                                .map(|(i, p)| {
-                                    let app_for_pv = app_for_panes.clone();
-                                    let v = container(pane_view(p, app_for_pv)).style(move |s| {
-                                        let s = if vertical {
-                                            s.flex_grow(1.0).min_height(0).flex_basis(0).width_full()
-                                        } else {
-                                            s.flex_grow(1.0).min_width(0).flex_basis(0).height_full()
-                                        };
-                                        if i > 0 {
-                                            if vertical {
-                                                s.border_top(1).border_color(Color::rgb8(60, 60, 60))
+                                .map(|(ci, panes)| {
+                                    let app_for_col = app_for_panes.clone();
+                                    let row_count = panes.len();
+                                    let pane_views: Vec<floem::AnyView> = panes
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(ri, p)| {
+                                            let app_for_pv = app_for_col.clone();
+                                            container(pane_view(p, app_for_pv))
+                                                .style(move |s| {
+                                                    let s = s
+                                                        .flex_grow(1.0)
+                                                        .min_height(0)
+                                                        .flex_basis(0)
+                                                        .width_full();
+                                                    if ri > 0 && row_count > 1 {
+                                                        s.border_top(1)
+                                                            .border_color(Color::rgb8(60, 60, 60))
+                                                    } else {
+                                                        s
+                                                    }
+                                                })
+                                                .into_any()
+                                        })
+                                        .collect();
+                                    let col_view = floem::views::stack_from_iter(pane_views)
+                                        .style(|s| s.flex_col().size_full());
+                                    container(col_view)
+                                        .style(move |s| {
+                                            let s = s
+                                                .flex_grow(1.0)
+                                                .min_width(0)
+                                                .flex_basis(0)
+                                                .height_full();
+                                            if ci > 0 && col_count > 1 {
+                                                s.border_left(1)
+                                                    .border_color(Color::rgb8(60, 60, 60))
                                             } else {
-                                                s.border_left(1).border_color(Color::rgb8(60, 60, 60))
+                                                s
                                             }
-                                        } else {
-                                            s
-                                        }
-                                    });
-                                    v.into_any()
+                                        })
+                                        .into_any()
                                 })
                                 .collect();
                             container(
-                                floem::views::stack_from_iter(views)
-                                    .style(move |s| {
-                                        if vertical {
-                                            s.flex_col().size_full()
-                                        } else {
-                                            s.flex_row().size_full()
-                                        }
-                                    }),
+                                floem::views::stack_from_iter(columns_views)
+                                    .style(|s| s.flex_row().size_full()),
                             )
                             .style(|s| s.size_full())
                             .into_any()
