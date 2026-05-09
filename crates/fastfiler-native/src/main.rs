@@ -1210,6 +1210,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let p_paste = pane_ctx.clone();
                     let p_rename = pane_ctx.clone();
                     let p_delete = pane_ctx.clone();
+                    let p_props = pane_ctx.clone();
                     // 右クリックされた行が未選択なら単独選択にする
                     if !p_open.selected.with(|s| s.contains(&bg_idx)) {
                         p_open.click_row(bg_idx, false, false);
@@ -1254,6 +1255,19 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .separator()
                         .entry(MenuItem::new("名前の変更").action(move || p_rename.open_rename_modal()))
                         .entry(MenuItem::new("削除").action(move || p_delete.delete_selected()))
+                        .separator()
+                        .entry(MenuItem::new("プロパティ").action(move || {
+                            let cur = p_props.cur_path.get();
+                            let name = p_props
+                                .rows
+                                .with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                            if let Some(n) = name {
+                                let target = cur.join(n);
+                                let _ = fastfiler_domain::shell::show_properties(
+                                    target.to_string_lossy().into_owned(),
+                                );
+                            }
+                        }))
                 }
             })
         },
