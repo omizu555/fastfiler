@@ -23,6 +23,7 @@ fn main() {
         p.theme, p.accent_color, p.window_w, p.window_h, p.window_x, p.window_y);
     // テーマ・アクセントカラーをグローバル設定として反映 (起動時1回)
     crate::theme::set_mode_from_str(&p.theme);
+    crate::theme::set_preset_from_str(&p.theme_preset);
     crate::theme::set_accent_from_str(&p.accent_color);
 
     let mut cfg = WindowConfig::default().title("FastFiler");
