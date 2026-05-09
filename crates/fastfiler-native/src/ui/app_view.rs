@@ -32,37 +32,45 @@ pub fn app_view() -> impl IntoView {
         let tab_columns_sig = app.settings.tab_columns;
         let tabs_width_sig = app.settings.tabs_width;
         let tree_width_sig = app.settings.tree_width;
-        floem::reactive::create_effect(move |prev: Option<()>| {
-            // 全シグナルを track
-            let _ = tab_columns_sig.get();
-            let _ = tabs_width_sig.get();
-            let _ = tree_width_sig.get();
-            // 初回 (購読登録のための実行) は保存スキップ
-            if prev.is_none() {
-                return;
+        floem::reactive::create_effect(move |prev: Option<(String, String, String)>| {
+            let cols = tab_columns_sig.get();
+            let tw = tabs_width_sig.get();
+            let trw = tree_width_sig.get();
+            let cur = (cols, tw, trw);
+            let changed = prev.as_ref().map_or(false, |p| p != &cur);
+            if changed {
+                if let Err(e) = settings_for_save.save() {
+                    eprintln!("[settings] auto-save error: {}", e);
+                }
             }
-            if let Err(e) = settings_for_save.save() {
-                eprintln!("[settings] auto-save error: {}", e);
-            }
+            cur
         });
     }
     // タブ一覧 / 各タブの primary パス変化時に open_tabs を更新 + 保存
     {
         let app_for_tabs = app.clone();
-        floem::reactive::create_effect(move |prev: Option<()>| {
+        floem::reactive::create_effect(move |prev: Option<Vec<String>>| {
             let tabs_v = app_for_tabs.tabs.get();
-            let mut paths: Vec<String> = Vec::with_capacity(tabs_v.len());
-            for t in tabs_v.iter() {
-                let p = t.primary().cur_path.get();
-                paths.push(p.to_string_lossy().into_owned());
+            let paths: Vec<String> = tabs_v
+                .iter()
+                .map(|t| {
+                    t.primary()
+                        .cur_path
+                        .get()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            let changed = prev.as_ref().map_or(true, |p| p != &paths);
+            if changed {
+                app_for_tabs.settings.open_tabs.set(paths.clone());
+                if prev.is_some() {
+                    if let Err(e) = app_for_tabs.settings.save() {
+                        eprintln!("[settings] tabs auto-save error: {}", e);
+                    }
+                }
             }
-            app_for_tabs.settings.open_tabs.set(paths);
-            if prev.is_none() {
-                return;
-            }
-            if let Err(e) = app_for_tabs.settings.save() {
-                eprintln!("[settings] tabs auto-save error: {}", e);
-            }
+            paths
         });
     }
     let tabs = app.tabs;
