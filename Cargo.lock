@@ -1594,6 +1594,7 @@ name = "fastfiler-native"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "crossbeam-channel",
  "dirs 5.0.1",
  "fastfiler-domain",
  "floem",

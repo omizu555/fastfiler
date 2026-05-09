@@ -169,10 +169,14 @@ struct History {
     forward: im::Vector<PathBuf>,
 }
 
-struct CounterSink(Mutex<u32>);
+struct CounterSink {
+    counter: Mutex<u32>,
+    tx: crossbeam_channel::Sender<()>,
+}
 impl EventSink for CounterSink {
     fn emit_json(&self, _event: &str, _payload: serde_json::Value) {
-        *self.0.lock() += 1;
+        *self.counter.lock() += 1;
+        let _ = self.tx.try_send(());
     }
 }
 
@@ -184,6 +188,7 @@ impl EventSink for CounterSink {
 enum ModalKind {
     None,
     NewFolder,
+    NewFile,
     /// 元の名前 (リネーム対象)
     Rename(String),
 }
@@ -203,6 +208,8 @@ struct PaneState {
     history: RwSignal<History>,
     watcher: Arc<WatcherCore>,
     sink: Arc<CounterSink>,
+    /// 監視スレッドからのイベント受信用 (UI 側で signal 化)
+    fs_event_signal: floem::reactive::ReadSignal<Option<()>>,
     watched: Arc<Mutex<Option<String>>>,
     fs_change_tick: RwSignal<u32>,
     show_hidden: RwSignal<bool>,
@@ -220,6 +227,8 @@ impl PaneState {
         let mut initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
         sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
+        let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<()>();
+        let fs_signal = floem::ext_event::create_signal_from_channel(fs_rx);
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
             title: RwSignal::new(pretty_title(&start)),
@@ -232,7 +241,11 @@ impl PaneState {
             status_msg: RwSignal::new(String::from("ready")),
             history: RwSignal::new(History::default()),
             watcher: Arc::new(WatcherCore::default()),
-            sink: Arc::new(CounterSink(Mutex::new(0))),
+            sink: Arc::new(CounterSink {
+                counter: Mutex::new(0),
+                tx: fs_tx,
+            }),
+            fs_event_signal: fs_signal,
             watched: Arc::new(Mutex::new(None)),
             fs_change_tick: RwSignal::new(0),
             show_hidden,
@@ -278,7 +291,7 @@ impl PaneState {
                     self.watcher.unwatch(old);
                 }
                 *wp = Some(s.clone());
-                *self.sink.0.lock() = 0;
+                *self.sink.counter.lock() = 0;
                 self.fs_change_tick.set(0);
                 let sd: Arc<dyn EventSink> = self.sink.clone();
                 let _ = self.watcher.watch_with_sink(s, sd);
@@ -394,6 +407,11 @@ impl PaneState {
         self.modal_kind.set(ModalKind::NewFolder);
     }
 
+    fn open_new_file_modal(&self) {
+        self.modal_input.set(String::from("new.txt"));
+        self.modal_kind.set(ModalKind::NewFile);
+    }
+
     fn open_rename_modal(&self) {
         let Some(idx) = self.single_selected() else {
             self.status_msg.set(String::from("リネームは 1 件のみ選択時"));
@@ -426,6 +444,20 @@ impl PaneState {
                 match fops::create_dir(target.to_string_lossy().into_owned()) {
                     Ok(()) => {
                         self.status_msg.set(format!("作成: {}", input));
+                        self.close_modal();
+                        self.reload();
+                    }
+                    Err(e) => self.status_msg.set(format!("作成失敗: {}", e)),
+                }
+            }
+            ModalKind::NewFile => {
+                match fastfiler_domain::templates::create_empty_file(
+                    cur.to_string_lossy().into_owned(),
+                    input.clone(),
+                    None,
+                ) {
+                    Ok(p) => {
+                        self.status_msg.set(format!("作成: {}", p));
                         self.close_modal();
                         self.reload();
                     }
@@ -785,6 +817,18 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let modal_kind = pane.modal_kind;
     let modal_input = pane.modal_input;
     let sink = pane.sink.clone();
+    let fs_event_signal = pane.fs_event_signal;
+    let fs_change_tick = pane.fs_change_tick;
+
+    // ファイル監視 → 自動 reload (デバウンスなしの素朴版)
+    let pane_for_fs = pane.clone();
+    floem::reactive::create_effect(move |_| {
+        // signal を track して変化時に reload
+        if fs_event_signal.get().is_some() {
+            fs_change_tick.update(|n| *n = n.wrapping_add(1));
+            pane_for_fs.reload();
+        }
+    });
 
     let pane_for_open = pane.clone();
     let pane_for_back = pane.clone();
@@ -794,6 +838,7 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let pane_for_dblclick = pane.clone();
     let pane_for_addr_enter = pane.clone();
     let pane_for_newfolder = pane.clone();
+    let pane_for_newfile = pane.clone();
     let pane_for_rename = pane.clone();
     let pane_for_delete = pane.clone();
     let pane_for_modal_ok = pane.clone();
@@ -835,10 +880,71 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             pane_for_open.navigate(p, true);
         }),
         button("New Folder").action(move || pane_for_newfolder.open_new_folder_modal()),
+        button("New File").action(move || pane_for_newfile.open_new_file_modal()),
         button("Rename").action(move || pane_for_rename.open_rename_modal()),
         button("Delete").action(move || pane_for_delete.delete_selected()),
     ))
     .style(|s| s.gap(6).padding(6).items_center());
+
+    // パンくずリスト (現在パスを「>」区切りでクリック可能セグメント表示)
+    let pane_for_crumb = pane.clone();
+    let breadcrumb = dyn_container(
+        move || cur_path.get(),
+        move |p: PathBuf| {
+            let mut acc = PathBuf::new();
+            let mut items: Vec<floem::AnyView> = Vec::new();
+            let mut first = true;
+            for comp in p.components() {
+                let part = comp.as_os_str().to_string_lossy().into_owned();
+                if part.is_empty() {
+                    continue;
+                }
+                acc.push(comp);
+                if !first {
+                    items.push(
+                        label(|| String::from("›"))
+                            .style(|s| {
+                                s.padding_horiz(4).color(Color::rgb8(140, 140, 140))
+                            })
+                            .into_any(),
+                    );
+                }
+                first = false;
+                let target = acc.clone();
+                let pane_seg = pane_for_crumb.clone();
+                let display = if part.ends_with('\\') || part.ends_with('/') {
+                    part.trim_end_matches(|c| c == '\\' || c == '/').to_string()
+                } else {
+                    part
+                };
+                let display = if display.is_empty() { String::from("/") } else { display };
+                items.push(
+                    label(move || display.clone())
+                        .style(|s| {
+                            s.padding_horiz(4)
+                                .padding_vert(2)
+                                .cursor(CursorStyle::Pointer)
+                                .color(Color::rgb8(180, 200, 230))
+                        })
+                        .on_click_stop(move |_| pane_seg.navigate(target.clone(), true))
+                        .into_any(),
+                );
+            }
+            container(
+                floem::views::stack_from_iter(items)
+                    .style(|s| s.flex_row().items_center().gap(0)),
+            )
+            .style(|s| s.padding_horiz(8).padding_vert(2))
+            .into_any()
+        },
+    )
+    .style(|s| {
+        s.height(22)
+            .width_full()
+            .background(Color::rgb8(30, 30, 34))
+            .border_bottom(1)
+            .border_color(Color::rgb8(50, 50, 50))
+    });
 
     let arrow = move |k: SortKey| -> String {
         if sort_key_sig.get() == k {
@@ -988,7 +1094,7 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let status = label(move || {
         let st = stats.get();
         let sel_count = selected.with(|s| s.len());
-        let cnt = sink.0.lock();
+        let cnt = sink.counter.lock();
         let msg = status_msg.get();
         format!(
             "items: {}   load: {:.2} ms   selected: {}   fs-change: {}   {}",
@@ -1012,6 +1118,7 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             other => {
                 let title = match &other {
                     ModalKind::NewFolder => "新規フォルダ名",
+                    ModalKind::NewFile => "新規ファイル名",
                     ModalKind::Rename(_) => "新しい名前",
                     ModalKind::None => "",
                 };
@@ -1053,8 +1160,18 @@ fn pane_view(pane: PaneState) -> impl IntoView {
         },
     );
 
-    v_stack((toolbar, modal_bar, header, scrollable, status))
+    let pane_for_xbuttons = pane.clone();
+    v_stack((toolbar, breadcrumb, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
+        .on_event_stop(EventListener::PointerDown, move |e| {
+            if let Event::PointerDown(p) = e {
+                if p.button.is_x1() {
+                    pane_for_xbuttons.back();
+                } else if p.button.is_x2() {
+                    pane_for_xbuttons.forward();
+                }
+            }
+        })
         .on_event_stop(EventListener::KeyDown, move |e| {
             if let Event::KeyDown(ke) = e {
                 let mods = &ke.modifiers;
@@ -1322,23 +1439,63 @@ fn app_view() -> impl IntoView {
                     settings_view(app.settings.clone(), settings_open).into_any()
                 } else {
                     let app = app.clone();
-                    let active_pane = dyn_container(
+                    let tab_columns_sig = app.settings.tab_columns;
+                    let active_panes = dyn_container(
                         move || {
                             let id = active.get();
-                            tabs.get().iter().find(|p| p.id == id).cloned()
+                            let cols = tab_columns_sig
+                                .get()
+                                .parse::<usize>()
+                                .unwrap_or(1)
+                                .clamp(1, 4);
+                            let tabs_v = tabs.get();
+                            let active_idx = tabs_v.iter().position(|p| p.id == id).unwrap_or(0);
+                            let total = tabs_v.len();
+                            let cols = cols.min(total.max(1));
+                            // active を起点に右へ最大 cols 個 (足りなければ左へ折り返し)
+                            let mut start = active_idx;
+                            if active_idx + cols > total && total >= cols {
+                                start = total - cols;
+                            }
+                            let panes: Vec<PaneState> = (0..cols)
+                                .filter_map(|i| tabs_v.get(start + i).cloned())
+                                .collect();
+                            (panes, cols)
                         },
-                        move |maybe_pane| match maybe_pane {
-                            Some(p) => container(pane_view(p)).style(|s| s.size_full()).into_any(),
-                            None => label(|| String::from("(no tab)"))
-                                .style(|s| s.size_full().padding(20))
-                                .into_any(),
+                        move |(panes, _cols)| {
+                            if panes.is_empty() {
+                                return label(|| String::from("(no tab)"))
+                                    .style(|s| s.size_full().padding(20))
+                                    .into_any();
+                            }
+                            let views: Vec<floem::AnyView> = panes
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    let v = container(pane_view(p)).style(move |s| {
+                                        let s = s.flex_grow(1.0).min_width(0).flex_basis(0).height_full();
+                                        if i > 0 {
+                                            s.border_left(1).border_color(Color::rgb8(60, 60, 60))
+                                        } else {
+                                            s
+                                        }
+                                    });
+                                    v.into_any()
+                                })
+                                .collect();
+                            container(
+                                floem::views::stack_from_iter(views)
+                                    .style(|s| s.flex_row().size_full()),
+                            )
+                            .style(|s| s.size_full())
+                            .into_any()
                         },
                     )
                     .style(|s| s.flex_grow(1.0).min_height(0).flex_col());
                     let main_row = h_stack((
                         tabs_panel(app.clone()),
                         tree_pane(app.clone()),
-                        active_pane,
+                        active_panes,
                     ))
                     .style(|s| s.flex_grow(1.0).min_height(0).width_full());
                     v_stack((main_row, footer_bar(app.clone())))
