@@ -97,72 +97,51 @@ pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
 #[cfg(windows)]
 mod trash_impl {
     use super::*;
-    use std::thread;
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL,
-        COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
-    };
     use windows::Win32::UI::Shell::{
-        FileOperation, IFileOperation, IShellItem, SHCreateItemFromParsingName,
-        FILEOPERATION_FLAGS, FOFX_ADDUNDORECORD, FOFX_RECYCLEONDELETE,
-        FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+        FO_DELETE, SHFILEOPSTRUCTW,
     };
 
     pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
-        // COM STA を持つ専用スレッドで実行
-        let handle = thread::spawn(move || -> AppResult<()> {
-            unsafe {
-                let hr = CoInitializeEx(
-                    None,
-                    COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE,
-                );
-                if hr.is_err() {
-                    return Err(AppError::Win32(format!("CoInitializeEx failed: {:?}", hr)));
-                }
-                let result = run_op(&paths);
-                CoUninitialize();
-                result
+        // SHFileOperationW は呼び出しスレッドの COM 状態に依存しない安定 API。
+        // 文字列はダブル NUL 終端の wide リストにする。
+        let mut wide: Vec<u16> = Vec::new();
+        for p in &paths {
+            // 念のため正規化 (バックスラッシュに揃える)
+            let normalized: String = p.chars().map(|c| if c == '/' { '\\' } else { c }).collect();
+            for u in normalized.encode_utf16() {
+                wide.push(u);
             }
-        });
-        handle
-            .join()
-            .map_err(|_| AppError::Win32("trash thread panicked".into()))?
-    }
+            wide.push(0);
+        }
+        wide.push(0); // 二重 NUL 終端
 
-    unsafe fn run_op(paths: &[String]) -> AppResult<()> {
-        let op: IFileOperation = CoCreateInstance(&FileOperation, None, CLSCTX_ALL)
-            .map_err(|e| AppError::Win32(format!("CoCreateInstance failed: {e}")))?;
-
-        let flags = FILEOPERATION_FLAGS(
-            (FOF_NOCONFIRMATION.0
+        // catch_unwind で Rust panic は受ける (FFI 由来 SEH は別途ガード対象だが
+        // SHFileOperationW は HRESULT/int を返すため通常は SEH を起こさない)。
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+            let mut op: SHFILEOPSTRUCTW = std::mem::zeroed();
+            op.hwnd = HWND::default();
+            op.wFunc = FO_DELETE;
+            op.pFrom = windows::core::PCWSTR(wide.as_ptr());
+            op.pTo = windows::core::PCWSTR::null();
+            op.fFlags = (FOF_ALLOWUNDO.0
+                | FOF_NOCONFIRMATION.0
                 | FOF_NOERRORUI.0
-                | FOF_SILENT.0
-                | FOFX_RECYCLEONDELETE.0 as u32
-                | FOFX_ADDUNDORECORD.0 as u32) as u32,
-        );
-        op.SetOperationFlags(flags)
-            .map_err(|e| AppError::Win32(format!("SetOperationFlags failed: {e}")))?;
-        op.SetOwnerWindow(HWND::default()).ok();
+                | FOF_SILENT.0) as u16;
+            SHFileOperationW(&mut op as *mut _)
+        }));
 
-        for p in paths {
-            let wide: Vec<u16> = p.encode_utf16().chain(std::iter::once(0)).collect();
-            let item: IShellItem =
-                SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
-                    .map_err(|e| AppError::Win32(format!("SHCreateItemFromParsingName({p}): {e}")))?;
-            op.DeleteItem(&item, None)
-                .map_err(|e| AppError::Win32(format!("DeleteItem({p}): {e}")))?;
+        match result {
+            Ok(0) => Ok(()),
+            Ok(code) => Err(AppError::Win32(format!(
+                "SHFileOperationW failed (code=0x{:X})",
+                code
+            ))),
+            Err(_) => Err(AppError::Win32(
+                "SHFileOperationW panicked (unwind caught)".into(),
+            )),
         }
-
-        op.PerformOperations()
-            .map_err(|e| AppError::Win32(format!("PerformOperations: {e}")))?;
-
-        let aborted = op.GetAnyOperationsAborted().unwrap_or_default();
-        if aborted.as_bool() {
-            return Err(AppError::Canceled);
-        }
-        Ok(())
     }
 }
 
