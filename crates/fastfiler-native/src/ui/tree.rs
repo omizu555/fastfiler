@@ -263,8 +263,11 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
     let header = label(|| String::from("Tree"))
         .style(|s| s.padding(6).font_bold().color(theme::text_label()));
 
-    let body = v_stack((header, scroll(tree).style(|s| s.flex_grow(1.0).width_full())))
-        .style(|s| s.flex_col().size_full());
+    let body = v_stack((
+        header,
+        scroll(tree).style(|s| s.flex_grow(1.0).min_height(0).width_full()),
+    ))
+    .style(|s| s.flex_col().size_full());
 
     let tree_width_sig = app.settings.tree_width;
     container(body).style(move |s| {
