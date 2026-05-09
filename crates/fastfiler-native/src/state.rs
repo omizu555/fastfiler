@@ -101,6 +101,10 @@ pub struct PaneState {
     pub modal_input: RwSignal<String>,
     pub sort_key: RwSignal<SortKey>,
     pub sort_desc: RwSignal<bool>,
+    /// ファイル名フィルタ用クエリ (空なら全件表示)
+    pub search_query: RwSignal<String>,
+    /// 検索バー表示中か
+    pub search_open: RwSignal<bool>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
@@ -142,6 +146,8 @@ impl PaneState {
             modal_input: s.create_rw_signal(String::new()),
             sort_key: s.create_rw_signal(SortKey::Name),
             sort_desc: s.create_rw_signal(false),
+            search_query: s.create_rw_signal(String::new()),
+            search_open: s.create_rw_signal(false),
         }
     }
 

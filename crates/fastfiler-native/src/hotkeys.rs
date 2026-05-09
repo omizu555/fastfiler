@@ -193,10 +193,16 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
                 }
             }
         }
+        // ─────────── 検索 ───────────
+        "search" => {
+            if let Some(p) = pane {
+                p.search_open.set(true);
+            }
+        }
         // ─────────── 設定 ───────────
         "open-settings" => app.settings_open.set(true),
         // ─────────── 未実装 (status_msg にだけ流す) ───────────
-        "search" | "toggle-preview" | "toggle-plugin" | "toggle-tabs"
+        "toggle-preview" | "toggle-plugin" | "toggle-tabs"
         | "toggle-tree" | "undo" | "toggle-terminal" => {
             if let Some(p) = pane {
                 p.status_msg.set(format!("(action '{}' 未実装)", action));

@@ -31,6 +31,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let status_msg = pane.status_msg;
     let modal_kind = pane.modal_kind;
     let modal_input = pane.modal_input;
+    let search_query = pane.search_query;
+    let search_open = pane.search_open;
     let sink = pane.sink.clone();
     let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
     let fs_change_tick = pane.fs_change_tick;
@@ -232,10 +234,23 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
     let app_for_rows = app.clone();
     let pane_for_rows = pane.clone();
+    // 検索クエリで絞り込んだ (orig_idx, FileRow) のリストを生成。
+    // orig_idx は元 rows のインデックス → selected/anchor との整合を保つ。
+    let filtered_rows = move || -> im::Vector<(usize, FileRow)> {
+        let q = search_query.get().to_lowercase();
+        let rs = rows.get();
+        let mut out: im::Vector<(usize, FileRow)> = im::Vector::new();
+        for (i, r) in rs.iter().enumerate() {
+            if q.is_empty() || r.name.to_lowercase().contains(&q) {
+                out.push_back((i, r.clone()));
+            }
+        }
+        out
+    };
     let list = virtual_stack(
         VirtualDirection::Vertical,
         VirtualItemSize::Fixed(Box::new(move || row_height)),
-        move || rows.get().enumerate(),
+        filtered_rows,
         move |(idx, row): &(usize, FileRow)| (*idx, row.name.clone(), row.is_dir),
         move |(idx, row): (usize, FileRow)| {
             let is_dir = row.is_dir;
@@ -426,6 +441,59 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             .border_color(theme::border_default())
     });
 
+    // 検索バー (search_open=true で表示、入力は search_query をリアルタイム反映)
+    let search_bar = dyn_container(
+        move || search_open.get(),
+        move |open| {
+            if !open {
+                return container(label(|| String::new())).style(|s| s.height(0)).into_any();
+            }
+            let q = search_query;
+            h_stack((
+                label(|| String::from("🔍"))
+                    .style(|s| s.padding_horiz(6).color(theme::text_dim())),
+                text_input(q)
+                    .style(|s| {
+                        s.flex_grow(1.0)
+                            .flex_basis(0)
+                            .min_width(0)
+                            .height(24)
+                            .padding_horiz(8)
+                            .padding_vert(4)
+                            .border(1)
+                            .border_color(theme::border_focus())
+                            .background(theme::bg_modal())
+                            .color(theme::text_normal())
+                    })
+                    .on_event_stop(EventListener::KeyDown, move |e| {
+                        if let Event::KeyDown(ke) = e {
+                            if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
+                                q.set(String::new());
+                                search_open.set(false);
+                            }
+                        }
+                    }),
+                button("✕").action(move || {
+                    q.set(String::new());
+                    search_open.set(false);
+                }),
+            ))
+            .style(|s| {
+                s.padding_horiz(4)
+                    .padding_vert(2)
+                    .gap(4)
+                    .items_center()
+                    .width_full()
+                    .height(28)
+                    .background(theme::bg_status())
+                    .border_bottom(1)
+                    .border_color(theme::border_default())
+            })
+            .into_any()
+        },
+    )
+    .style(|s| s.width_full());
+
     // モーダル (新規フォルダ / リネーム入力)
     let modal_bar = dyn_container(
         move || modal_kind.get(),
@@ -485,7 +553,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_focus = app.clone();
     let top_bar = h_stack((toolbar, breadcrumb))
         .style(|s| s.width_full().items_center().border_bottom(1).border_color(theme::border_modal()));
-    v_stack((top_bar, modal_bar, header, scrollable, status))
+    v_stack((top_bar, search_bar, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
         .on_event_cont(EventListener::PointerDown, move |_| {
             // クリックされたペインを active に
