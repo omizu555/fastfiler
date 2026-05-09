@@ -672,21 +672,26 @@ impl AppState {
         let tab = Tab::new(start, self.settings.show_hidden);
         let id = tab.id;
         self.tabs.update(|t| t.push_back(tab));
-        self.active.set(id);
+        if self.active.get_untracked() != id {
+            self.active.set(id);
+        }
     }
 
     pub fn close_tab(&self, id: u64) {
+        let prev_active = self.active.get_untracked();
         self.tabs.update(|t| {
             if let Some(idx) = t.iter().position(|x| x.id == id) {
                 t.remove(idx);
             }
         });
-        let remaining = self.tabs.get();
+        let remaining = self.tabs.get_untracked();
         if remaining.is_empty() {
             self.add_tab(initial_path());
-        } else if !remaining.iter().any(|t| t.id == self.active.get()) {
+        } else if !remaining.iter().any(|t| t.id == prev_active) {
             if let Some(last) = remaining.last() {
-                self.active.set(last.id);
+                if last.id != prev_active {
+                    self.active.set(last.id);
+                }
             }
         }
     }
@@ -767,9 +772,11 @@ impl AppState {
                             cols.remove(ci);
                         });
                     }
-                    // 残ったペインから新しいアクティブを選ぶ
+                    // 残ったペインから新しいアクティブを選ぶ (変化時のみ)
                     if let Some(first) = t.all_panes().first() {
-                        t.active_pane.set(first.id);
+                        if t.active_pane.get_untracked() != first.id {
+                            t.active_pane.set(first.id);
+                        }
                     }
                     return;
                 }

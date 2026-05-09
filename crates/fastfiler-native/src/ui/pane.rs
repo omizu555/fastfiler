@@ -453,7 +453,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         .on_event_cont(EventListener::PointerDown, move |_| {
             // クリックされたペインを active に
             if let Some(t) = app_for_focus.active_tab() {
-                if t.locate(pane_id).is_some() {
+                if t.locate(pane_id).is_some() && t.active_pane.get_untracked() != pane_id {
                     t.active_pane.set(pane_id);
                 }
             }
