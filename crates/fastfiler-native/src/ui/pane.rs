@@ -32,7 +32,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let modal_kind = pane.modal_kind;
     let modal_input = pane.modal_input;
     let sink = pane.sink.clone();
-    let fs_event_signal = pane.fs_event_signal;
+    let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
     let fs_change_tick = pane.fs_change_tick;
 
     // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)

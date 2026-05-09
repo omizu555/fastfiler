@@ -91,7 +91,7 @@ pub struct PaneState {
     pub watcher: Arc<WatcherCore>,
     pub sink: Arc<CounterSink>,
     /// 監視スレッドからのイベント受信用 (UI 側で signal 化)
-    pub fs_event_signal: floem::reactive::ReadSignal<Option<()>>,
+    pub fs_rx: crossbeam_channel::Receiver<()>,
     pub watched: Arc<Mutex<Option<String>>>,
     pub fs_change_tick: RwSignal<u32>,
     pub show_hidden: RwSignal<bool>,
@@ -110,7 +110,6 @@ impl PaneState {
         sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
         let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<()>();
-        let fs_signal = floem::ext_event::create_signal_from_channel(fs_rx);
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
             title: RwSignal::new(pretty_title(&start)),
@@ -130,7 +129,7 @@ impl PaneState {
                 counter: Mutex::new(0),
                 tx: fs_tx,
             }),
-            fs_event_signal: fs_signal,
+            fs_rx,
             watched: Arc::new(Mutex::new(None)),
             fs_change_tick: RwSignal::new(0),
             show_hidden,
