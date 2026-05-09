@@ -44,6 +44,7 @@ struct FileRow {
     name: String,
     is_dir: bool,
     size_text: String,
+    mtime_text: String,
 }
 
 fn human_size(bytes: u64) -> String {
@@ -57,15 +58,33 @@ fn human_size(bytes: u64) -> String {
     if u == 0 { format!("{} B", bytes) } else { format!("{:.1} {}", v, UNITS[u]) }
 }
 
-fn read_folder(path: &Path) -> Result<im::Vector<FileRow>, String> {
+fn format_mtime(unix_secs: i64) -> String {
+    if unix_secs <= 0 {
+        return String::new();
+    }
+    use chrono::{Local, TimeZone};
+    match Local.timestamp_opt(unix_secs, 0) {
+        chrono::LocalResult::Single(dt) => format_dt(dt),
+        chrono::LocalResult::Ambiguous(dt, _) => format_dt(dt),
+        chrono::LocalResult::None => String::new(),
+    }
+}
+
+fn format_dt(dt: chrono::DateTime<chrono::Local>) -> String {
+    dt.format("%Y-%m-%d %H:%M").to_string()
+}
+
+fn read_folder(path: &Path, show_hidden: bool) -> Result<im::Vector<FileRow>, String> {
     let s = path.to_string_lossy().into_owned();
     let entries = ffs::list_dir(s).map_err(|e| e.to_string())?;
     let mut tmp: Vec<FileRow> = entries
         .into_iter()
+        .filter(|e| show_hidden || !e.hidden)
         .map(|e| {
             let is_dir = e.kind == "dir";
             let size_text = if is_dir { String::from("<DIR>") } else { human_size(e.size) };
-            FileRow { name: e.name, is_dir, size_text }
+            let mtime_text = format_mtime(e.modified);
+            FileRow { name: e.name, is_dir, size_text, mtime_text }
         })
         .collect();
     tmp.sort_by(|a, b| match (a.is_dir, b.is_dir) {
@@ -143,13 +162,14 @@ struct PaneState {
     sink: Arc<CounterSink>,
     watched: Arc<Mutex<Option<String>>>,
     fs_change_tick: RwSignal<u32>,
+    show_hidden: RwSignal<bool>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
 
 impl PaneState {
-    fn new(start: PathBuf) -> Self {
-        let initial_rows = read_folder(&start).unwrap_or_default();
+    fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
+        let initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
         let initial_count = initial_rows.len();
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
@@ -165,6 +185,7 @@ impl PaneState {
             sink: Arc::new(CounterSink(Mutex::new(0))),
             watched: Arc::new(Mutex::new(None)),
             fs_change_tick: RwSignal::new(0),
+            show_hidden,
         }
     }
 
@@ -176,7 +197,7 @@ impl PaneState {
             return;
         }
         let t = Instant::now();
-        match read_folder(&target) {
+        match read_folder(&target, self.show_hidden.get()) {
             Ok(v) => {
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 let len = v.len();
@@ -255,13 +276,14 @@ struct AppState {
 
 impl AppState {
     fn new(start: PathBuf) -> Self {
-        let pane = PaneState::new(start);
+        let settings = AppSettings::new();
+        let pane = PaneState::new(start, settings.show_hidden);
         let id = pane.id;
         Self {
             tabs: RwSignal::new(im::vector![pane]),
             active: RwSignal::new(id),
             tab_cols: RwSignal::new(1),
-            settings: AppSettings::new(),
+            settings,
             settings_open: RwSignal::new(false),
         }
     }
@@ -272,7 +294,7 @@ impl AppState {
     }
 
     fn add_tab(&self, start: PathBuf) {
-        let pane = PaneState::new(start);
+        let pane = PaneState::new(start, self.settings.show_hidden);
         let id = pane.id;
         self.tabs.update(|t| t.push_back(pane));
         self.active.set(id);
@@ -417,27 +439,46 @@ fn tabs_panel(app: AppState) -> impl IntoView {
     )
     .style(|s| s.flex_col().width_full());
 
-    let settings_open = app.settings_open;
     let header = h_stack((
         label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(Color::rgb8(200, 200, 200))),
         cols_selector(app.clone()),
-        label(|| String::from("⚙"))
-            .style(|s| {
-                s.width(28)
-                    .height(24)
-                    .items_center()
-                    .padding_horiz(4)
-                    .color(Color::rgb8(220, 220, 220))
-                    .cursor(CursorStyle::Pointer)
-                    .background(Color::rgb8(40, 40, 44))
-                    .border(1)
-                    .border_color(Color::rgb8(60, 60, 60))
-            })
-            .on_click_stop(move |_| settings_open.set(true)),
     ))
     .style(|s| s.items_center().gap(4).padding(2));
 
-    let body = v_stack((header, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
+    // Drives セクション (TabsPanel 内に配置)
+    let drives_items: Vec<floem::AnyView> = list_drives()
+        .into_iter()
+        .map(|d| {
+            let app = app.clone();
+            let d_label = d.clone();
+            label(move || d_label.clone())
+                .style(|s| {
+                    s.height(24)
+                        .padding_horiz(8)
+                        .items_center()
+                        .cursor(CursorStyle::Pointer)
+                        .color(Color::rgb8(220, 220, 220))
+                })
+                .on_click_stop(move |_| {
+                    if let Some(p) = app.active_pane() {
+                        p.navigate(PathBuf::from(d.clone()), true);
+                    }
+                })
+                .into_any()
+        })
+        .collect();
+    let drives_section = v_stack((
+        label(|| String::from("Drives"))
+            .style(|s| s.padding_horiz(6).padding_vert(4).font_bold().color(Color::rgb8(180, 180, 180))),
+        floem::views::stack_from_iter(drives_items).style(|s| s.flex_col()),
+    ))
+    .style(|s| {
+        s.flex_col()
+            .border_bottom(1)
+            .border_color(Color::rgb8(60, 60, 60))
+    });
+
+    let body = v_stack((header, drives_section, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
         .style(|s| s.flex_col().size_full().gap(4).padding(4));
 
     container(body).style(|s| {
@@ -464,18 +505,29 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let pane_for_up = pane.clone();
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
+    let pane_for_addr_enter = pane.clone();
 
     let toolbar = h_stack((
         button("←").action(move || pane_for_back.back()),
         button("→").action(move || pane_for_forward.forward()),
         button("↑").action(move || pane_for_up.up()),
         button("⟳").action(move || pane_for_reload.reload()),
-        text_input(path_input).style(|s| {
-            s.flex_grow(1.0)
-                .padding(4)
-                .border(1)
-                .border_color(Color::rgb8(120, 120, 120))
-        }),
+        text_input(path_input)
+            .style(|s| {
+                s.flex_grow(1.0)
+                    .padding(4)
+                    .border(1)
+                    .border_color(Color::rgb8(120, 120, 120))
+            })
+            .on_event_stop(EventListener::KeyDown, move |e| {
+                if let Event::KeyDown(ke) = e {
+                    if matches!(ke.key.logical_key, Key::Named(NamedKey::Enter)) {
+                        let s = path_input.get();
+                        let p = PathBuf::from(s.trim());
+                        pane_for_addr_enter.navigate(p, true);
+                    }
+                }
+            }),
         button("Open").action(move || {
             let s = path_input.get();
             let p = PathBuf::from(s.trim());
@@ -485,9 +537,10 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     .style(|s| s.gap(6).padding(6).items_center());
 
     let header = h_stack((
-        text("#").style(|s| s.width(70).padding_horiz(6).font_bold()),
+        text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
         text("Name").style(|s| s.flex_grow(1.0).padding_horiz(6).font_bold()),
         text("Size").style(|s| s.width(110).padding_horiz(6).font_bold()),
+        text("Modified").style(|s| s.width(140).padding_horiz(6).font_bold()),
     ))
     .style(|s| {
         s.height(24)
@@ -509,13 +562,15 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             let name_for_open = row.name.clone();
             let pane = pane_for_dblclick.clone();
             h_stack((
-                text(format!("{}", idx)).style(|s| s.width(70).padding_horiz(6)),
+                text(format!("{}", idx)).style(|s| s.width(60).padding_horiz(6)),
                 text(row.name).style(move |s| {
                     let s = s.flex_grow(1.0).padding_horiz(6);
                     if is_dir { s.color(Color::rgb8(120, 200, 255)) } else { s }
                 }),
                 text(row.size_text)
                     .style(|s| s.width(110).padding_horiz(6).color(Color::rgb8(180, 180, 180))),
+                text(row.mtime_text)
+                    .style(|s| s.width(140).padding_horiz(6).color(Color::rgb8(180, 180, 180))),
             ))
             .style(move |s| {
                 let zebra = if bg_idx % 2 == 0 {
@@ -534,10 +589,15 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                 selected.set(Some(bg_idx));
             })
             .on_double_click_stop(move |_| {
+                let cur = cur_path.get();
+                let target = cur.join(&name_for_open);
                 if is_dir {
-                    let cur = cur_path.get();
-                    let target = cur.join(&name_for_open);
                     pane.navigate(target, true);
+                } else {
+                    // ファイルはシェルで開く (関連付け起動)
+                    let _ = fastfiler_domain::shell::open_with_shell(
+                        target.to_string_lossy().into_owned(),
+                    );
                 }
             })
         },
@@ -590,43 +650,9 @@ fn pane_view(pane: PaneState) -> impl IntoView {
         })
 }
 
-fn sidebar(app: AppState) -> impl IntoView {
-    let drives = list_drives();
-    let items: Vec<_> = drives
-        .into_iter()
-        .map(|d| {
-            let app = app.clone();
-            let d_label = d.clone();
-            label(move || d_label.clone())
-                .style(|s| {
-                    s.padding(6)
-                        .cursor(CursorStyle::Pointer)
-                        .color(Color::rgb8(220, 220, 220))
-                })
-                .on_click_stop(move |_| {
-                    if let Some(p) = app.active_pane() {
-                        p.navigate(PathBuf::from(d.clone()), true);
-                    }
-                })
-                .into_any()
-        })
-        .collect();
-
-    scroll(
-        v_stack((
-            label(|| String::from("Drives"))
-                .style(|s| s.padding(6).font_bold().color(Color::rgb8(180, 180, 180))),
-            container(floem::views::stack_from_iter(items)).style(|s| s.flex_col()),
-        ))
-        .style(|s| s.flex_col()),
-    )
-    .style(|s| {
-        s.width(160)
-            .height_full()
-            .background(Color::rgb8(28, 28, 32))
-            .border_right(1)
-            .border_color(Color::rgb8(60, 60, 60))
-    })
+fn _sidebar_unused(app: AppState) -> impl IntoView {
+    let _ = app;
+    label(|| String::new())
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -779,6 +805,46 @@ fn tree_pane(app: AppState) -> impl IntoView {
     })
 }
 
+fn footer_bar(app: AppState) -> impl IntoView {
+    let settings_open = app.settings_open;
+    let active = app.active;
+    let tabs = app.tabs;
+
+    // フッター右側ステータス: アクティブペインのアイテム数
+    let status = label(move || {
+        let id = active.get();
+        let cnt = tabs
+            .get()
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.stats.get().count)
+            .unwrap_or(0);
+        format!("items: {}", cnt)
+    })
+    .style(|s| s.flex_grow(1.0).padding_horiz(8).color(Color::rgb8(180, 180, 180)));
+
+    let gear = label(|| String::from("⚙ Settings"))
+        .style(|s| {
+            s.height(22)
+                .padding_horiz(10)
+                .items_center()
+                .cursor(CursorStyle::Pointer)
+                .color(Color::rgb8(220, 220, 220))
+                .border_left(1)
+                .border_color(Color::rgb8(60, 60, 60))
+        })
+        .on_click_stop(move |_| settings_open.set(true));
+
+    h_stack((status, gear)).style(|s| {
+        s.height(26)
+            .width_full()
+            .items_center()
+            .background(Color::rgb8(20, 20, 24))
+            .border_top(1)
+            .border_color(Color::rgb8(60, 60, 60))
+    })
+}
+
 fn app_view() -> impl IntoView {
     let app = AppState::new(initial_path());
     let settings_open = app.settings_open;
@@ -807,14 +873,15 @@ fn app_view() -> impl IntoView {
                         },
                     )
                     .style(|s| s.size_full().flex_col().flex_grow(1.0));
-                    h_stack((
-                        sidebar(app.clone()),
+                    let main_row = h_stack((
                         tabs_panel(app.clone()),
                         tree_pane(app.clone()),
                         active_pane,
                     ))
-                    .style(|s| s.size_full().flex_grow(1.0))
-                    .into_any()
+                    .style(|s| s.flex_grow(1.0).width_full());
+                    v_stack((main_row, footer_bar(app.clone())))
+                        .style(|s| s.size_full().flex_col())
+                        .into_any()
                 }
             }
         },
