@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
-use floem::style::CursorStyle;
+use floem::style::{CursorStyle, FlexWrap};
 use floem::views::{container, dyn_container, h_stack, label, scroll, v_stack, Decorators};
 
 use crate::fs_model::{initial_path, list_drives};
@@ -95,17 +95,18 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
     let cols_sig = app.tab_cols;
     let app_for_add = app.clone();
 
-    let plus = label(|| String::from("+ New Tab"))
+    let plus = label(|| String::from("+"))
         .style(|s| {
-            s.height(26)
-                .width_full()
+            s.height(22)
+                .width(22)
                 .items_center()
-                .padding_horiz(8)
+                .justify_center()
                 .color(theme::text_success())
                 .cursor(CursorStyle::Pointer)
                 .background(theme::bg_zebra_b())
                 .border(1)
                 .border_color(theme::border_default())
+                .font_bold()
         })
         .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
 
@@ -137,25 +138,31 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
     )
     .style(|s| s.flex_col().width_full());
 
+    // ヘッダー右側に + を配置して縦スペース節約
     let header = h_stack((
         label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(theme::text_label())),
         cols_selector(app.clone()),
+        plus,
     ))
     .style(|s| s.items_center().gap(4).padding(2));
 
-    // Drives セクション (TabsPanel 内に配置)
+    // Drives セクション (TabsPanel 内に配置) — コンパクト表示
     let drives_items: Vec<floem::AnyView> = list_drives()
         .into_iter()
         .map(|d| {
             let app = app.clone();
-            let d_label = d.clone();
+            let d_label = d.trim_end_matches('\\').to_string();
             label(move || d_label.clone())
                 .style(|s| {
-                    s.height(24)
-                        .padding_horiz(8)
+                    s.height(20)
+                        .padding_horiz(6)
                         .items_center()
+                        .justify_center()
                         .cursor(CursorStyle::Pointer)
                         .color(theme::text_normal())
+                        .background(theme::bg_zebra_b())
+                        .border(1)
+                        .border_color(theme::border_default())
                 })
                 .on_click_stop(move |_| {
                     if let Some(p) = app.active_pane() {
@@ -165,18 +172,18 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
                 .into_any()
         })
         .collect();
-    let drives_section = v_stack((
-        label(|| String::from("Drives"))
-            .style(|s| s.padding_horiz(6).padding_vert(4).font_bold().color(theme::text_dim())),
-        floem::views::stack_from_iter(drives_items).style(|s| s.flex_col()),
-    ))
+    let drives_section = container(
+        floem::views::stack_from_iter(drives_items)
+            .style(|s| s.flex_row().flex_wrap(FlexWrap::Wrap).gap(2)),
+    )
     .style(|s| {
-        s.flex_col()
+        s.padding_horiz(4)
+            .padding_vert(2)
             .border_bottom(1)
             .border_color(theme::border_default())
     });
 
-    let body = v_stack((header, drives_section, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
+    let body = v_stack((header, drives_section, scroll(grid).style(|s| s.flex_grow(1.0).min_height(0).width_full())))
         .style(|s| s.flex_col().size_full().gap(4).padding(4));
 
     let tabs_width_sig = app.settings.tabs_width;

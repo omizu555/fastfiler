@@ -79,22 +79,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let toolbar = h_stack((
         button("↑").action(move || pane_for_up.up()),
         button("⟳").action(move || pane_for_reload.reload()),
-        text_input(path_input)
-            .style(|s| {
-                s.flex_grow(1.0)
-                    .padding(4)
-                    .border(1)
-                    .border_color(theme::border_focus())
-            })
-            .on_event_stop(EventListener::KeyDown, move |e| {
-                if let Event::KeyDown(ke) = e {
-                    if matches!(ke.key.logical_key, Key::Named(NamedKey::Enter)) {
-                        let s = path_input.get();
-                        let p = PathBuf::from(s.trim());
-                        pane_for_addr_enter.navigate(p, true);
-                    }
-                }
-            }),
         button("⇔分割").action(move || app_for_split_h.split_active(false)),
         button("⇕分割").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
@@ -108,60 +92,103 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         }
     });
 
-    // パンくずリスト (現在パスを「>」区切りでクリック可能セグメント表示)
+    // パンくず + 編集モード統合 (旧 toolbar の text_input は削除し、breadcrumb をクリックで編集に切替)
+    let edit_mode = floem::reactive::Scope::new().create_rw_signal(false);
     let pane_for_crumb = pane.clone();
+    let pane_for_addr_enter2 = pane_for_addr_enter.clone();
     let breadcrumb = dyn_container(
-        move || cur_path.get(),
-        move |p: PathBuf| {
-            let mut acc = PathBuf::new();
-            let mut items: Vec<floem::AnyView> = Vec::new();
-            let mut first = true;
-            for comp in p.components() {
-                let part = comp.as_os_str().to_string_lossy().into_owned();
-                if part.is_empty() {
-                    continue;
-                }
-                acc.push(comp);
-                if !first {
+        move || (edit_mode.get(), cur_path.get()),
+        move |(editing, p): (bool, PathBuf)| {
+            if editing {
+                let path_input = path_input;
+                let pane_enter = pane_for_addr_enter2.clone();
+                container(
+                    text_input(path_input)
+                        .style(|s| {
+                            s.flex_grow(1.0)
+                                .height(20)
+                                .padding_horiz(6)
+                                .border(1)
+                                .border_color(theme::border_focus())
+                        })
+                        .on_event_stop(EventListener::KeyDown, move |e| {
+                            if let Event::KeyDown(ke) = e {
+                                if matches!(ke.key.logical_key, Key::Named(NamedKey::Enter)) {
+                                    let s = path_input.get();
+                                    let p2 = PathBuf::from(s.trim());
+                                    pane_enter.navigate(p2, true);
+                                    edit_mode.set(false);
+                                } else if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
+                                    edit_mode.set(false);
+                                }
+                            }
+                        }),
+                )
+                .style(|s| s.padding_horiz(4).padding_vert(1).width_full())
+                .into_any()
+            } else {
+                let mut acc = PathBuf::new();
+                let mut items: Vec<floem::AnyView> = Vec::new();
+                let mut first = true;
+                for comp in p.components() {
+                    use std::path::Component;
+                    // RootDir は Prefix で代替して描画済みなのでスキップ (旧 "/" 表示バグ修正)
+                    if matches!(comp, Component::RootDir) {
+                        acc.push(comp);
+                        continue;
+                    }
+                    let part = comp.as_os_str().to_string_lossy().into_owned();
+                    if part.is_empty() {
+                        continue;
+                    }
+                    acc.push(comp);
+                    if !first {
+                        items.push(
+                            label(|| String::from("›"))
+                                .style(|s| s.padding_horiz(4).color(theme::text_very_dim()))
+                                .into_any(),
+                        );
+                    }
+                    first = false;
+                    let target = acc.clone();
+                    let pane_seg = pane_for_crumb.clone();
+                    let display = part.trim_end_matches(|c| c == '\\' || c == '/').to_string();
+                    let display = if display.is_empty() { String::from("(root)") } else { display };
                     items.push(
-                        label(|| String::from("›"))
+                        label(move || display.clone())
                             .style(|s| {
-                                s.padding_horiz(4).color(theme::text_very_dim())
+                                s.padding_horiz(4)
+                                    .padding_vert(2)
+                                    .cursor(CursorStyle::Pointer)
+                                    .color(theme::text_emphasis())
                             })
+                            .on_click_stop(move |_| pane_seg.navigate(target.clone(), true))
                             .into_any(),
                     );
                 }
-                first = false;
-                let target = acc.clone();
-                let pane_seg = pane_for_crumb.clone();
-                let display = if part.ends_with('\\') || part.ends_with('/') {
-                    part.trim_end_matches(|c| c == '\\' || c == '/').to_string()
-                } else {
-                    part
-                };
-                let display = if display.is_empty() { String::from("/") } else { display };
+                // 末尾余白 (クリックで編集モード)
                 items.push(
-                    label(move || display.clone())
-                        .style(|s| {
-                            s.padding_horiz(4)
-                                .padding_vert(2)
-                                .cursor(CursorStyle::Pointer)
-                                .color(theme::text_emphasis())
-                        })
-                        .on_click_stop(move |_| pane_seg.navigate(target.clone(), true))
+                    container(label(|| String::new()))
+                        .style(|s| s.flex_grow(1.0).height(20).cursor(CursorStyle::Text))
                         .into_any(),
                 );
+                container(
+                    floem::views::stack_from_iter(items)
+                        .style(|s| s.flex_row().items_center().gap(0).width_full()),
+                )
+                .style(|s| s.padding_horiz(4).padding_vert(1).width_full().cursor(CursorStyle::Text))
+                .on_click_stop(move |_| {
+                    // 入力欄の中身を最新パスに同期してから編集モードへ
+                    let cur = cur_path.get_untracked();
+                    path_input.set(cur.to_string_lossy().into_owned());
+                    edit_mode.set(true);
+                })
+                .into_any()
             }
-            container(
-                floem::views::stack_from_iter(items)
-                    .style(|s| s.flex_row().items_center().gap(0)),
-            )
-            .style(|s| s.padding_horiz(8).padding_vert(2))
-            .into_any()
         },
     )
     .style(|s| {
-        s.height(22)
+        s.height(24)
             .width_full()
             .background(theme::bg_modal())
             .border_bottom(1)
