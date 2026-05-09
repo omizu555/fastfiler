@@ -32,6 +32,9 @@ use floem::views::{
 };
 use parking_lot::Mutex;
 
+mod settings;
+use settings::{settings_view, AppSettings};
+
 // ────────────────────────────────────────────────────────────────
 // Data
 // ────────────────────────────────────────────────────────────────
@@ -246,6 +249,8 @@ struct AppState {
     tabs: RwSignal<im::Vector<PaneState>>,
     active: RwSignal<u64>,
     tab_cols: RwSignal<usize>,
+    settings: AppSettings,
+    settings_open: RwSignal<bool>,
 }
 
 impl AppState {
@@ -256,6 +261,8 @@ impl AppState {
             tabs: RwSignal::new(im::vector![pane]),
             active: RwSignal::new(id),
             tab_cols: RwSignal::new(1),
+            settings: AppSettings::new(),
+            settings_open: RwSignal::new(false),
         }
     }
 
@@ -410,11 +417,25 @@ fn tabs_panel(app: AppState) -> impl IntoView {
     )
     .style(|s| s.flex_col().width_full());
 
+    let settings_open = app.settings_open;
     let header = h_stack((
-        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().color(Color::rgb8(200, 200, 200))),
+        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(Color::rgb8(200, 200, 200))),
         cols_selector(app.clone()),
+        label(|| String::from("⚙"))
+            .style(|s| {
+                s.width(28)
+                    .height(24)
+                    .items_center()
+                    .padding_horiz(4)
+                    .color(Color::rgb8(220, 220, 220))
+                    .cursor(CursorStyle::Pointer)
+                    .background(Color::rgb8(40, 40, 44))
+                    .border(1)
+                    .border_color(Color::rgb8(60, 60, 60))
+            })
+            .on_click_stop(move |_| settings_open.set(true)),
     ))
-    .style(|s| s.items_center());
+    .style(|s| s.items_center().gap(4).padding(2));
 
     let body = v_stack((header, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
         .style(|s| s.flex_col().size_full().gap(4).padding(4));
@@ -760,31 +781,46 @@ fn tree_pane(app: AppState) -> impl IntoView {
 
 fn app_view() -> impl IntoView {
     let app = AppState::new(initial_path());
-
+    let settings_open = app.settings_open;
     let active = app.active;
     let tabs = app.tabs;
 
-    let active_pane = dyn_container(
-        move || {
-            // active id と tabs の両方を依存に取り込む
-            let id = active.get();
-            tabs.get().iter().find(|p| p.id == id).cloned()
+    let switcher = dyn_container(
+        move || settings_open.get(),
+        {
+            let app = app.clone();
+            move |open| {
+                if open {
+                    settings_view(app.settings.clone(), settings_open).into_any()
+                } else {
+                    let app = app.clone();
+                    let active_pane = dyn_container(
+                        move || {
+                            let id = active.get();
+                            tabs.get().iter().find(|p| p.id == id).cloned()
+                        },
+                        move |maybe_pane| match maybe_pane {
+                            Some(p) => container(pane_view(p)).style(|s| s.size_full()).into_any(),
+                            None => label(|| String::from("(no tab)"))
+                                .style(|s| s.size_full().padding(20))
+                                .into_any(),
+                        },
+                    )
+                    .style(|s| s.size_full().flex_col().flex_grow(1.0));
+                    h_stack((
+                        sidebar(app.clone()),
+                        tabs_panel(app.clone()),
+                        tree_pane(app.clone()),
+                        active_pane,
+                    ))
+                    .style(|s| s.size_full().flex_grow(1.0))
+                    .into_any()
+                }
+            }
         },
-        move |maybe_pane| match maybe_pane {
-            Some(p) => container(pane_view(p)).style(|s| s.size_full()).into_any(),
-            None => label(|| String::from("(no tab)"))
-                .style(|s| s.size_full().padding(20))
-                .into_any(),
-        },
-    )
-    .style(|s| s.size_full().flex_col().flex_grow(1.0));
+    );
 
-    let main_col = active_pane;
-
-    let body = h_stack((sidebar(app.clone()), tabs_panel(app.clone()), tree_pane(app.clone()), main_col))
-        .style(|s| s.size_full().flex_grow(1.0));
-
-    body.style(|s| {
+    container(switcher).style(|s| {
         s.size_full()
             .background(Color::rgb8(24, 24, 28))
             .color(Color::rgb8(220, 220, 220))
