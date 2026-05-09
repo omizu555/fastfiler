@@ -1,78 +1,152 @@
 # FastFiler アーキテクチャ
 
-最終更新: 2026-05-09 (大規模リファクタ後)
+最終更新: 2026-05-09 (機能別フォルダ構成 + lib/bin 分割後)
 
-## クレート構成
+---
+
+## 1. クレート構成 (Cargo workspace)
 
 ```
-fastfiler (Cargo workspace)
-├── crates/fastfiler-domain   ライブラリ: OS 非依存 + Windows 依存ロジック
-│   ├── fs              フォルダ列挙 / メタデータ取得
-│   ├── file_ops        コピー / 移動 / 削除 / リネーム (SHFileOperationW)
-│   ├── icons           Material Symbols アイコン
-│   └── examples/       単体検証用バイナリ (例: trash_test)
+fastfiler/
+├── Cargo.toml                  workspace 定義
+├── crates/
+│   ├── fastfiler-domain/       OS / GUI 非依存のロジック (lib)
+│   │   └── src/
+│   │       ├── error.rs        AppError 型 + kind タグ
+│   │       ├── events.rs       EventSink trait + NullSink (テスト用)
+│   │       ├── fs.rs           list_dir / list_dirs / stat_path
+│   │       ├── file_ops.rs     create / rename / copy / move
+│   │       ├── file_jobs.rs    JobRegistry (キャンセル可能な転送)
+│   │       ├── watcher.rs      WatcherCore (notify ラッパ)
+│   │       ├── search.rs       streaming 内蔵検索
+│   │       ├── everything.rs   Everything HTTP API クライアント
+│   │       ├── shell.rs        ShellExecuteW / open_with_shell
+│   │       ├── shell_assoc.rs  拡張子→ProgID ルックアップ
+│   │       ├── thumbnail.rs    IShellItemImageFactory + LRU
+│   │       ├── preview.rs      画像 / テキストプレビュー
+│   │       ├── templates.rs    テンプレからのファイル作成
+│   │       ├── win_clipboard.rs Windows クリップボード操作
+│   │       ├── plugin.rs       プラグインローダ (将来用)
+│   │       └── term.rs         portable-pty ターミナル
+│   │
+│   └── fastfiler-native/       floem ベースの GUI (bin + lib)
+│       └── src/
+│           ├── main.rs         3 行のエントリ shim → run_app() を呼ぶ
+│           ├── lib.rs          run_app() 公開、機能別モジュール宣言
+│           ├── logger.rs       ファイルロガー + flog! マクロ
+│           ├── hotkeys.rs      KeyCombo パース + dispatch
+│           ├── theme/
+│           │   ├── mod.rs      色パレット (Light/Dark + 5 プリセット)
+│           │   └── fonts.rs    インストール済みフォント取得
+│           ├── core/
+│           │   ├── mod.rs
+│           │   ├── state.rs    AppState / Tab / PaneState / SplitNode
+│           │   ├── actions.rs  delete / paste / copy / rename / open
+│           │   └── fs_model.rs FileRow / SortKey / 書式整形
+│           ├── settings/
+│           │   └── mod.rs      AppSettings / PersistedSettings + 設定ダイアログ
+│           └── ui/
+│               ├── mod.rs
+│               ├── app_view.rs  ルートレイアウト + キーハンドラ
+│               ├── tabs.rs      縦型タブパネル
+│               ├── tree.rs      フォルダツリーペイン
+│               ├── pane.rs      フォルダペイン (一覧 / 検索バー / D&D / モーダル)
+│               ├── footer.rs    ステータスバー
+│               └── splitter.rs  ドラッグリサイザ
 │
-└── crates/fastfiler-native   バイナリ: floem GUI
-    └── src/
-        ├── main.rs           エントリポイントのみ (~25 行)
-        ├── fs_model.rs       純粋関数 + 値型 (FileRow / SortKey / History 等)
-        ├── state.rs          シグナル群 (PaneState / Tab / AppState)
-        ├── settings.rs       永続化 (RON)
-        ├── theme.rs          色定義
-        └── ui/
-            ├── mod.rs
-            ├── app_view.rs   アプリ全体レイアウト
-            ├── tabs.rs       タブパネル
-            ├── tree.rs       フォルダツリー
-            ├── pane.rs       1 ペイン (ファイル一覧 + D&D + モーダル)
-            ├── footer.rs     ステータスバー
-            └── splitter.rs   ドラッグ可能な仕切り
+└── doc/                         本ドキュメント群
 ```
 
-## 状態モデル
+### 1.1 ライブラリ / バイナリ分離
+
+`fastfiler-native` は同一クレート内に `lib.rs` と `main.rs` を持ち、
+
+- `lib.rs` がモジュールツリーを所有し `pub fn run_app()` を公開
+- `main.rs` は `fastfiler_native::run_app()` を呼ぶだけ
+
+これにより以下が容易になる:
+
+- 別バイナリ (例: スモークテスト用) から FastFiler を起動できる
+- 将来 GUI の差し替え (egui / iced 等) を試す際に core/settings/theme をそのまま再利用可能
+
+### 1.2 後方互換 re-export
+
+`lib.rs` で `pub use core::{state, actions, fs_model};` を行っており、
+旧来の `crate::state::Foo` / `crate::actions::Bar` パスはそのまま動作する。
+ファイル分割によるインポート修正の連鎖を抑える目的。
+
+---
+
+## 2. 状態モデル
 
 ```
 AppState (グローバル)
-├── tabs:        Vec<Tab>
+├── tabs:        RwSignal<im::Vector<Tab>>
 ├── active:      RwSignal<TabId>
-├── settings:    AppSettings (永続化)
-├── splitter_drag, …
-└── …
+├── settings:    AppSettings (永続化対象は serde 経由で settings.ron)
+├── theme_rev:   RwSignal<u64>          テーマ変更のたびに +1 → UI が再構築
+└── splitter_drag, drag_state, ...
    │
    └─ Tab
-       ├── id, columns: RwSignal<u32>
-       └── columns: Vec<Vec<PaneState>>   (横列 × 縦行)
+       ├── id, title (primary pane の dir 名と連動)
+       └── root: RwSignal<SplitNode>     BSP ツリー (横/縦の任意分割)
             │
-            └─ PaneState (Clone, 全フィールドが RwSignal/Arc)
-                ├── cur_path, path_input, history
-                ├── rows, stats, selected, anchor
-                ├── modal_kind, modal_input
-                ├── status_msg, fs_event_signal, fs_change_tick
-                ├── sink (CounterSink)
-                └── watcher (Arc<WatcherCore>)
+            └─ SplitNode
+                ├── Leaf(PaneState)
+                └── Split { dir, children: Vec<SplitNode> }
+                  │
+                  └─ PaneState (Clone, 全フィールド RwSignal/Arc)
+                      ├── id, cur_path, path_input, history
+                      ├── rows, stats, selected, anchor, sort_key
+                      ├── modal_kind, modal_input
+                      ├── search_open, search_query, search_results
+                      ├── status_msg, fs_event_signal, fs_change_tick
+                      ├── sink (CounterSink)
+                      └── watcher (Arc<WatcherCore>)
 ```
 
-`PaneState` が `Clone + 全 RwSignal/Arc` なので、UI 関数の引数として値渡し可能。
-borrow / lifetime 問題が発生しない構造。
+`PaneState` がすべて `RwSignal/Arc` でできているため値渡し可能で、
+borrow / lifetime 問題が発生しない構造を維持している。
 
-## クラッシュ耐性
+---
 
-過去に **0xc0000005 (STATUS_ACCESS_VIOLATION)** が頻発したため、以下の対策を入れている:
+## 3. リアクティビティ方針
 
-1. **削除操作**: `IFileOperation` (COM, STA 必須) ではなく `SHFileOperationW` を使用。
-   - SEH (catch_unwind で捕捉不可) を回避。
-   - `crates/fastfiler-domain/examples/trash_test.rs` で単体検証可能。
+- floem の `RwSignal` + `create_effect` がすべての更新ループの中心
+- effect の中で `set` する場合は `set_untracked` か「変化時のみ set」で再入を防ぐ
+- 大きい木 (split tree など) は `dyn_container` でなく **`dyn_stack` + key 関数** を優先
+  - key は `(idx, name, is_dir)` 等、レイアウト同一性を保てる組合せ
+- 起動時の重い初期化 (テーマ反映など) は `lib.rs::run_app()` で 1 回だけ実行
 
-2. **クリック処理**: `PaneState::click_row` に範囲外インデックスのガードを追加。
-   - sort / reload 直後に古い `bg_idx` が virtual_stack から渡されてもクラッシュしない。
-   - Shift 範囲も `hi.min(len-1)` でクランプ。
+---
 
-## 拡張ポイント
+## 4. クラッシュ耐性メモ
 
-| 何をしたいか | どこを触るか |
+過去に **0xc0000005 (STATUS_ACCESS_VIOLATION)** や **0xc00000fd (STATUS_STACK_OVERFLOW)** が発生した教訓:
+
+1. **削除操作**: COM の `IFileOperation` ではなく `SHFileOperationW` を使用 (SEH 回避)
+2. **クリック処理**: `PaneState::click_row` で範囲外インデックスをクランプ (sort/reload 直後対策)
+3. **effect の重複**: `dyn_container` 内で `create_effect` を作るとスコープ寿命と整合せず爆発する → `tree_pane` などはトップレベル 1 effect に統合
+4. **連鎖更新**: `tabs.set + active.set` のような連続書込は untracked 比較を挟む
+
+---
+
+## 5. 拡張ポイント
+
+| やりたいこと | 触る場所 |
 |---|---|
-| 新しいファイル操作 | `fastfiler-domain::file_ops` + `state::AppState` |
+| 新しいファイル操作 | `fastfiler-domain::file_ops` + `core::actions` |
 | UI レイアウト変更 | `ui/app_view.rs` |
-| 新しいビュー | `ui/` 配下に新モジュール追加 → `ui/mod.rs` に登録 |
-| 配色変更 | `theme.rs` の色関数を編集 (Light/Dark 切替もここ) |
-| 永続化項目追加 | `settings.rs` の `AppSettings` / `PersistedSettings` |
+| 新しいビュー追加 | `ui/` 配下にモジュール追加 → `ui/mod.rs` 登録 |
+| 配色 / プリセット追加 | `theme/mod.rs` の `PresetColors` |
+| 永続化項目追加 | `settings/mod.rs` の `AppSettings` / `PersistedSettings` |
+| ホットキー追加 | `hotkeys.rs` の `dispatch_action` + 既定値 |
+| 検索バックエンド追加 | `fastfiler-domain::search` を拡張 + `ui/pane.rs` の effect |
+
+---
+
+## 6. 今後のリファクタ候補
+
+- `ui/pane.rs` (~950 行) → `ui/pane/{list, search, dnd, context_menu, modal}.rs` への分割
+- `settings/mod.rs` (~745 行) → `settings/{model, persisted, dialog/{tab_general, tab_theme, ...}}.rs` への分割
+- `ui/app_view.rs` の effect 群を `ui/effects.rs` に集約 (見通し改善)
