@@ -1334,20 +1334,21 @@ fn app_view() -> impl IntoView {
                                 .into_any(),
                         },
                     )
-                    .style(|s| s.size_full().flex_col().flex_grow(1.0));
+                    .style(|s| s.flex_grow(1.0).min_height(0).flex_col());
                     let main_row = h_stack((
                         tabs_panel(app.clone()),
                         tree_pane(app.clone()),
                         active_pane,
                     ))
-                    .style(|s| s.flex_grow(1.0).width_full());
+                    .style(|s| s.flex_grow(1.0).min_height(0).width_full());
                     v_stack((main_row, footer_bar(app.clone())))
                         .style(|s| s.size_full().flex_col())
                         .into_any()
                 }
             }
         },
-    );
+    )
+    .style(|s| s.size_full());
 
     container(switcher).style(|s| {
         s.size_full()
