@@ -422,11 +422,14 @@ impl AppState {
     pub fn split_active(&self, vertical: bool) {
         if let Some(tab) = self.active_tab() {
             if tab.pane_count() >= 4 {
+                crate::flog!("[split] denied (>=4 panes)");
                 return;
             }
             let active_id = tab.active_pane.get_untracked();
             let loc = tab.locate(active_id);
             let (col_idx, row_idx) = loc.unwrap_or((0, 0));
+            crate::flog!("[split] vertical={} active={} loc=({},{})",
+                vertical, active_id, col_idx, row_idx);
             let base = tab
                 .all_panes()
                 .into_iter()
@@ -445,13 +448,23 @@ impl AppState {
                         });
                     }
                 });
+                crate::flog!("[split] inserted vertically into col {} as row {}",
+                    col_idx, row_idx + 1);
             } else {
                 let new_col = RwSignal::new(im::vector![new_pane]);
                 tab.columns.update(|cols| {
                     cols.insert(col_idx + 1, new_col);
                 });
+                crate::flog!("[split] inserted new column at index {}", col_idx + 1);
             }
             tab.active_pane.set(new_id);
+            // 結果 layout を出力
+            let layout: Vec<Vec<u64>> = tab.columns.with(|cols| {
+                cols.iter()
+                    .map(|c| c.with(|p| p.iter().map(|x| x.id).collect()))
+                    .collect()
+            });
+            crate::flog!("[split] layout after = {:?}", layout);
         }
     }
 

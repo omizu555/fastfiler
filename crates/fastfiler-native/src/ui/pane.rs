@@ -38,14 +38,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
     let pane_for_fs = pane.clone();
     let app_for_fs = app.clone();
-    floem::reactive::create_effect(move |_| {
+    let pane_id_for_fs = pane.id;
+    floem::reactive::create_effect(move |prev: Option<u32>| {
         // signal を track して変化時に rows のみ更新
-        if fs_event_signal.get().is_some() {
-            fs_change_tick.update(|n| *n = n.wrapping_add(1));
+        let v = fs_event_signal.get();
+        let cur = fs_change_tick.get_untracked();
+        if v.is_some() {
+            let next = cur.wrapping_add(1);
+            fs_change_tick.set(next);
+            crate::flog!("[fs] pane={} event received, tick {}->{}",
+                pane_id_for_fs, cur, next);
             pane_for_fs.refresh_rows_only();
             // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
             app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
         }
+        prev.unwrap_or(0).wrapping_add(1)
     });
 
     let pane_for_up = pane.clone();
@@ -88,8 +95,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     }
                 }
             }),
-        button("⊟+").action(move || app_for_split_h.split_active(false)),
-        button("⊞+").action(move || app_for_split_v.split_active(true)),
+        button("⇔分割").action(move || app_for_split_h.split_active(false)),
+        button("⇕分割").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
     ))
     .style(move |s| {

@@ -112,10 +112,12 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     let app_for_kids = app.clone();
     let tree_tick = app.tree_tick;
     let node_for_effect = node.clone();
+    let path_for_log = node.path.clone();
     // tree_tick 変化時に展開済みノードを自動再ロード (展開状態は保持)
     floem::reactive::create_effect(move |_| {
-        let _t = tree_tick.get();
+        let t = tree_tick.get();
         if expanded.get_untracked() {
+            crate::flog!("[tree] reload children (tick={}) path={}", t, path_for_log.display());
             node_for_effect.load_children();
         }
     });
