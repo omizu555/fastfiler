@@ -192,10 +192,15 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_split_v = app.clone();
     let app_for_close_pane = app.clone();
     let pane_id_for_close = pane.id;
+    let search_open_for_btn = pane.search_open;
     let hide_toolbar_sig = app.settings.hide_pane_toolbar;
     let toolbar = h_stack((
         button("↑").action(move || pane_for_up.up()),
         button("⟳").action(move || pane_for_reload.reload()),
+        button("🔍").action(move || {
+            let cur = search_open_for_btn.get_untracked();
+            search_open_for_btn.set(!cur);
+        }),
         button("⇔分割").action(move || app_for_split_h.split_active(false)),
         button("⇕分割").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
@@ -435,15 +440,19 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 String::new()
             };
             let path_label: floem::AnyView = if show_path_col {
-                text(path_text)
-                    .style(|s| {
-                        s.flex_grow(1.0)
-                            .flex_basis(0)
-                            .min_width(0)
-                            .padding_horiz(6)
-                            .color(theme::text_dim())
-                    })
-                    .into_any()
+                container(
+                    text(path_text)
+                        .style(|s| s.color(theme::text_dim()).min_width(0)),
+                )
+                .style(|s| {
+                    s.flex_grow(1.0)
+                        .flex_basis(0)
+                        .min_width(0)
+                        .height(22)
+                        .padding_horiz(6)
+                        .items_center()
+                })
+                .into_any()
             } else {
                 container(label(|| String::new()))
                     .style(|s| s.width(0))
@@ -452,14 +461,22 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
             h_stack((
                 container(icon).style(|s| s.width(24).items_center()),
-                text(row.name).style(move |s| {
-                    let s = s.flex_grow(1.0).padding_horiz(6);
+                container(text(row.name).style(move |s| {
+                    let s = s.min_width(0);
                     if is_dir { s.color(theme::text_dir()) } else { s }
+                }))
+                .style(|s| {
+                    s.flex_grow(1.0)
+                        .flex_basis(0)
+                        .min_width(0)
+                        .height(22)
+                        .padding_horiz(6)
+                        .items_center()
                 }),
-                text(row.size_text)
-                    .style(|s| s.width(110).padding_horiz(6).color(theme::text_dim())),
-                text(row.mtime_text)
-                    .style(|s| s.width(140).padding_horiz(6).color(theme::text_dim())),
+                container(text(row.size_text).style(|s| s.color(theme::text_dim())))
+                    .style(|s| s.width(110).height(22).padding_horiz(6).items_center()),
+                container(text(row.mtime_text).style(|s| s.color(theme::text_dim())))
+                    .style(|s| s.width(140).height(22).padding_horiz(6).items_center()),
                 path_label,
             ))
             .style(move |s| {
