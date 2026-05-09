@@ -79,7 +79,32 @@ fn reload_expanded_recursive(node: &TreeNode) -> u32 {
     n
 }
 
-/// アクティブペインの cur_path に向かって、ルートからツリーを展開する。
+/// 展開状態を踏まえ、target パスのノードが画面上で何番目の row かを返す (0-based, pre-order DFS)。
+/// 見つからなければ None。Roots と各 expanded children を再帰的に列挙する。
+fn visual_index(roots: &im::Vector<TreeNode>, target: &std::path::Path) -> Option<usize> {
+    fn walk(node: &TreeNode, target: &std::path::Path, idx: &mut usize) -> bool {
+        if node.path == target {
+            return true;
+        }
+        *idx += 1;
+        if node.expanded.get_untracked() {
+            for c in node.children.get_untracked().iter() {
+                if walk(c, target, idx) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    let mut idx = 0usize;
+    for r in roots.iter() {
+        if walk(r, target, &mut idx) {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 /// 既に展開済みでも load_children を呼んで最新化。戻り値: 到達できた末端ノード深さ。
 fn expand_to_path(roots: &im::Vector<TreeNode>, target: &std::path::Path) -> u32 {
     use std::path::{Component, PathBuf};
@@ -201,6 +226,9 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
         .map(|d| TreeNode::new(PathBuf::from(d)))
         .collect();
     let roots_sig = RwSignal::new(roots);
+    // スクロール先 Y 座標 (フォローエフェクトが set、scroll が読む)
+    let scroll_target: RwSignal<Option<floem::kurbo::Point>> =
+        floem::reactive::Scope::new().create_rw_signal(None);
 
     // tree_tick を track し、展開済みノードを再帰的に reload する単一 effect。
     // tree_pane の scope に置くことで、レンダリング再生成で破棄されないようにする。
@@ -242,7 +270,18 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
         let path = pane.cur_path.get();
         let roots = roots_for_follow.get_untracked();
         let depth = expand_to_path(&roots, &path);
-        crate::flog!("[tree] follow pane={} path={} depth={}", pane.id, path.display(), depth);
+        // 表示インデックス → Y 座標 (row 22px、上下に少し余白)
+        if let Some(idx) = visual_index(&roots, &path) {
+            let y = (idx as f64) * 22.0;
+            // 上に少しマージンを残してスクロール
+            let target_y = (y - 44.0).max(0.0);
+            scroll_target.set(Some(floem::kurbo::Point::new(0.0, target_y)));
+            crate::flog!("[tree] follow pane={} path={} depth={} idx={} scroll_y={}",
+                pane.id, path.display(), depth, idx, target_y);
+        } else {
+            crate::flog!("[tree] follow pane={} path={} depth={} (no idx)",
+                pane.id, path.display(), depth);
+        }
     });
 
     let app_for_render = app.clone();
@@ -265,7 +304,9 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
 
     let body = v_stack((
         header,
-        scroll(tree).style(|s| s.flex_grow(1.0).min_height(0).width_full()),
+        scroll(tree)
+            .scroll_to(move || scroll_target.get())
+            .style(|s| s.flex_grow(1.0).min_height(0).width_full()),
     ))
     .style(|s| s.flex_col().size_full());
 
