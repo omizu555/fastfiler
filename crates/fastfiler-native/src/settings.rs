@@ -474,7 +474,12 @@ fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
         items.insert(1, cur);
     }
     let dd = Dropdown::new_rw(sig, items.clone()).style(|s: floem::style::Style| {
-        s.width(260).background(theme::bg_modal()).color(theme::text_normal())
+        s.width(260)
+            .background(theme::bg_modal())
+            .color(theme::text_normal())
+            .class(floem::views::scroll::ScrollClass, |s| {
+                s.max_height(320).background(theme::bg_modal())
+            })
     });
     h_stack((
         label(move || title.to_string())
