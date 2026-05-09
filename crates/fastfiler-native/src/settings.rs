@@ -61,6 +61,13 @@ pub struct AppSettings {
 
     // Plugins (ID -> enabled)
     pub plugins_enabled: RwSignal<im::Vector<(String, RwSignal<bool>)>>,
+
+    // Window state (位置/サイズ復元用)
+    pub window_x: RwSignal<Option<i32>>,
+    pub window_y: RwSignal<Option<i32>>,
+    pub window_w: RwSignal<Option<u32>>,
+    pub window_h: RwSignal<Option<u32>>,
+    pub window_maximized: RwSignal<bool>,
 }
 
 impl AppSettings {
@@ -130,6 +137,12 @@ impl AppSettings {
 
             hotkeys: RwSignal::new(hotkeys),
             plugins_enabled: RwSignal::new(plugins_enabled),
+
+            window_x: RwSignal::new(p.window_x),
+            window_y: RwSignal::new(p.window_y),
+            window_w: RwSignal::new(p.window_w),
+            window_h: RwSignal::new(p.window_h),
+            window_maximized: RwSignal::new(p.window_maximized),
         }
     }
 
@@ -187,6 +200,12 @@ pub struct PersistedSettings {
 
     #[serde(default)] pub hotkeys: Vec<(String, String)>,
     #[serde(default)] pub plugins_enabled: Vec<(String, bool)>,
+
+    #[serde(default)] pub window_x: Option<i32>,
+    #[serde(default)] pub window_y: Option<i32>,
+    #[serde(default)] pub window_w: Option<u32>,
+    #[serde(default)] pub window_h: Option<u32>,
+    #[serde(default)] pub window_maximized: bool,
 }
 
 fn def_true() -> bool { true }
@@ -240,6 +259,12 @@ impl Default for PersistedSettings {
 
             hotkeys: Vec::new(),
             plugins_enabled: Vec::new(),
+
+            window_x: None,
+            window_y: None,
+            window_w: None,
+            window_h: None,
+            window_maximized: false,
         }
     }
 }
@@ -287,7 +312,17 @@ impl PersistedSettings {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.get()))
                 .collect(),
+
+            window_x: a.window_x.get(),
+            window_y: a.window_y.get(),
+            window_w: a.window_w.get(),
+            window_h: a.window_h.get(),
+            window_maximized: a.window_maximized.get(),
         }
+    }
+
+    pub fn load_or_default() -> Self {
+        Self::load().unwrap_or_default()
     }
 
     fn load() -> Option<Self> {

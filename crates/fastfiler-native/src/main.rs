@@ -1831,14 +1831,67 @@ fn app_view() -> impl IntoView {
     )
     .style(|s| s.size_full());
 
-    container(switcher).style(|s| {
-        s.size_full()
-            .background(Color::rgb8(24, 24, 28))
-            .color(Color::rgb8(220, 220, 220))
-            .font_size(13.0)
-    })
+    container(switcher)
+        .style(|s| {
+            s.size_full()
+                .background(Color::rgb8(24, 24, 28))
+                .color(Color::rgb8(220, 220, 220))
+                .font_size(13.0)
+        })
+        .on_event_stop(EventListener::WindowResized, {
+            let settings = app.settings.clone();
+            move |e| {
+                if let Event::WindowResized(sz) = e {
+                    settings.window_w.set(Some(sz.width.max(0.0) as u32));
+                    settings.window_h.set(Some(sz.height.max(0.0) as u32));
+                    persist_window_state(&settings);
+                }
+            }
+        })
+        .on_event_stop(EventListener::WindowMoved, {
+            let settings = app.settings.clone();
+            move |e| {
+                if let Event::WindowMoved(p) = e {
+                    settings.window_x.set(Some(p.x as i32));
+                    settings.window_y.set(Some(p.y as i32));
+                    persist_window_state(&settings);
+                }
+            }
+        })
+        .on_event_stop(EventListener::WindowMaximizeChanged, {
+            let settings = app.settings.clone();
+            move |e| {
+                if let Event::WindowMaximizeChanged(m) = e {
+                    settings.window_maximized.set(*m);
+                    persist_window_state(&settings);
+                }
+            }
+        })
+}
+
+fn persist_window_state(settings: &AppSettings) {
+    if let Err(e) = settings.save() {
+        eprintln!("[settings] window-state save error: {}", e);
+    }
 }
 
 fn main() {
-    floem::launch(app_view);
+    use floem::kurbo::{Point as KPoint, Size as KSize};
+    use floem::window::WindowConfig;
+    use settings::PersistedSettings;
+
+    let p = PersistedSettings::load_or_default();
+    let mut cfg = WindowConfig::default().title("FastFiler");
+    if let (Some(w), Some(h)) = (p.window_w, p.window_h) {
+        if w >= 200 && h >= 150 {
+            cfg = cfg.size(KSize::new(w as f64, h as f64));
+        }
+    }
+    if let (Some(x), Some(y)) = (p.window_x, p.window_y) {
+        cfg = cfg.position(KPoint::new(x as f64, y as f64));
+    }
+
+    floem::Application::new()
+        .window(move |_| app_view(), Some(cfg))
+        .run();
 }
