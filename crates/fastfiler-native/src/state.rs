@@ -499,6 +499,8 @@ pub struct AppState {
     pub tab_dragging: RwSignal<Option<u64>>,
     /// PointerDown 直後の保留状態 (タブid, 押した位置)。距離しきい値を超えたら tab_dragging に昇格する
     pub tab_drag_pending: RwSignal<Option<(u64, floem::kurbo::Point)>>,
+    /// 直前に swap した先 (oscillation 防止用)
+    pub tab_drag_last_swap: RwSignal<Option<u64>>,
 }
 
 impl AppState {
@@ -547,6 +549,7 @@ impl AppState {
             tree_tick: RwSignal::new(0),
             tab_dragging: RwSignal::new(None),
             tab_drag_pending: RwSignal::new(None),
+            tab_drag_last_swap: RwSignal::new(None),
         }
     }
 

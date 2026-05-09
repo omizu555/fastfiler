@@ -17,6 +17,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let active = app.active;
     let tab_dragging = app.tab_dragging;
     let tab_drag_pending = app.tab_drag_pending;
+    let tab_drag_last_swap = app.tab_drag_last_swap;
 
     let title_label = label(move || {
         // first leaf の title を反応的に取得
@@ -71,6 +72,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
             if let floem::event::Event::PointerDown(p) = e {
                 tab_drag_pending.set(Some((id, p.pos)));
                 tab_dragging.set(None);
+                tab_drag_last_swap.set(None);
             }
         })
         .on_event_cont(EventListener::PointerMove, move |e| {
@@ -78,10 +80,12 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
                 if let Some((pid, start)) = tab_drag_pending.get_untracked() {
                     let dx = p.pos.x - start.x;
                     let dy = p.pos.y - start.y;
-                    if (dx * dx + dy * dy) >= 25.0 {
-                        // 5px 超え: ドラッグ確定
+                    if (dx * dx + dy * dy) >= 100.0 {
+                        // 10px 超え: ドラッグ確定
+                        crate::logger::write_line(format!("[tab-drag] start id={} dx={:.1} dy={:.1}", pid, dx, dy));
                         tab_dragging.set(Some(pid));
                         tab_drag_pending.set(None);
+                        tab_drag_last_swap.set(Some(pid));
                     }
                 }
             }
@@ -89,13 +93,19 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
         .on_event_cont(EventListener::PointerEnter, move |_| {
             if let Some(from) = tab_dragging.get_untracked() {
                 if from != id {
+                    if tab_drag_last_swap.get_untracked() == Some(id) {
+                        return;
+                    }
+                    crate::logger::write_line(format!("[tab-drag] swap from={} to={}", from, id));
                     app_for_drag.reorder_tab(from, id);
+                    tab_drag_last_swap.set(Some(id));
                 }
             }
         })
         .on_event_cont(EventListener::PointerUp, move |_| {
             tab_dragging.set(None);
             tab_drag_pending.set(None);
+            tab_drag_last_swap.set(None);
         })
         .on_click_stop(move |_| active.set(id))
 }
