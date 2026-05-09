@@ -12,20 +12,16 @@ use crate::state::{AppState, Tab};
 use crate::theme;
 pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let id = tab.id;
-    let columns_sig = tab.columns;
+    let root_sig = tab.root;
     let active = app.active;
 
     let title_label = label(move || {
-        // primary ペインの title を反応的に取得 (columns[0][0])
-        columns_sig.with(|cols| {
-            cols.head()
-                .and_then(|col| {
-                    col.with(|panes| {
-                        panes.head().map(|p| {
-                            let t = p.title.get();
-                            if t.is_empty() { String::from("(root)") } else { t }
-                        })
-                    })
+        // first leaf の title を反応的に取得
+        root_sig.with(|r| {
+            r.first_leaf()
+                .map(|p| {
+                    let t = p.title.get();
+                    if t.is_empty() { String::from("(root)") } else { t }
                 })
                 .unwrap_or_else(|| String::from("(empty)"))
         })

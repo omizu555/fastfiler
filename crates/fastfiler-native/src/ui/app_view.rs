@@ -2,12 +2,12 @@
 
 use floem::event::{Event, EventListener, EventPropagation};
 use floem::prelude::*;
-use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
+use floem::reactive::{SignalGet, SignalUpdate};
 use floem::views::{container, dyn_container, label, v_stack, Decorators};
 
 use crate::fs_model::initial_path;
 use crate::settings::{settings_view, AppSettings};
-use crate::state::{AppState, PaneState, SplitterTarget};
+use crate::state::{AppState, SplitDir, SplitNode, SplitterTarget};
 use crate::theme;
 use crate::ui::footer::footer_bar;
 use crate::ui::pane::pane_view;
@@ -18,6 +18,52 @@ use crate::ui::tree::tree_pane;
 pub fn persist_window_state(settings: &AppSettings) {
     if let Err(e) = settings.save() {
         eprintln!("[settings] window-state save error: {}", e);
+    }
+}
+
+/// SplitNode を再帰的に描画 (BSP)
+fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
+    match node {
+        SplitNode::Leaf(p) => container(pane_view(p, app))
+            .style(|s| s.size_full().min_width(0).min_height(0))
+            .into_any(),
+        SplitNode::Split { dir, children } => {
+            let count = children.len();
+            let views: Vec<floem::AnyView> = children
+                .into_iter()
+                .enumerate()
+                .map(|(i, child)| {
+                    let app = app.clone();
+                    let child_view = render_split_node(child, app);
+                    container(child_view)
+                        .style(move |s| {
+                            let s = s
+                                .flex_grow(1.0)
+                                .flex_basis(0)
+                                .min_width(0)
+                                .min_height(0);
+                            if i > 0 && count > 1 {
+                                match dir {
+                                    SplitDir::Horizontal => {
+                                        s.border_left(1).border_color(theme::border_default())
+                                    }
+                                    SplitDir::Vertical => {
+                                        s.border_top(1).border_color(theme::border_default())
+                                    }
+                                }
+                            } else {
+                                s
+                            }
+                        })
+                        .into_any()
+                })
+                .collect();
+            let stack = floem::views::stack_from_iter(views).style(move |s| match dir {
+                SplitDir::Horizontal => s.flex_row().size_full(),
+                SplitDir::Vertical => s.flex_col().size_full(),
+            });
+            container(stack).style(|s| s.size_full()).into_any()
+        }
     }
 }
 
@@ -110,78 +156,16 @@ pub fn app_view() -> impl IntoView {
                             let tabs_v = tabs.get();
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
-                            // 各列の (col_index, Vec<PaneState>) を集める
-                            let layout: Vec<Vec<PaneState>> = if let Some(t) = active_tab {
-                                t.columns.with(|cols| {
-                                    cols.iter()
-                                        .map(|col| col.with(|panes| panes.iter().cloned().collect()))
-                                        .collect()
-                                })
-                            } else {
-                                Vec::new()
-                            };
-                            layout
+                            active_tab.map(|t| t.root.get())
                         },
-                        move |layout: Vec<Vec<PaneState>>| {
-                            if layout.is_empty() || layout.iter().all(|c| c.is_empty()) {
-                                return label(|| String::from("(no tab)"))
+                        move |root: Option<SplitNode>| {
+                            let app = app_for_panes.clone();
+                            match root {
+                                None => label(|| String::from("(no tab)"))
                                     .style(|s| s.size_full().padding(20))
-                                    .into_any();
+                                    .into_any(),
+                                Some(node) => render_split_node(node, app).into_any(),
                             }
-                            let col_count = layout.len();
-                            let columns_views: Vec<floem::AnyView> = layout
-                                .into_iter()
-                                .enumerate()
-                                .map(|(ci, panes)| {
-                                    let app_for_col = app_for_panes.clone();
-                                    let row_count = panes.len();
-                                    let pane_views: Vec<floem::AnyView> = panes
-                                        .into_iter()
-                                        .enumerate()
-                                        .map(|(ri, p)| {
-                                            let app_for_pv = app_for_col.clone();
-                                            container(pane_view(p, app_for_pv))
-                                                .style(move |s| {
-                                                    let s = s
-                                                        .flex_grow(1.0)
-                                                        .min_height(0)
-                                                        .flex_basis(0)
-                                                        .width_full();
-                                                    if ri > 0 && row_count > 1 {
-                                                        s.border_top(1)
-                                                            .border_color(theme::border_default())
-                                                    } else {
-                                                        s
-                                                    }
-                                                })
-                                                .into_any()
-                                        })
-                                        .collect();
-                                    let col_view = floem::views::stack_from_iter(pane_views)
-                                        .style(|s| s.flex_col().size_full());
-                                    container(col_view)
-                                        .style(move |s| {
-                                            let s = s
-                                                .flex_grow(1.0)
-                                                .min_width(0)
-                                                .flex_basis(0)
-                                                .height_full();
-                                            if ci > 0 && col_count > 1 {
-                                                s.border_left(1)
-                                                    .border_color(theme::border_default())
-                                            } else {
-                                                s
-                                            }
-                                        })
-                                        .into_any()
-                                })
-                                .collect();
-                            container(
-                                floem::views::stack_from_iter(columns_views)
-                                    .style(|s| s.flex_row().size_full()),
-                            )
-                            .style(|s| s.size_full())
-                            .into_any()
                         },
                     )
                     .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());

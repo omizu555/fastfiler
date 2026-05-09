@@ -247,13 +247,137 @@ impl PaneState {
 
 static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
 
-/// 1 タブ = 複数フォルダペイン (左から 1..N)。
-/// タブ名は panes\[0\] (primary) のフォルダ名から派生する。
+/// 分割方向。Horizontal = 子要素が左右に並ぶ (⇔分割) / Vertical = 上下に並ぶ (⇕分割)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SplitDir {
+    Horizontal,
+    Vertical,
+}
+
+/// BSP ペイン木。Leaf が個別ペイン、Split が分割ノード。
+#[derive(Clone)]
+pub enum SplitNode {
+    Leaf(PaneState),
+    Split {
+        dir: SplitDir,
+        children: Vec<SplitNode>,
+    },
+}
+
+impl SplitNode {
+    /// 全 leaf を deep-first で収集
+    pub fn collect_leaves(&self, out: &mut Vec<PaneState>) {
+        match self {
+            SplitNode::Leaf(p) => out.push(p.clone()),
+            SplitNode::Split { children, .. } => {
+                for c in children {
+                    c.collect_leaves(out);
+                }
+            }
+        }
+    }
+
+    pub fn leaf_count(&self) -> usize {
+        match self {
+            SplitNode::Leaf(_) => 1,
+            SplitNode::Split { children, .. } => children.iter().map(|c| c.leaf_count()).sum(),
+        }
+    }
+
+    /// 指定 pane を含む Leaf を、同方向 Split に置換 (BSP分割)。
+    /// 既に同方向の親 Split に属している場合は、その親の children に追加する (細切れ防止)。
+    /// 戻り値: 分割成功なら true。
+    pub fn split_leaf(&mut self, pane_id: u64, dir: SplitDir, new_pane: PaneState) -> bool {
+        // 1. 自身が Split で、その子に対象 Leaf があり同方向なら子に追加
+        if let SplitNode::Split { dir: my_dir, children } = self {
+            if *my_dir == dir {
+                for i in 0..children.len() {
+                    if let SplitNode::Leaf(p) = &children[i] {
+                        if p.id == pane_id {
+                            children.insert(i + 1, SplitNode::Leaf(new_pane));
+                            return true;
+                        }
+                    }
+                }
+            }
+            // 子の中を再帰
+            for c in children.iter_mut() {
+                if c.split_leaf(pane_id, dir, new_pane.clone()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        // 2. 自身が Leaf で id 一致なら Split に変身
+        if let SplitNode::Leaf(p) = self {
+            if p.id == pane_id {
+                let original = p.clone();
+                *self = SplitNode::Split {
+                    dir,
+                    children: vec![SplitNode::Leaf(original), SplitNode::Leaf(new_pane)],
+                };
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 指定 pane を木から削除。子が 1 つになった Split は平坦化。
+    /// 戻り値: 削除成功なら true。root が消滅する場合 (= leaf が pane_id しか無い) は false を返さず削除側で判定。
+    pub fn remove_leaf(&mut self, pane_id: u64) -> bool {
+        if let SplitNode::Split { children, .. } = self {
+            // 直下の Leaf を検査
+            if let Some(idx) = children.iter().position(|c| {
+                matches!(c, SplitNode::Leaf(p) if p.id == pane_id)
+            }) {
+                children.remove(idx);
+                self.collapse_if_single();
+                return true;
+            }
+            // 再帰
+            for c in children.iter_mut() {
+                if c.remove_leaf(pane_id) {
+                    self.collapse_if_single();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Split の子が 1 つだけになったら、その子で自身を置き換える
+    fn collapse_if_single(&mut self) {
+        if let SplitNode::Split { children, .. } = self {
+            if children.len() == 1 {
+                let only = children.remove(0);
+                *self = only;
+                // collapse 後さらに親 Split→Split のような連鎖を簡単化
+                if let SplitNode::Split { children: sub, .. } = self {
+                    if sub.len() == 1 {
+                        let only = sub.remove(0);
+                        *self = only;
+                    }
+                }
+            }
+        }
+    }
+
+    /// 最初の leaf (= タブタイトル取得用)
+    pub fn first_leaf(&self) -> Option<PaneState> {
+        match self {
+            SplitNode::Leaf(p) => Some(p.clone()),
+            SplitNode::Split { children, .. } => children.iter().find_map(|c| c.first_leaf()),
+        }
+    }
+}
+
+/// 1 タブ = 単一の SplitNode tree (BSP)。
+/// タブ名は first_leaf のフォルダ名から派生する。
 #[derive(Clone)]
 pub struct Tab {
     pub id: u64,
-    /// 2D 列レイアウト: 外 = 左→右の列, 各列 = 上→下のペイン
-    pub columns: RwSignal<im::Vector<RwSignal<im::Vector<PaneState>>>>,
+    /// 分割木のルート
+    pub root: RwSignal<SplitNode>,
     /// 現在フォーカスされているペイン id (split_active や close_pane の起点)
     pub active_pane: RwSignal<u64>,
 }
@@ -262,48 +386,27 @@ impl Tab {
     pub fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
         let p = PaneState::new(start, show_hidden);
         let pid = p.id;
-        let col = RwSignal::new(im::vector![p]);
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
-            columns: RwSignal::new(im::vector![col]),
+            root: RwSignal::new(SplitNode::Leaf(p)),
             active_pane: RwSignal::new(pid),
         }
     }
 
     pub fn primary(&self) -> PaneState {
-        self.columns.with(|cols| cols[0].with(|c| c[0].clone()))
+        self.root.with(|r| r.first_leaf()).expect("tab must have at least one pane")
     }
 
-    /// 全ペインを上→下、左→右順にフラット化
     pub fn all_panes(&self) -> Vec<PaneState> {
-        self.columns.with(|cols| {
+        self.root.with(|r| {
             let mut out = Vec::new();
-            for col in cols.iter() {
-                col.with(|panes| {
-                    for p in panes.iter() {
-                        out.push(p.clone());
-                    }
-                });
-            }
+            r.collect_leaves(&mut out);
             out
         })
     }
 
     pub fn pane_count(&self) -> usize {
-        self.columns
-            .with(|cols| cols.iter().map(|c| c.with(|p| p.len())).sum())
-    }
-
-    /// 指定ペインの (列 index, 行 index) を返す
-    pub fn locate(&self, pane_id: u64) -> Option<(usize, usize)> {
-        self.columns.with(|cols| {
-            for (ci, col) in cols.iter().enumerate() {
-                if let Some(ri) = col.with(|panes| panes.iter().position(|p| p.id == pane_id)) {
-                    return Some((ci, ri));
-                }
-            }
-            None
-        })
+        self.root.with(|r| r.leaf_count())
     }
 }
 
@@ -416,9 +519,9 @@ impl AppState {
         })
     }
 
-    /// アクティブタブにペインを 1 つ追加 (最大 4)。
-    /// vertical=false: 横分割 (アクティブペインの右側に新しい列を挿入、ペイン 1 つ)
-    /// vertical=true:  縦分割 (アクティブペインを含む列に、その下にペイン追加)
+    /// アクティブペインを BSP 分割。
+    /// vertical=false → ⇔分割 (Horizontal: 選択ペインが左右に分かれる)
+    /// vertical=true  → ⇕分割 (Vertical:   選択ペインが上下に分かれる)
     pub fn split_active(&self, vertical: bool) {
         if let Some(tab) = self.active_tab() {
             if tab.pane_count() >= 4 {
@@ -426,10 +529,7 @@ impl AppState {
                 return;
             }
             let active_id = tab.active_pane.get_untracked();
-            let loc = tab.locate(active_id);
-            let (col_idx, row_idx) = loc.unwrap_or((0, 0));
-            crate::flog!("[split] vertical={} active={} loc=({},{})",
-                vertical, active_id, col_idx, row_idx);
+            let dir = if vertical { SplitDir::Vertical } else { SplitDir::Horizontal };
             let base = tab
                 .all_panes()
                 .into_iter()
@@ -440,60 +540,31 @@ impl AppState {
             let new_pane = PaneState::new(base, show_hidden);
             let new_id = new_pane.id;
 
-            if vertical {
-                tab.columns.with(|cols| {
-                    if let Some(col) = cols.get(col_idx) {
-                        col.update(|panes| {
-                            panes.insert(row_idx + 1, new_pane);
-                        });
-                    }
-                });
-                crate::flog!("[split] inserted vertically into col {} as row {}",
-                    col_idx, row_idx + 1);
-            } else {
-                let new_col = RwSignal::new(im::vector![new_pane]);
-                tab.columns.update(|cols| {
-                    cols.insert(col_idx + 1, new_col);
-                });
-                crate::flog!("[split] inserted new column at index {}", col_idx + 1);
-            }
-            tab.active_pane.set(new_id);
-            // 結果 layout を出力
-            let layout: Vec<Vec<u64>> = tab.columns.with(|cols| {
-                cols.iter()
-                    .map(|c| c.with(|p| p.iter().map(|x| x.id).collect()))
-                    .collect()
+            let mut ok = false;
+            tab.root.update(|r| {
+                ok = r.split_leaf(active_id, dir, new_pane.clone());
             });
-            crate::flog!("[split] layout after = {:?}", layout);
+            crate::flog!("[split] dir={:?} active={} ok={} new_id={}", dir, active_id, ok, new_id);
+            if ok {
+                tab.active_pane.set(new_id);
+            }
         }
     }
 
-    /// 指定 pane を削除 (最後の 1 ペインは削除不可)
+    /// 指定 pane を木から削除 (タブ最後の 1 ペインは削除不可)
     pub fn close_pane(&self, pane_id: u64) {
         self.tabs.with(|tabs| {
             for t in tabs.iter() {
                 if t.pane_count() <= 1 {
                     continue;
                 }
-                let loc = t.locate(pane_id);
-                if let Some((ci, ri)) = loc {
-                    let mut empty_col = false;
-                    t.columns.with(|cols| {
-                        if let Some(col) = cols.get(ci) {
-                            col.update(|panes| {
-                                panes.remove(ri);
-                            });
-                            empty_col = col.with(|p| p.is_empty());
-                        }
-                    });
-                    if empty_col {
-                        t.columns.update(|cols| {
-                            cols.remove(ci);
-                        });
-                    }
-                    // 残ったペインから新しいアクティブを選ぶ (変化時のみ)
+                let mut found = false;
+                t.root.update(|r| {
+                    found = r.remove_leaf(pane_id);
+                });
+                if found {
                     if let Some(first) = t.all_panes().first() {
-                        if t.active_pane.get_untracked() != first.id {
+                        if t.active_pane.get_untracked() == pane_id {
                             t.active_pane.set(first.id);
                         }
                     }
