@@ -599,6 +599,8 @@ static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
 struct Tab {
     id: u64,
     panes: RwSignal<im::Vector<PaneState>>,
+    /// false = 横分割 (flex_row), true = 縦分割 (flex_col)
+    vertical: RwSignal<bool>,
 }
 
 impl Tab {
@@ -607,6 +609,7 @@ impl Tab {
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             panes: RwSignal::new(im::vector![p]),
+            vertical: RwSignal::new(false),
         }
     }
 
@@ -703,12 +706,16 @@ impl AppState {
         })
     }
 
-    /// アクティブタブにペインを 1 つ追加 (最大 4)
-    fn split_active(&self) {
+    /// アクティブタブにペインを 1 つ追加 (最大 4)。vertical=true で縦分割
+    fn split_active(&self, vertical: bool) {
         if let Some(tab) = self.active_tab() {
             let cur = tab.panes.with(|v| v.len());
             if cur >= 4 {
                 return;
+            }
+            // 1 ペインしか無い時は方向を確定、2 個目以降は既存方向に従う (混在不可)
+            if cur <= 1 {
+                tab.vertical.set(vertical);
             }
             let base = tab.primary().cur_path.get_untracked();
             let show_hidden = self.settings.show_hidden;
@@ -962,7 +969,8 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let sort_key_sig = pane.sort_key;
     let sort_desc_sig = pane.sort_desc;
 
-    let app_for_split = app.clone();
+    let app_for_split_h = app.clone();
+    let app_for_split_v = app.clone();
     let app_for_close_pane = app.clone();
     let pane_id_for_close = pane.id;
     let toolbar = h_stack((
@@ -995,7 +1003,8 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         button("New File").action(move || pane_for_newfile.open_new_file_modal()),
         button("Rename").action(move || pane_for_rename.open_rename_modal()),
         button("Delete").action(move || pane_for_delete.delete_selected()),
-        button("⊟+").action(move || app_for_split.split_active()),
+        button("⊟+").action(move || app_for_split_h.split_active(false)),
+        button("⊞+").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
     ))
     .style(|s| s.gap(6).padding(6).items_center());
@@ -1707,17 +1716,18 @@ fn app_view() -> impl IntoView {
                             let tabs_v = tabs.get();
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
-                            let panes: Vec<PaneState> = if let Some(t) = active_tab {
+                            let (panes, vertical) = if let Some(t) = active_tab {
                                 t.ensure_panes(setting_cols, show_hidden_sig);
-                                // panes シグナル全体に依存させる (split/close で再描画)
-                                t.panes.with(|v| v.iter().cloned().collect())
+                                let v = t.vertical.get();
+                                let ps: Vec<PaneState> =
+                                    t.panes.with(|v| v.iter().cloned().collect());
+                                (ps, v)
                             } else {
-                                Vec::new()
+                                (Vec::new(), false)
                             };
-                            let cols = panes.len();
-                            (panes, cols)
+                            (panes, vertical)
                         },
-                        move |(panes, _cols)| {
+                        move |(panes, vertical)| {
                             if panes.is_empty() {
                                 return label(|| String::from("(no tab)"))
                                     .style(|s| s.size_full().padding(20))
@@ -1729,9 +1739,17 @@ fn app_view() -> impl IntoView {
                                 .map(|(i, p)| {
                                     let app_for_pv = app_for_panes.clone();
                                     let v = container(pane_view(p, app_for_pv)).style(move |s| {
-                                        let s = s.flex_grow(1.0).min_width(0).flex_basis(0).height_full();
+                                        let s = if vertical {
+                                            s.flex_grow(1.0).min_height(0).flex_basis(0).width_full()
+                                        } else {
+                                            s.flex_grow(1.0).min_width(0).flex_basis(0).height_full()
+                                        };
                                         if i > 0 {
-                                            s.border_left(1).border_color(Color::rgb8(60, 60, 60))
+                                            if vertical {
+                                                s.border_top(1).border_color(Color::rgb8(60, 60, 60))
+                                            } else {
+                                                s.border_left(1).border_color(Color::rgb8(60, 60, 60))
+                                            }
                                         } else {
                                             s
                                         }
@@ -1741,7 +1759,13 @@ fn app_view() -> impl IntoView {
                                 .collect();
                             container(
                                 floem::views::stack_from_iter(views)
-                                    .style(|s| s.flex_row().size_full()),
+                                    .style(move |s| {
+                                        if vertical {
+                                            s.flex_col().size_full()
+                                        } else {
+                                            s.flex_row().size_full()
+                                        }
+                                    }),
                             )
                             .style(|s| s.size_full())
                             .into_any()
