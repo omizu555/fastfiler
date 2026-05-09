@@ -702,6 +702,39 @@ impl AppState {
             None
         })
     }
+
+    /// アクティブタブにペインを 1 つ追加 (最大 4)
+    fn split_active(&self) {
+        if let Some(tab) = self.active_tab() {
+            let cur = tab.panes.with(|v| v.len());
+            if cur >= 4 {
+                return;
+            }
+            let base = tab.primary().cur_path.get_untracked();
+            let show_hidden = self.settings.show_hidden;
+            tab.panes.update(|v| {
+                v.push_back(PaneState::new(base.clone(), show_hidden));
+            });
+        }
+    }
+
+    /// 指定 pane を含むタブからその pane を削除 (primary は削除不可)
+    fn close_pane(&self, pane_id: u64) {
+        self.tabs.with(|tabs| {
+            for t in tabs.iter() {
+                let pos = t.panes.with(|v| v.iter().position(|p| p.id == pane_id));
+                if let Some(idx) = pos {
+                    if idx == 0 {
+                        return;
+                    }
+                    t.panes.update(|v| {
+                        v.remove(idx);
+                    });
+                    return;
+                }
+            }
+        });
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -929,6 +962,9 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let sort_key_sig = pane.sort_key;
     let sort_desc_sig = pane.sort_desc;
 
+    let app_for_split = app.clone();
+    let app_for_close_pane = app.clone();
+    let pane_id_for_close = pane.id;
     let toolbar = h_stack((
         button("←").action(move || pane_for_back.back()),
         button("→").action(move || pane_for_forward.forward()),
@@ -959,6 +995,8 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         button("New File").action(move || pane_for_newfile.open_new_file_modal()),
         button("Rename").action(move || pane_for_rename.open_rename_modal()),
         button("Delete").action(move || pane_for_delete.delete_selected()),
+        button("⊟+").action(move || app_for_split.split_active()),
+        button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
     ))
     .style(|s| s.gap(6).padding(6).items_center());
 
@@ -1661,7 +1699,7 @@ fn app_view() -> impl IntoView {
                     let active_panes = dyn_container(
                         move || {
                             let id = active.get();
-                            let cols = tab_columns_sig
+                            let setting_cols = tab_columns_sig
                                 .get()
                                 .parse::<usize>()
                                 .unwrap_or(1)
@@ -1670,11 +1708,13 @@ fn app_view() -> impl IntoView {
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
                             let panes: Vec<PaneState> = if let Some(t) = active_tab {
-                                t.ensure_panes(cols, show_hidden_sig);
-                                t.panes.with(|v| v.iter().take(cols).cloned().collect())
+                                t.ensure_panes(setting_cols, show_hidden_sig);
+                                // panes シグナル全体に依存させる (split/close で再描画)
+                                t.panes.with(|v| v.iter().cloned().collect())
                             } else {
                                 Vec::new()
                             };
+                            let cols = panes.len();
                             (panes, cols)
                         },
                         move |(panes, _cols)| {
