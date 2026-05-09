@@ -113,7 +113,7 @@ pub fn get_thumbnail(path: String, size: u32) -> AppResult<ThumbnailResult> {
     {
         let png = win::fetch_png(&path, size)?;
         let img = image::load_from_memory(&png)
-            .map_err(|e| AppError::Other(format!("image decode: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("image decode: {e}")))?;
         let result = ThumbnailResult {
             data_url: to_data_url_png(&png),
             width: img.width(),
@@ -162,18 +162,18 @@ mod win {
                 res
             }
         });
-        handle.join().map_err(|_| AppError::Other("thumb thread panicked".into()))?
+        handle.join().map_err(|_| AppError::Win32("thumb thread panicked".into()))?
     }
 
     unsafe fn inner(path: &str, size: u32) -> AppResult<Vec<u8>> {
         let wide: Vec<u16> = OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
-                .map_err(|e| AppError::Other(format!("SHCreateItemFromParsingName: {e}")))?;
+                .map_err(|e| AppError::Win32(format!("SHCreateItemFromParsingName: {e}")))?;
         let sz = SIZE { cx: size as i32, cy: size as i32 };
         let hbmp: HBITMAP = factory
             .GetImage(sz, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK)
-            .map_err(|e| AppError::Other(format!("GetImage: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("GetImage: {e}")))?;
         let png = hbitmap_to_png(hbmp).map_err(|e| {
             let _ = DeleteObject(hbmp);
             e
@@ -190,7 +190,7 @@ mod win {
             Some(&mut bmp as *mut _ as *mut _),
         );
         if n == 0 {
-            return Err(AppError::Other("GetObjectW failed".into()));
+            return Err(AppError::Win32("GetObjectW failed".into()));
         }
         let width = bmp.bmWidth;
         let height = bmp.bmHeight.abs();
@@ -217,7 +217,7 @@ mod win {
             DIB_RGB_COLORS,
         );
         if ok == 0 {
-            return Err(AppError::Other("GetDIBits failed".into()));
+            return Err(AppError::Win32("GetDIBits failed".into()));
         }
         // BGRA → RGBA
         for px in buf.chunks_exact_mut(4) {
@@ -228,10 +228,10 @@ mod win {
         {
             let mut cursor = std::io::Cursor::new(&mut png_bytes);
             let img = image::RgbaImage::from_raw(width as u32, height as u32, buf)
-                .ok_or_else(|| AppError::Other("RgbaImage build failed".into()))?;
+                .ok_or_else(|| AppError::Win32("RgbaImage build failed".into()))?;
             image::DynamicImage::ImageRgba8(img)
                 .write_to(&mut cursor, image::ImageFormat::Png)
-                .map_err(|e| AppError::Other(format!("png encode: {e}")))?;
+                .map_err(|e| AppError::Win32(format!("png encode: {e}")))?;
         }
         Ok(png_bytes)
     }

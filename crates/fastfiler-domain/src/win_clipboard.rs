@@ -14,12 +14,12 @@ use crate::error::{AppError, AppResult};
 
 pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {
     if paths.is_empty() {
-        return Err(AppError::Other("paths が空です".into()));
+        return Err(AppError::Win32("paths が空です".into()));
     }
     #[cfg(not(windows))]
     {
         let _ = (paths, op);
-        return Err(AppError::Other("Windows でのみ利用可能".into()));
+        return Err(AppError::Win32("Windows でのみ利用可能".into()));
     }
     #[cfg(windows)]
     unsafe {
@@ -57,15 +57,15 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
 
     // 2. グローバルメモリ確保 (CF_HDROP 本体)
     let h_drop = GlobalAlloc(GHND, total)
-        .map_err(|e| AppError::Other(format!("GlobalAlloc(HDROP): {e}")))?;
+        .map_err(|e| AppError::Win32(format!("GlobalAlloc(HDROP): {e}")))?;
     if h_drop.is_invalid() {
-        return Err(AppError::Other("GlobalAlloc(HDROP) returned invalid".into()));
+        return Err(AppError::Win32("GlobalAlloc(HDROP) returned invalid".into()));
     }
     {
         let p = GlobalLock(h_drop) as *mut u8;
         if p.is_null() {
             // 失敗時の解放は省略 (極めて稀。SetClipboardData 成功までの一時的な漏れは許容)
-            return Err(AppError::Other("GlobalLock(HDROP) failed".into()));
+            return Err(AppError::Win32("GlobalLock(HDROP) failed".into()));
         }
         // DROPFILES を書き込む
         let df = p as *mut DROPFILES;
@@ -81,14 +81,14 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
 
     // 3. Preferred DropEffect 用 DWORD を別途確保
     let h_eff = GlobalAlloc(GHND, std::mem::size_of::<u32>())
-        .map_err(|e| AppError::Other(format!("GlobalAlloc(Effect): {e}")))?;
+        .map_err(|e| AppError::Win32(format!("GlobalAlloc(Effect): {e}")))?;
     if h_eff.is_invalid() {
-        return Err(AppError::Other("GlobalAlloc(Effect) returned invalid".into()));
+        return Err(AppError::Win32("GlobalAlloc(Effect) returned invalid".into()));
     }
     {
         let p = GlobalLock(h_eff) as *mut u32;
         if p.is_null() {
-            return Err(AppError::Other("GlobalLock(Effect) failed".into()));
+            return Err(AppError::Win32("GlobalLock(Effect) failed".into()));
         }
         // 1=COPY, 2=MOVE
         *p = if op == "cut" || op == "move" { 2 } else { 1 };
@@ -97,24 +97,24 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
 
     // 4. クリップボードへセット
     if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Other("OpenClipboard 失敗".into()));
+        return Err(AppError::Win32("OpenClipboard 失敗".into()));
     }
 
     let res = (|| -> AppResult<()> {
-        EmptyClipboard().map_err(|e| AppError::Other(format!("EmptyClipboard: {e}")))?;
+        EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
 
         // CF_HDROP
         SetClipboardData(CF_HDROP.0 as u32, HANDLE(h_drop.0))
-            .map_err(|e| AppError::Other(format!("SetClipboardData(HDROP): {e}")))?;
+            .map_err(|e| AppError::Win32(format!("SetClipboardData(HDROP): {e}")))?;
 
         // CFSTR_PREFERREDDROPEFFECT
         let fmt_name: Vec<u16> = "Preferred DropEffect\0".encode_utf16().collect();
         let cf_pref = RegisterClipboardFormatW(PCWSTR(fmt_name.as_ptr()));
         if cf_pref == 0 {
-            return Err(AppError::Other("RegisterClipboardFormatW 失敗".into()));
+            return Err(AppError::Win32("RegisterClipboardFormatW 失敗".into()));
         }
         SetClipboardData(cf_pref, HANDLE(h_eff.0))
-            .map_err(|e| AppError::Other(format!("SetClipboardData(Pref): {e}")))?;
+            .map_err(|e| AppError::Win32(format!("SetClipboardData(Pref): {e}")))?;
         Ok(())
     })();
 
@@ -160,12 +160,12 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
         return Ok(None);
     }
     if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Other("OpenClipboard 失敗".into()));
+        return Err(AppError::Win32("OpenClipboard 失敗".into()));
     }
 
     let result: AppResult<Option<ClipboardPaths>> = (|| {
         let h = GetClipboardData(CF_HDROP.0 as u32)
-            .map_err(|e| AppError::Other(format!("GetClipboardData(HDROP): {e}")))?;
+            .map_err(|e| AppError::Win32(format!("GetClipboardData(HDROP): {e}")))?;
         if h.is_invalid() {
             return Ok(None);
         }

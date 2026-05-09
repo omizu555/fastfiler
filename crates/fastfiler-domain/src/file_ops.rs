@@ -119,7 +119,7 @@ mod trash_impl {
                     COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE,
                 );
                 if hr.is_err() {
-                    return Err(AppError::Other(format!("CoInitializeEx failed: {:?}", hr)));
+                    return Err(AppError::Win32(format!("CoInitializeEx failed: {:?}", hr)));
                 }
                 let result = run_op(&paths);
                 CoUninitialize();
@@ -128,12 +128,12 @@ mod trash_impl {
         });
         handle
             .join()
-            .map_err(|_| AppError::Other("trash thread panicked".into()))?
+            .map_err(|_| AppError::Win32("trash thread panicked".into()))?
     }
 
     unsafe fn run_op(paths: &[String]) -> AppResult<()> {
         let op: IFileOperation = CoCreateInstance(&FileOperation, None, CLSCTX_ALL)
-            .map_err(|e| AppError::Other(format!("CoCreateInstance failed: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("CoCreateInstance failed: {e}")))?;
 
         let flags = FILEOPERATION_FLAGS(
             (FOF_NOCONFIRMATION.0
@@ -143,24 +143,24 @@ mod trash_impl {
                 | FOFX_ADDUNDORECORD.0 as u32) as u32,
         );
         op.SetOperationFlags(flags)
-            .map_err(|e| AppError::Other(format!("SetOperationFlags failed: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("SetOperationFlags failed: {e}")))?;
         op.SetOwnerWindow(HWND::default()).ok();
 
         for p in paths {
             let wide: Vec<u16> = p.encode_utf16().chain(std::iter::once(0)).collect();
             let item: IShellItem =
                 SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
-                    .map_err(|e| AppError::Other(format!("SHCreateItemFromParsingName({p}): {e}")))?;
+                    .map_err(|e| AppError::Win32(format!("SHCreateItemFromParsingName({p}): {e}")))?;
             op.DeleteItem(&item, None)
-                .map_err(|e| AppError::Other(format!("DeleteItem({p}): {e}")))?;
+                .map_err(|e| AppError::Win32(format!("DeleteItem({p}): {e}")))?;
         }
 
         op.PerformOperations()
-            .map_err(|e| AppError::Other(format!("PerformOperations: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("PerformOperations: {e}")))?;
 
         let aborted = op.GetAnyOperationsAborted().unwrap_or_default();
         if aborted.as_bool() {
-            return Err(AppError::Other("operation aborted".into()));
+            return Err(AppError::Canceled);
         }
         Ok(())
     }

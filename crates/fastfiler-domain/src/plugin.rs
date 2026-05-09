@@ -83,7 +83,7 @@ pub fn list_plugins() -> AppResult<Vec<PluginInfo>> {
 }
 
 pub fn plugins_dir_path() -> AppResult<String> {
-    let p = plugins_dir().ok_or_else(|| AppError::Other("no APPDATA".into()))?;
+    let p = plugins_dir().ok_or_else(|| AppError::Plugin("no APPDATA".into()))?;
     Ok(p.to_string_lossy().to_string())
 }
 
@@ -148,38 +148,38 @@ pub fn list_plugins_with_status() -> AppResult<Vec<PluginStatus>> {
 
 /// ZIP インポート: 1階層目に manifest.json があれば <id>/ に、無ければ ZIP 内最上位フォルダを <id>/ にリネーム
 pub fn import_plugin_zip(zip_path: String) -> AppResult<String> {
-    let dir = plugins_dir().ok_or_else(|| AppError::Other("no plugin dir".into()))?;
-    let f = std::fs::File::open(&zip_path).map_err(|e| AppError::Other(format!("zip open: {e}")))?;
-    let mut archive = zip::ZipArchive::new(f).map_err(|e| AppError::Other(format!("zip read: {e}")))?;
+    let dir = plugins_dir().ok_or_else(|| AppError::Plugin("no plugin dir".into()))?;
+    let f = std::fs::File::open(&zip_path).map_err(|e| AppError::Plugin(format!("zip open: {e}")))?;
+    let mut archive = zip::ZipArchive::new(f).map_err(|e| AppError::Plugin(format!("zip read: {e}")))?;
 
     // 1) manifest.json を探す → そこから id を決定
     let mut manifest_inner: Option<String> = None;
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| AppError::Other(format!("zip entry: {e}")))?;
+        let entry = archive.by_index(i).map_err(|e| AppError::Plugin(format!("zip entry: {e}")))?;
         let name = entry.name().replace('\\', "/");
         if name.ends_with("manifest.json") && !name.contains("__MACOSX") {
             manifest_inner = Some(name);
             break;
         }
     }
-    let manifest_inner = manifest_inner.ok_or_else(|| AppError::Other("manifest.json が ZIP 内にありません".into()))?;
-    let mut mf = archive.by_name(&manifest_inner).map_err(|e| AppError::Other(format!("zip manifest: {e}")))?;
+    let manifest_inner = manifest_inner.ok_or_else(|| AppError::Plugin("manifest.json が ZIP 内にありません".into()))?;
+    let mut mf = archive.by_name(&manifest_inner).map_err(|e| AppError::Plugin(format!("zip manifest: {e}")))?;
     let mut raw = String::new();
     use std::io::Read;
-    mf.read_to_string(&mut raw).map_err(|e| AppError::Other(format!("manifest read: {e}")))?;
+    mf.read_to_string(&mut raw).map_err(|e| AppError::Plugin(format!("manifest read: {e}")))?;
     drop(mf);
     let manifest: PluginManifest = serde_json::from_str(&raw)
-        .map_err(|e| AppError::Other(format!("manifest 解析: {e}")))?;
+        .map_err(|e| AppError::Plugin(format!("manifest 解析: {e}")))?;
     if manifest.id.trim().is_empty() {
-        return Err(AppError::Other("manifest.id が空です".into()));
+        return Err(AppError::Plugin("manifest.id が空です".into()));
     }
 
     // 2) 展開先
     let target = dir.join(&manifest.id);
     if target.exists() {
-        std::fs::remove_dir_all(&target).map_err(|e| AppError::Other(format!("既存削除: {e}")))?;
+        std::fs::remove_dir_all(&target).map_err(|e| AppError::Plugin(format!("既存削除: {e}")))?;
     }
-    std::fs::create_dir_all(&target).map_err(|e| AppError::Other(format!("mkdir: {e}")))?;
+    std::fs::create_dir_all(&target).map_err(|e| AppError::Plugin(format!("mkdir: {e}")))?;
 
     // 3) 共通プレフィックス算出 (manifest.json があった階層)
     let prefix = {
@@ -189,7 +189,7 @@ pub fn import_plugin_zip(zip_path: String) -> AppResult<String> {
     };
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| AppError::Other(format!("zip entry: {e}")))?;
+        let mut entry = archive.by_index(i).map_err(|e| AppError::Plugin(format!("zip entry: {e}")))?;
         let name = entry.name().replace('\\', "/");
         if name.contains("__MACOSX") { continue; }
         let rel = if prefix.is_empty() {
@@ -206,25 +206,25 @@ pub fn import_plugin_zip(zip_path: String) -> AppResult<String> {
             continue;
         }
         if let Some(parent) = out_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| AppError::Other(format!("mkdir: {e}")))?;
+            std::fs::create_dir_all(parent).map_err(|e| AppError::Plugin(format!("mkdir: {e}")))?;
         }
-        let mut out_f = std::fs::File::create(&out_path).map_err(|e| AppError::Other(format!("create {}: {e}", out_path.display())))?;
-        std::io::copy(&mut entry, &mut out_f).map_err(|e| AppError::Other(format!("write: {e}")))?;
+        let mut out_f = std::fs::File::create(&out_path).map_err(|e| AppError::Plugin(format!("create {}: {e}", out_path.display())))?;
+        std::io::copy(&mut entry, &mut out_f).map_err(|e| AppError::Plugin(format!("write: {e}")))?;
     }
     Ok(manifest.id)
 }
 
 pub fn delete_plugin(id: String) -> AppResult<()> {
-    let dir = plugins_dir().ok_or_else(|| AppError::Other("no plugin dir".into()))?;
+    let dir = plugins_dir().ok_or_else(|| AppError::Plugin("no plugin dir".into()))?;
     let target = dir.join(&id);
     if !target.exists() { return Ok(()); }
     // 安全策: plugins_dir 配下であることを再確認
     let canon_dir = std::fs::canonicalize(&dir).unwrap_or(dir.clone());
     let canon_target = std::fs::canonicalize(&target).unwrap_or(target.clone());
     if !canon_target.starts_with(&canon_dir) {
-        return Err(AppError::Other("invalid plugin path".into()));
+        return Err(AppError::Plugin("invalid plugin path".into()));
     }
-    std::fs::remove_dir_all(&canon_target).map_err(|e| AppError::Other(format!("削除失敗: {e}")))?;
+    std::fs::remove_dir_all(&canon_target).map_err(|e| AppError::Plugin(format!("削除失敗: {e}")))?;
     Ok(())
 }
 
@@ -234,14 +234,14 @@ pub fn plugin_invoke(
     capability: String,
     args: serde_json::Value,
 ) -> AppResult<serde_json::Value> {
-    let dir = plugins_dir().ok_or_else(|| AppError::Other("no plugin dir".into()))?;
+    let dir = plugins_dir().ok_or_else(|| AppError::Plugin("no plugin dir".into()))?;
     let manifest_path = dir.join(&plugin_id).join("manifest.json");
     let raw = std::fs::read_to_string(&manifest_path)
-        .map_err(|_| AppError::Other(format!("plugin not found: {plugin_id}")))?;
+        .map_err(|_| AppError::Plugin(format!("plugin not found: {plugin_id}")))?;
     let manifest: PluginManifest = serde_json::from_str(&raw)
-        .map_err(|e| AppError::Other(format!("manifest parse: {e}")))?;
+        .map_err(|e| AppError::Plugin(format!("manifest parse: {e}")))?;
     if !manifest.capabilities.iter().any(|c| c == &capability) {
-        return Err(AppError::Other(format!(
+        return Err(AppError::Plugin(format!(
             "capability '{capability}' not granted to plugin '{plugin_id}'"
         )));
     }
@@ -266,7 +266,7 @@ pub fn plugin_invoke(
             let path = arg_str("path");
             let content = arg_str("content");
             std::fs::write(&path, content.as_bytes())
-                .map_err(|e| AppError::Other(format!("write failed: {e}")))?;
+                .map_err(|e| AppError::Plugin(format!("write failed: {e}")))?;
             Ok(serde_json::Value::Null)
         }
         "fs.mkdir" => {
@@ -277,7 +277,7 @@ pub fn plugin_invoke(
             } else {
                 std::fs::create_dir(&path)
             }
-            .map_err(|e| AppError::Other(format!("mkdir failed: {e}")))?;
+            .map_err(|e| AppError::Plugin(format!("mkdir failed: {e}")))?;
             Ok(serde_json::Value::Null)
         }
         "fs.rename" => {
@@ -333,11 +333,11 @@ pub fn plugin_invoke(
         }
         // ---- pane / ui (フロント側で処理。capability チェックだけ通す) ----
         "ui.notify" | "pane.getActive" | "pane.setPath" | "ui.contextMenu.register" => {
-            Err(AppError::Other(format!(
+            Err(AppError::Plugin(format!(
                 "capability '{capability}' is handled by frontend host (do not call via plugin_invoke)"
             )))
         }
-        _ => Err(AppError::Other(format!("unknown capability: {capability}"))),
+        _ => Err(AppError::Plugin(format!("unknown capability: {capability}"))),
     }
 }
 
@@ -355,9 +355,9 @@ fn read_plugin_storage(
         return Ok(serde_json::Map::new());
     }
     let raw = std::fs::read_to_string(&p)
-        .map_err(|e| AppError::Other(format!("storage read: {e}")))?;
+        .map_err(|e| AppError::Plugin(format!("storage read: {e}")))?;
     let v: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| AppError::Other(format!("storage parse: {e}")))?;
+        serde_json::from_str(&raw).map_err(|e| AppError::Plugin(format!("storage parse: {e}")))?;
     Ok(v.as_object().cloned().unwrap_or_default())
 }
 
@@ -368,7 +368,7 @@ fn write_plugin_storage(
 ) -> AppResult<()> {
     let p = storage_path(dir, plugin_id);
     let raw = serde_json::to_string_pretty(&serde_json::Value::Object(st.clone()))
-        .map_err(|e| AppError::Other(format!("storage serialize: {e}")))?;
-    std::fs::write(&p, raw).map_err(|e| AppError::Other(format!("storage write: {e}")))?;
+        .map_err(|e| AppError::Plugin(format!("storage serialize: {e}")))?;
+    std::fs::write(&p, raw).map_err(|e| AppError::Plugin(format!("storage write: {e}")))?;
     Ok(())
 }

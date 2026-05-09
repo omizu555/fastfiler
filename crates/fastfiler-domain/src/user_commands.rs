@@ -48,7 +48,7 @@ fn default_when() -> String {
 
 fn commands_dir_inner() -> AppResult<PathBuf> {
     let appdata =
-        std::env::var("APPDATA").map_err(|_| AppError::Other("APPDATA not set".into()))?;
+        std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
     let dir = PathBuf::from(appdata).join("fastfiler").join("commands");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
@@ -73,7 +73,7 @@ pub fn list_user_commands() -> AppResult<Vec<UserCommand>> {
     }
     let text = fs::read_to_string(&file)?;
     let cmds: Vec<UserCommand> = serde_json::from_str(&text)
-        .map_err(|e| AppError::Other(format!("commands.json parse error: {}", e)))?;
+        .map_err(|e| AppError::Parse(format!("commands.json parse error: {}", e)))?;
     Ok(cmds.into_iter().filter(|c| !c.hidden).collect())
 }
 

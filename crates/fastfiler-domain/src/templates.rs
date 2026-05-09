@@ -21,7 +21,7 @@ pub struct TemplateInfo {
 
 fn templates_dir_inner() -> AppResult<PathBuf> {
     let appdata = std::env::var("APPDATA")
-        .map_err(|_| AppError::Other("APPDATA not set".into()))?;
+        .map_err(|_| AppError::EnvMissing("APPDATA"))?;
     let dir = PathBuf::from(appdata).join("fastfiler").join("templates");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;

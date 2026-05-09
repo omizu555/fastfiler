@@ -104,7 +104,7 @@ mod win {
             )
         };
         if hinst.0 as isize <= 32 {
-            return Err(AppError::Other(format!("ShellExecuteW failed ({})", hinst.0 as isize)));
+            return Err(AppError::Win32(format!("ShellExecuteW failed ({})", hinst.0 as isize)));
         }
         Ok(())
     }
@@ -125,13 +125,13 @@ mod win {
                 if res.as_bool() {
                     Ok(())
                 } else {
-                    Err(AppError::Other("SHObjectProperties returned FALSE".into()))
+                    Err(AppError::Win32("SHObjectProperties returned FALSE".into()))
                 }
             }
         });
         handle
             .join()
-            .map_err(|_| AppError::Other("properties thread panicked".into()))?
+            .map_err(|_| AppError::Win32("properties thread panicked".into()))?
     }
 }
 

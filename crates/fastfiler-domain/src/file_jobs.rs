@@ -177,7 +177,7 @@ fn copy_file_with_progress(
     let mut df = fs::File::create(dst)?;
     let mut buf = vec![0u8; 256 * 1024];
     loop {
-        if cancel.load(Ordering::SeqCst) { return Err(AppError::Other("canceled".into())); }
+        if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
         let n = sf.read(&mut buf)?;
         if n == 0 { break; }
         df.write_all(&buf[..n])?;
@@ -198,7 +198,7 @@ fn copy_recursive(
     kind: &str,
     c: &mut Counters,
 ) -> AppResult<()> {
-    if cancel.load(Ordering::SeqCst) { return Err(AppError::Other("canceled".into())); }
+    if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
     let meta = fs::symlink_metadata(src)?;
     if meta.is_dir() {
         fs::create_dir_all(dst)?;
@@ -221,7 +221,7 @@ fn delete_recursive(
     job_id: u64,
     c: &mut Counters,
 ) -> AppResult<()> {
-    if cancel.load(Ordering::SeqCst) { return Err(AppError::Other("canceled".into())); }
+    if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
     let meta = fs::symlink_metadata(path)?;
     if meta.is_dir() {
         for ent in fs::read_dir(path)? {
@@ -276,6 +276,6 @@ where
         total_files: c.total_files, done_files: c.done_files,
         total_bytes: c.total_bytes, done_bytes: c.done_bytes,
     });
-    if canceled { return Err(AppError::Other("canceled".into())); }
+    if canceled { return Err(AppError::Canceled); }
     result
 }

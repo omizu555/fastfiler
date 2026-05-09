@@ -145,7 +145,7 @@ pub fn list_dirs(path: String, include_hidden: Option<bool>) -> AppResult<Vec<Fi
 pub fn home_dir() -> AppResult<String> {
     let h = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map_err(|_| AppError::Other("home not found".into()))?;
+        .map_err(|_| AppError::EnvMissing("USERPROFILE"))?;
     Ok(h)
 }
 
@@ -280,7 +280,7 @@ pub fn disk_free(path: String) -> AppResult<DiskInfo> {
                 Some(&mut total as *mut u64),
                 Some(&mut free as *mut u64),
             )
-            .map_err(|e| AppError::Other(format!("GetDiskFreeSpaceExW: {e}")))?;
+            .map_err(|e| AppError::Win32(format!("GetDiskFreeSpaceExW: {e}")))?;
         }
         Ok(DiskInfo { total, free, available })
     }
