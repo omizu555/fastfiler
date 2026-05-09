@@ -10,13 +10,18 @@
 
 pub mod error;
 pub mod events;
+pub mod everything;
+pub mod file_jobs;
 pub mod file_ops;
 pub mod fs;
 pub mod plugin;
 pub mod preview;
+pub mod search;
 pub mod shell;
 pub mod shell_assoc;
 pub mod templates;
+pub mod term;
 pub mod thumbnail;
 pub mod user_commands;
+pub mod watcher;
 pub mod win_clipboard;

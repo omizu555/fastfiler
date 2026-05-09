@@ -15,6 +15,12 @@ base64 = "0.22"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 lru = "0.12"
 image = { version = "0.25", default-features = false, features = ["png"] }
+notify = "6"
+ignore = "0.4"
+regex = "1"
+ureq = { version = "2", default-features = false, features = ["json"] }
+urlencoding = "2"
+portable-pty = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
