@@ -68,6 +68,9 @@ pub struct AppSettings {
     pub window_w: RwSignal<Option<u32>>,
     pub window_h: RwSignal<Option<u32>>,
     pub window_maximized: RwSignal<bool>,
+
+    // 開いていたタブのパス一覧 (起動時復元用)
+    pub open_tabs: RwSignal<Vec<String>>,
 }
 
 impl AppSettings {
@@ -143,6 +146,7 @@ impl AppSettings {
             window_w: RwSignal::new(p.window_w),
             window_h: RwSignal::new(p.window_h),
             window_maximized: RwSignal::new(p.window_maximized),
+            open_tabs: RwSignal::new(p.open_tabs.clone()),
         }
     }
 
@@ -206,6 +210,8 @@ pub struct PersistedSettings {
     #[serde(default)] pub window_w: Option<u32>,
     #[serde(default)] pub window_h: Option<u32>,
     #[serde(default)] pub window_maximized: bool,
+
+    #[serde(default)] pub open_tabs: Vec<String>,
 }
 
 fn def_true() -> bool { true }
@@ -265,6 +271,7 @@ impl Default for PersistedSettings {
             window_w: None,
             window_h: None,
             window_maximized: false,
+            open_tabs: Vec::new(),
         }
     }
 }
@@ -318,6 +325,7 @@ impl PersistedSettings {
             window_w: a.window_w.get(),
             window_h: a.window_h.get(),
             window_maximized: a.window_maximized.get(),
+            open_tabs: a.open_tabs.get(),
         }
     }
 

@@ -27,7 +27,7 @@ use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
 use floem::kurbo::{Point, Rect};
 use floem::menu::{Menu, MenuItem};
-use floem::peniko::Color;
+use floem::reactive::{RwSignal, SignalGet, SignalUpdate, SignalWith};
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
@@ -37,6 +37,7 @@ use floem::views::{
 use parking_lot::Mutex;
 
 mod settings;
+mod theme;
 use settings::{settings_view, AppSettings};
 use fastfiler_domain::icons as ficons;
 
@@ -395,12 +396,27 @@ impl PaneState {
             return;
         }
         let n = paths.len();
-        match fops::delete_to_trash(paths) {
-            Ok(()) => {
+        // IFileOperation 内部の panic でアプリ全体を落とさない
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fops::delete_to_trash(paths)
+        }));
+        // 削除後はインデックスがズレるので必ず選択をクリア
+        self.selected.set(im::OrdSet::new());
+        self.anchor.set(None);
+        match result {
+            Ok(Ok(())) => {
                 self.status_msg.set(format!("ごみ箱へ送りました ({} 件)", n));
                 self.reload();
             }
-            Err(e) => self.status_msg.set(format!("削除失敗: {}", e)),
+            Ok(Err(e)) => {
+                self.status_msg.set(format!("削除失敗: {}", e));
+                self.reload();
+            }
+            Err(_) => {
+                self.status_msg
+                    .set(String::from("削除失敗: 内部例外 (詳細はログ参照)"));
+                self.reload();
+            }
         }
     }
 
@@ -664,13 +680,34 @@ struct AppState {
     settings_open: RwSignal<bool>,
     pane_rects: RwSignal<im::HashMap<u64, Rect>>,
     dragging: RwSignal<Option<DragState>>,
+    /// スプリッタドラッグ中のターゲット (タブペイン / ツリーペイン 右端)
+    splitter_drag: RwSignal<Option<SplitterTarget>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SplitterTarget {
+    Tabs,
+    Tree,
 }
 
 impl AppState {
     fn new(start: PathBuf) -> Self {
         let settings = AppSettings::new();
-        let tab = Tab::new(start, settings.show_hidden);
-        let id = tab.id;
+
+        // 起動時タブ復元: 保存された open_tabs があればそれを使う
+        let saved_paths = settings.open_tabs.get_untracked();
+        let mut tabs_vec: im::Vector<Tab> = im::Vector::new();
+        for p in &saved_paths {
+            let path = PathBuf::from(p);
+            if path.exists() {
+                tabs_vec.push_back(Tab::new(path, settings.show_hidden));
+            }
+        }
+        if tabs_vec.is_empty() {
+            tabs_vec.push_back(Tab::new(start, settings.show_hidden));
+        }
+        let id = tabs_vec.front().map(|t| t.id).unwrap_or(0);
+
         let initial_cols = settings
             .tab_columns
             .get_untracked()
@@ -678,13 +715,14 @@ impl AppState {
             .unwrap_or(1)
             .clamp(1, 4);
         Self {
-            tabs: RwSignal::new(im::vector![tab]),
+            tabs: RwSignal::new(tabs_vec),
             active: RwSignal::new(id),
             tab_cols: RwSignal::new(initial_cols),
             settings,
             settings_open: RwSignal::new(false),
             pane_rects: RwSignal::new(im::HashMap::new()),
             dragging: RwSignal::new(None),
+            splitter_drag: RwSignal::new(None),
         }
     }
 
@@ -837,7 +875,7 @@ fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let close_btn = label(|| String::from("×"))
         .style(|s| {
             s.padding_horiz(8)
-                .color(Color::rgb8(200, 200, 200))
+                .color(theme::text_label())
                 .cursor(CursorStyle::Pointer)
         })
         .on_click_stop({
@@ -848,13 +886,13 @@ fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     h_stack((title_label, close_btn))
         .style(move |s| {
             let is_active = active.get() == id;
-            let bg = if is_active { Color::rgb8(58, 96, 158) } else { Color::rgb8(34, 34, 38) };
+            let bg = if is_active { theme::accent_select() } else { theme::bg_zebra_b() };
             s.height(28)
                 .width_full()
                 .items_center()
                 .background(bg)
                 .border(1)
-                .border_color(Color::rgb8(60, 60, 60))
+                .border_color(theme::border_default())
                 .cursor(CursorStyle::Pointer)
         })
         .on_click_stop(move |_| active.set(id))
@@ -869,16 +907,16 @@ fn cols_selector(app: AppState) -> impl IntoView {
         label(move || format!("{}", n))
             .style(move |s| {
                 let active = cols.get() == n;
-                let bg = if active { Color::rgb8(58, 96, 158) } else { Color::rgb8(40, 40, 44) };
+                let bg = if active { theme::accent_select() } else { theme::bg_header() };
                 s.width(22)
                     .height(22)
                     .items_center()
                     .padding_horiz(4)
                     .background(bg)
                     .border(1)
-                    .border_color(Color::rgb8(60, 60, 60))
+                    .border_color(theme::border_default())
                     .cursor(CursorStyle::Pointer)
-                    .color(Color::rgb8(220, 220, 220))
+                    .color(theme::text_normal())
             })
             .on_click_stop(move |_| {
                 cols.set(n);
@@ -886,7 +924,7 @@ fn cols_selector(app: AppState) -> impl IntoView {
             })
     };
     h_stack((
-        label(|| String::from("Cols:")).style(|s| s.padding_horiz(4).color(Color::rgb8(180, 180, 180))),
+        label(|| String::from("Cols:")).style(|s| s.padding_horiz(4).color(theme::text_dim())),
         make_btn(1),
         make_btn(2),
         make_btn(3),
@@ -907,11 +945,11 @@ fn tabs_panel(app: AppState) -> impl IntoView {
                 .width_full()
                 .items_center()
                 .padding_horiz(8)
-                .color(Color::rgb8(180, 220, 180))
+                .color(theme::text_success())
                 .cursor(CursorStyle::Pointer)
-                .background(Color::rgb8(34, 34, 38))
+                .background(theme::bg_zebra_b())
                 .border(1)
-                .border_color(Color::rgb8(60, 60, 60))
+                .border_color(theme::border_default())
         })
         .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
 
@@ -944,7 +982,7 @@ fn tabs_panel(app: AppState) -> impl IntoView {
     .style(|s| s.flex_col().width_full());
 
     let header = h_stack((
-        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(Color::rgb8(200, 200, 200))),
+        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(theme::text_label())),
         cols_selector(app.clone()),
     ))
     .style(|s| s.items_center().gap(4).padding(2));
@@ -961,7 +999,7 @@ fn tabs_panel(app: AppState) -> impl IntoView {
                         .padding_horiz(8)
                         .items_center()
                         .cursor(CursorStyle::Pointer)
-                        .color(Color::rgb8(220, 220, 220))
+                        .color(theme::text_normal())
                 })
                 .on_click_stop(move |_| {
                     if let Some(p) = app.active_pane() {
@@ -973,13 +1011,13 @@ fn tabs_panel(app: AppState) -> impl IntoView {
         .collect();
     let drives_section = v_stack((
         label(|| String::from("Drives"))
-            .style(|s| s.padding_horiz(6).padding_vert(4).font_bold().color(Color::rgb8(180, 180, 180))),
+            .style(|s| s.padding_horiz(6).padding_vert(4).font_bold().color(theme::text_dim())),
         floem::views::stack_from_iter(drives_items).style(|s| s.flex_col()),
     ))
     .style(|s| {
         s.flex_col()
             .border_bottom(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     });
 
     let body = v_stack((header, drives_section, plus, scroll(grid).style(|s| s.flex_grow(1.0).width_full())))
@@ -994,9 +1032,9 @@ fn tabs_panel(app: AppState) -> impl IntoView {
             .clamp(120.0, 600.0);
         s.width(w)
             .height_full()
-            .background(Color::rgb8(28, 28, 32))
+            .background(theme::bg_panel())
             .border_right(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     })
 }
 
@@ -1061,7 +1099,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 s.flex_grow(1.0)
                     .padding(4)
                     .border(1)
-                    .border_color(Color::rgb8(120, 120, 120))
+                    .border_color(theme::border_focus())
             })
             .on_event_stop(EventListener::KeyDown, move |e| {
                 if let Event::KeyDown(ke) = e {
@@ -1105,7 +1143,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     items.push(
                         label(|| String::from("›"))
                             .style(|s| {
-                                s.padding_horiz(4).color(Color::rgb8(140, 140, 140))
+                                s.padding_horiz(4).color(theme::text_very_dim())
                             })
                             .into_any(),
                     );
@@ -1125,7 +1163,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             s.padding_horiz(4)
                                 .padding_vert(2)
                                 .cursor(CursorStyle::Pointer)
-                                .color(Color::rgb8(180, 200, 230))
+                                .color(theme::text_emphasis())
                         })
                         .on_click_stop(move |_| pane_seg.navigate(target.clone(), true))
                         .into_any(),
@@ -1142,9 +1180,9 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     .style(|s| {
         s.height(22)
             .width_full()
-            .background(Color::rgb8(30, 30, 34))
+            .background(theme::bg_modal())
             .border_bottom(1)
-            .border_color(Color::rgb8(50, 50, 50))
+            .border_color(theme::border_modal())
     });
 
     let arrow = move |k: SortKey| -> String {
@@ -1170,8 +1208,8 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     .style(|s| {
         s.height(24)
             .border_bottom(1)
-            .border_color(Color::rgb8(80, 80, 80))
-            .background(Color::rgb8(40, 40, 44))
+            .border_color(theme::border_strong())
+            .background(theme::bg_header())
     });
 
     let row_height: f64 = 22.0;
@@ -1209,21 +1247,21 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 container(icon).style(|s| s.width(24).items_center()),
                 text(row.name).style(move |s| {
                     let s = s.flex_grow(1.0).padding_horiz(6);
-                    if is_dir { s.color(Color::rgb8(120, 200, 255)) } else { s }
+                    if is_dir { s.color(theme::text_dir()) } else { s }
                 }),
                 text(row.size_text)
-                    .style(|s| s.width(110).padding_horiz(6).color(Color::rgb8(180, 180, 180))),
+                    .style(|s| s.width(110).padding_horiz(6).color(theme::text_dim())),
                 text(row.mtime_text)
-                    .style(|s| s.width(140).padding_horiz(6).color(Color::rgb8(180, 180, 180))),
+                    .style(|s| s.width(140).padding_horiz(6).color(theme::text_dim())),
             ))
             .style(move |s| {
                 let zebra = if bg_idx % 2 == 0 {
-                    Color::rgb8(28, 28, 30)
+                    theme::bg_zebra_a()
                 } else {
-                    Color::rgb8(34, 34, 38)
+                    theme::bg_zebra_b()
                 };
                 let sel = selected.with(|s| s.contains(&bg_idx));
-                let bg = if sel { Color::rgb8(58, 96, 158) } else { zebra };
+                let bg = if sel { theme::accent_select() } else { zebra };
                 s.height(row_height)
                     .items_center()
                     .background(bg)
@@ -1365,9 +1403,9 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         s.height(22)
             .padding_horiz(8)
             .items_center()
-            .background(Color::rgb8(20, 20, 24))
+            .background(theme::bg_chrome())
             .border_top(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     });
 
     // モーダル (新規フォルダ / リネーム入力)
@@ -1387,13 +1425,13 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let pane_enter = pane_for_modal_enter.clone();
                 h_stack((
                     label(move || title.to_string())
-                        .style(|s| s.padding_horiz(8).color(Color::rgb8(220, 220, 220))),
+                        .style(|s| s.padding_horiz(8).color(theme::text_normal())),
                     text_input(modal_input)
                         .style(|s| {
                             s.flex_grow(1.0)
                                 .padding(4)
                                 .border(1)
-                                .border_color(Color::rgb8(120, 120, 120))
+                                .border_color(theme::border_focus())
                         })
                         .on_event_stop(EventListener::KeyDown, move |e| {
                             if let Event::KeyDown(ke) = e {
@@ -1411,9 +1449,9 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     s.gap(6)
                         .padding(6)
                         .items_center()
-                        .background(Color::rgb8(36, 36, 40))
+                        .background(theme::bg_status())
                         .border_bottom(1)
-                        .border_color(Color::rgb8(80, 80, 80))
+                        .border_color(theme::border_strong())
                 })
                 .into_any()
             }
@@ -1672,7 +1710,7 @@ fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyVi
     .style(|s| {
         s.width(14)
             .padding_horiz(2)
-            .color(Color::rgb8(180, 180, 180))
+            .color(theme::text_dim())
             .cursor(CursorStyle::Pointer)
     })
     .on_click_stop(move |_| {
@@ -1688,7 +1726,7 @@ fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyVi
             s.flex_grow(1.0)
                 .padding_horiz(4)
                 .cursor(CursorStyle::Pointer)
-                .color(Color::rgb8(220, 220, 220))
+                .color(theme::text_normal())
         })
         .on_click_stop(move |_| {
             if let Some(p) = app_for_click.active_pane() {
@@ -1747,7 +1785,7 @@ fn tree_pane(app: AppState) -> impl IntoView {
     );
 
     let header = label(|| String::from("Tree"))
-        .style(|s| s.padding(6).font_bold().color(Color::rgb8(200, 200, 200)));
+        .style(|s| s.padding(6).font_bold().color(theme::text_label()));
 
     let body = v_stack((header, scroll(tree).style(|s| s.flex_grow(1.0).width_full())))
         .style(|s| s.flex_col().size_full());
@@ -1761,9 +1799,9 @@ fn tree_pane(app: AppState) -> impl IntoView {
             .clamp(120.0, 600.0);
         s.width(w)
             .height_full()
-            .background(Color::rgb8(28, 28, 32))
+            .background(theme::bg_panel())
             .border_right(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     })
 }
 
@@ -1783,7 +1821,7 @@ fn footer_bar(app: AppState) -> impl IntoView {
             .unwrap_or(0);
         format!("items: {}", cnt)
     })
-    .style(|s| s.flex_grow(1.0).padding_horiz(8).color(Color::rgb8(180, 180, 180)));
+    .style(|s| s.flex_grow(1.0).padding_horiz(8).color(theme::text_dim()));
 
     let gear = label(|| String::from("⚙ Settings"))
         .style(|s| {
@@ -1791,9 +1829,9 @@ fn footer_bar(app: AppState) -> impl IntoView {
                 .padding_horiz(10)
                 .items_center()
                 .cursor(CursorStyle::Pointer)
-                .color(Color::rgb8(220, 220, 220))
+                .color(theme::text_normal())
                 .border_left(1)
-                .border_color(Color::rgb8(60, 60, 60))
+                .border_color(theme::border_default())
         })
         .on_click_stop(move |_| settings_open.set(true));
 
@@ -1801,9 +1839,9 @@ fn footer_bar(app: AppState) -> impl IntoView {
         s.height(26)
             .width_full()
             .items_center()
-            .background(Color::rgb8(20, 20, 24))
+            .background(theme::bg_chrome())
             .border_top(1)
-            .border_color(Color::rgb8(60, 60, 60))
+            .border_color(theme::border_default())
     })
 }
 
@@ -1812,7 +1850,7 @@ fn app_view() -> impl IntoView {
     let settings_open = app.settings_open;
     let active = app.active;
 
-    // 設定値変化時の自動保存 (タブ列数 / タブペイン幅 / ツリーペイン幅)
+    // 設定値変化時の自動保存 (タブ列数 / タブペイン幅 / ツリーペイン幅 / open_tabs)
     {
         let settings_for_save = app.settings.clone();
         let tab_columns_sig = app.settings.tab_columns;
@@ -1829,6 +1867,25 @@ fn app_view() -> impl IntoView {
             }
             if let Err(e) = settings_for_save.save() {
                 eprintln!("[settings] auto-save error: {}", e);
+            }
+        });
+    }
+    // タブ一覧 / 各タブの primary パス変化時に open_tabs を更新 + 保存
+    {
+        let app_for_tabs = app.clone();
+        floem::reactive::create_effect(move |prev: Option<()>| {
+            let tabs_v = app_for_tabs.tabs.get();
+            let mut paths: Vec<String> = Vec::with_capacity(tabs_v.len());
+            for t in tabs_v.iter() {
+                let p = t.primary().cur_path.get();
+                paths.push(p.to_string_lossy().into_owned());
+            }
+            app_for_tabs.settings.open_tabs.set(paths);
+            if prev.is_none() {
+                return;
+            }
+            if let Err(e) = app_for_tabs.settings.save() {
+                eprintln!("[settings] tabs auto-save error: {}", e);
             }
         });
     }
@@ -1897,7 +1954,7 @@ fn app_view() -> impl IntoView {
                                                         .width_full();
                                                     if ri > 0 && row_count > 1 {
                                                         s.border_top(1)
-                                                            .border_color(Color::rgb8(60, 60, 60))
+                                                            .border_color(theme::border_default())
                                                     } else {
                                                         s
                                                     }
@@ -1916,7 +1973,7 @@ fn app_view() -> impl IntoView {
                                                 .height_full();
                                             if ci > 0 && col_count > 1 {
                                                 s.border_left(1)
-                                                    .border_color(Color::rgb8(60, 60, 60))
+                                                    .border_color(theme::border_default())
                                             } else {
                                                 s
                                             }
@@ -1935,7 +1992,9 @@ fn app_view() -> impl IntoView {
                     .style(|s| s.flex_grow(1.0).min_height(0).flex_col());
                     let main_row = h_stack((
                         tabs_panel(app.clone()),
+                        splitter(app.clone(), SplitterTarget::Tabs),
                         tree_pane(app.clone()),
+                        splitter(app.clone(), SplitterTarget::Tree),
                         active_panes,
                     ))
                     .style(|s| s.flex_grow(1.0).min_height(0).width_full());
@@ -1951,9 +2010,45 @@ fn app_view() -> impl IntoView {
     container(switcher)
         .style(|s| {
             s.size_full()
-                .background(Color::rgb8(24, 24, 28))
-                .color(Color::rgb8(220, 220, 220))
+                .background(theme::bg_root())
+                .color(theme::text_normal())
                 .font_size(13.0)
+        })
+        .on_event_cont(EventListener::PointerMove, {
+            let app_for_split = app.clone();
+            move |e| {
+                if let Event::PointerMove(p) = e {
+                    let target = app_for_split.splitter_drag.get_untracked();
+                    if let Some(target) = target {
+                        let x = p.pos.x as f32;
+                        match target {
+                            SplitterTarget::Tabs => {
+                                let w = x.clamp(120.0, 600.0);
+                                app_for_split.settings.tabs_width.set(format!("{:.0}", w));
+                            }
+                            SplitterTarget::Tree => {
+                                let tabs_w = app_for_split
+                                    .settings
+                                    .tabs_width
+                                    .get_untracked()
+                                    .parse::<f32>()
+                                    .unwrap_or(220.0);
+                                // 4px 程度のスプリッタ自身の幅も考慮 (≒5)
+                                let w = (x - tabs_w - 5.0).clamp(120.0, 600.0);
+                                app_for_split.settings.tree_width.set(format!("{:.0}", w));
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .on_event_cont(EventListener::PointerUp, {
+            let app_for_split = app.clone();
+            move |_| {
+                if app_for_split.splitter_drag.get_untracked().is_some() {
+                    app_for_split.splitter_drag.set(None);
+                }
+            }
         })
         .on_event_stop(EventListener::WindowResized, {
             let settings = app.settings.clone();
@@ -1990,6 +2085,21 @@ fn persist_window_state(settings: &AppSettings) {
     if let Err(e) = settings.save() {
         eprintln!("[settings] window-state save error: {}", e);
     }
+}
+
+/// 縦のドラッグ可能なスプリッタ (4px 幅)
+fn splitter(app: AppState, target: SplitterTarget) -> impl IntoView {
+    let drag = app.splitter_drag;
+    container(label(|| String::from("")))
+        .style(|s| {
+            s.width(5.0)
+                .height_full()
+                .background(theme::border_default())
+                .cursor(CursorStyle::ColResize)
+        })
+        .on_event_stop(EventListener::PointerDown, move |_| {
+            drag.set(Some(target));
+        })
 }
 
 fn main() {
