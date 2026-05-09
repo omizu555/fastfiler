@@ -16,6 +16,7 @@ pub mod logger;
 
 pub mod core;
 pub mod hotkeys;
+pub mod search;
 pub mod settings;
 pub mod theme;
 pub mod ui;
