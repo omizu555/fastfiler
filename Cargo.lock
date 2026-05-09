@@ -1005,10 +1005,15 @@ dependencies = [
 name = "fastfiler-domain"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "once_cell",
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "windows 0.58.0",
+ "winreg 0.52.0",
+ "zip",
 ]
 
 [[package]]
