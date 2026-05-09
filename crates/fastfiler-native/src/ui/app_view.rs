@@ -1,6 +1,6 @@
 // app_view + persist_window_state — アプリ全体レイアウト
 
-use floem::event::{Event, EventListener};
+use floem::event::{Event, EventListener, EventPropagation};
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::views::{container, dyn_container, h_stack, label, v_stack, Decorators};
@@ -184,7 +184,7 @@ pub fn app_view() -> impl IntoView {
                             .into_any()
                         },
                     )
-                    .style(|s| s.flex_grow(1.0).min_height(0).flex_col());
+                    .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
                     let main_row = h_stack((
                         tabs_panel(app.clone()),
                         splitter(app.clone(), SplitterTarget::Tabs),
@@ -272,6 +272,19 @@ pub fn app_view() -> impl IntoView {
                     settings.window_maximized.set(*m);
                     persist_window_state(&settings);
                 }
+            }
+        })
+        .on_event(EventListener::KeyDown, {
+            let app = app.clone();
+            move |e| {
+                if let Event::KeyDown(ke) = e {
+                    if let Some(action) = crate::hotkeys::resolve_action(&app, ke) {
+                        if crate::hotkeys::dispatch_action(&app, &action) {
+                            return EventPropagation::Stop;
+                        }
+                    }
+                }
+                EventPropagation::Continue
             }
         })
 }

@@ -573,38 +573,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         .on_event_stop(EventListener::KeyDown, move |e| {
             if let Event::KeyDown(ke) = e {
                 let mods = &ke.modifiers;
-                let ctrl = mods.control();
                 let shift = mods.shift();
-                match &ke.key.logical_key {
-                    Key::Named(NamedKey::Delete) => {
-                        pane_for_keys.delete_selected();
-                        return;
-                    }
-                    Key::Named(NamedKey::F2) => {
-                        pane_for_keys.open_rename_modal();
-                        return;
-                    }
-                    Key::Named(NamedKey::Escape) => {
-                        pane_for_keys.close_modal();
-                        return;
-                    }
-                    Key::Character(c) if ctrl && (c == "a" || c == "A") => {
-                        pane_for_keys.select_all();
-                        return;
-                    }
-                    Key::Character(c) if ctrl && (c == "c" || c == "C") => {
-                        pane_for_keys.clipboard_write("copy");
-                        return;
-                    }
-                    Key::Character(c) if ctrl && (c == "x" || c == "X") => {
-                        pane_for_keys.clipboard_write("move");
-                        return;
-                    }
-                    Key::Character(c) if ctrl && (c == "v" || c == "V") => {
-                        pane_for_keys.clipboard_paste();
-                        return;
-                    }
-                    _ => {}
+                // Delete/F2/Ctrl+A/C/X/V 等のアクション系はルートの hotkeys に委譲。
+                // ここではフォーカス中ペイン内のナビゲーション系 (Arrow/Page/Home/End)
+                // と Escape (モーダル閉じ) のみハンドル。
+                if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
+                    pane_for_keys.close_modal();
+                    return;
                 }
                 let len = rows.with(|v| v.len());
                 if len == 0 {

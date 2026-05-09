@@ -35,11 +35,9 @@ impl TreeNode {
         }
     }
 
-    /// 子フォルダを 1 階層だけロード (lazy)。
+    /// 子フォルダを 1 階層だけロード。
+    /// リアルタイム反映のため、呼ばれるたびに最新を取り直す。
     fn load_children(&self) {
-        if self.loaded.get() {
-            return;
-        }
         let s = self.path.to_string_lossy().into_owned();
         if let Ok(dirs) = ffs::list_dirs(s, Some(false)) {
             let mut tmp: Vec<TreeNode> = dirs

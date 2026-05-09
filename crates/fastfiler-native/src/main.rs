@@ -2,6 +2,7 @@
 
 mod actions;
 mod fs_model;
+mod hotkeys;
 mod settings;
 mod state;
 mod theme;
