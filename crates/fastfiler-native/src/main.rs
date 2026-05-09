@@ -13,7 +13,7 @@
 // ユーザーは列数 (1〜4) を選択でき、タブを行優先で N 列に分割して表示する。
 // PaneState は全フィールドが RwSignal/Arc で Clone 可能。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,8 +36,13 @@ use floem::views::{
 };
 use parking_lot::Mutex;
 
+mod fs_model;
 mod settings;
 mod theme;
+use fs_model::{
+    initial_path, list_drives, pretty_title, read_folder, sort_rows, unique_dest, FileRow,
+    History, SortKey, Stats,
+};
 use settings::{settings_view, AppSettings};
 use fastfiler_domain::icons as ficons;
 
@@ -45,132 +50,12 @@ use fastfiler_domain::icons as ficons;
 // Data
 // ────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct FileRow {
-    name: String,
-    is_dir: bool,
-    size: u64,
-    modified: i64,
-    size_text: String,
-    mtime_text: String,
-}
+// ────────────────────────────────────────────────────────────────
+// Data — 値型・純粋関数は fs_model.rs に集約
+// ────────────────────────────────────────────────────────────────
 
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut v = bytes as f64;
-    let mut u = 0;
-    while v >= 1024.0 && u < UNITS.len() - 1 {
-        v /= 1024.0;
-        u += 1;
-    }
-    if u == 0 { format!("{} B", bytes) } else { format!("{:.1} {}", v, UNITS[u]) }
-}
-
-fn format_mtime(unix_secs: i64) -> String {
-    if unix_secs <= 0 {
-        return String::new();
-    }
-    use chrono::{Local, TimeZone};
-    match Local.timestamp_opt(unix_secs, 0) {
-        chrono::LocalResult::Single(dt) => format_dt(dt),
-        chrono::LocalResult::Ambiguous(dt, _) => format_dt(dt),
-        chrono::LocalResult::None => String::new(),
-    }
-}
-
-fn format_dt(dt: chrono::DateTime<chrono::Local>) -> String {
-    dt.format("%Y-%m-%d %H:%M").to_string()
-}
-
-fn read_folder(path: &Path, show_hidden: bool) -> Result<im::Vector<FileRow>, String> {
-    let s = path.to_string_lossy().into_owned();
-    let entries = ffs::list_dir(s).map_err(|e| e.to_string())?;
-    let tmp: Vec<FileRow> = entries
-        .into_iter()
-        .filter(|e| show_hidden || !e.hidden)
-        .map(|e| {
-            let is_dir = e.kind == "dir";
-            let size_text = if is_dir { String::from("<DIR>") } else { human_size(e.size) };
-            let mtime_text = format_mtime(e.modified);
-            FileRow {
-                name: e.name,
-                is_dir,
-                size: e.size,
-                modified: e.modified,
-                size_text,
-                mtime_text,
-            }
-        })
-        .collect();
-    Ok(tmp.into())
-}
-
-fn sort_rows(rows: &mut im::Vector<FileRow>, key: SortKey, desc: bool) {
-    let mut tmp: Vec<FileRow> = rows.iter().cloned().collect();
-    tmp.sort_by(|a, b| {
-        // ディレクトリ優先 (常に上)
-        match (a.is_dir, b.is_dir) {
-            (true, false) => return std::cmp::Ordering::Less,
-            (false, true) => return std::cmp::Ordering::Greater,
-            _ => {}
-        }
-        let ord = match key {
-            SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            SortKey::Size => a.size.cmp(&b.size),
-            SortKey::Modified => a.modified.cmp(&b.modified),
-        };
-        if desc { ord.reverse() } else { ord }
-    });
-    *rows = tmp.into();
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SortKey {
-    Name,
-    Size,
-    Modified,
-}
-
-#[cfg(windows)]
-fn list_drives() -> Vec<String> {
-    let mut out = Vec::new();
-    for c in b'C'..=b'Z' {
-        let p = format!("{}:\\", c as char);
-        if Path::new(&p).is_dir() {
-            out.push(p);
-        }
-    }
-    out
-}
-#[cfg(not(windows))]
-fn list_drives() -> Vec<String> {
-    vec![String::from("/")]
-}
-
-fn initial_path() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn pretty_title(p: &Path) -> String {
-    p.file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| p.to_string_lossy().into_owned())
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Stats {
-    load_ms: f64,
-    count: usize,
-}
-
-#[derive(Default, Clone)]
-struct History {
-    back: im::Vector<PathBuf>,
-    forward: im::Vector<PathBuf>,
-}
+#[allow(dead_code)]
+fn _format_dt_unused() {}
 
 struct CounterSink {
     counter: Mutex<u32>,
@@ -577,23 +462,9 @@ impl PaneState {
 }
 
 /// 同名ファイルがあれば " (2)", " (3)"... を付与してユニークな宛先を返す。
-fn unique_dest(dir: &Path, name: &str) -> PathBuf {
-    let p = dir.join(name);
-    if !p.exists() {
-        return p;
-    }
-    let (base, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
-        _ => (name, ""),
-    };
-    for n in 2..=9999u32 {
-        let cand = dir.join(format!("{} ({}){}", base, n, ext));
-        if !cand.exists() {
-            return cand;
-        }
-    }
-    p
-}
+/// (実体は fs_model::unique_dest)
+#[allow(dead_code)]
+fn _unique_dest_kept_for_doc() {}
 
 // ────────────────────────────────────────────────────────────────
 // AppState (タブ集合)
