@@ -31,13 +31,14 @@ use floem::peniko::Color;
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, dyn_container, h_stack, label, scroll, text, text_input,
+    button, container, dyn_container, h_stack, img, label, scroll, text, text_input,
     v_stack, virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
 };
 use parking_lot::Mutex;
 
 mod settings;
 use settings::{settings_view, AppSettings};
+use fastfiler_domain::icons as ficons;
 
 // ────────────────────────────────────────────────────────────────
 // Data
@@ -1116,8 +1117,21 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let pane_clk = pane_for_click.clone();
             let pane_for_drag = pane_for_rows.clone();
             let app_for_drag = app_for_rows.clone();
+
+            // アイコン (拡張子モード: 高速 + LRU キャッシュ)
+            let icon_name = row.name.clone();
+            let icon = img(move || {
+                let res = if is_dir {
+                    ficons::folder_icon_png(false)
+                } else {
+                    ficons::system_icon_png(&icon_name, false, true)
+                };
+                res.map(|arc| (*arc).clone()).unwrap_or_default()
+            })
+            .style(|s| s.width(16).height(16));
+
             h_stack((
-                text(format!("{}", idx)).style(|s| s.width(60).padding_horiz(6)),
+                container(icon).style(|s| s.width(24).items_center()),
                 text(row.name).style(move |s| {
                     let s = s.flex_grow(1.0).padding_horiz(6);
                     if is_dir { s.color(Color::rgb8(120, 200, 255)) } else { s }

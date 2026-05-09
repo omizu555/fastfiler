@@ -14,6 +14,7 @@ pub mod everything;
 pub mod file_jobs;
 pub mod file_ops;
 pub mod fs;
+pub mod icons;
 pub mod plugin;
 pub mod preview;
 pub mod search;
