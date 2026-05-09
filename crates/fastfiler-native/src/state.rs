@@ -502,6 +502,10 @@ pub struct AppState {
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
     /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
     pub tree_tick: RwSignal<u64>,
+    /// テーマ/プリセット/アクセント変更時にインクリメントするリビジョン。
+    /// app_view ルートの dyn_container がこれを track して全 UI を再構築し
+    /// theme:: の関数評価を全 view で再走させる (即時反映)。
+    pub theme_rev: RwSignal<u32>,
 }
 
 impl AppState {
@@ -548,6 +552,7 @@ impl AppState {
             dragging: RwSignal::new(None),
             splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
+            theme_rev: RwSignal::new(0),
         }
     }
 

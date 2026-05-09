@@ -153,11 +153,33 @@ pub fn app_view() -> impl IntoView {
     }
     let tabs = app.tabs;
 
+    // テーマ/プリセット/アクセント変更時に theme_rev をインクリメントして全 UI を再構築する。
+    // theme.rs の関数はクロージャ評価のたびに最新値を返すので、再構築すれば即時反映される。
+    {
+        let app_for_theme = app.clone();
+        let theme_sig = app.settings.theme;
+        let preset_sig = app.settings.theme_preset;
+        let accent_sig = app.settings.accent_color;
+        floem::reactive::create_effect(move |prev: Option<(String, String, String)>| {
+            let cur = (theme_sig.get(), preset_sig.get(), accent_sig.get());
+            if let Some(p) = prev.as_ref() {
+                if p != &cur {
+                    crate::theme::set_mode_from_str(&cur.0);
+                    crate::theme::set_preset_from_str(&cur.1);
+                    crate::theme::set_accent_from_str(&cur.2);
+                    app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
+                }
+            }
+            cur
+        });
+    }
+
+    let theme_rev = app.theme_rev;
     let switcher = dyn_container(
-        move || settings_open.get(),
+        move || (settings_open.get(), theme_rev.get()),
         {
             let app = app.clone();
-            move |open| {
+            move |(open, _rev)| {
                 if open {
                     settings_view(app.settings.clone(), settings_open).into_any()
                 } else {
