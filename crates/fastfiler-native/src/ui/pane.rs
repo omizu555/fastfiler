@@ -21,6 +21,36 @@ use fastfiler_domain::icons as ficons;
 use crate::fs_model::{unique_dest, FileRow, SortKey};
 use crate::state::{AppState, DragState, ModalKind, PaneState};
 use crate::theme;
+
+/// 拡張子からカテゴリ別の絵文字を返す (icon_set=emoji 用)。
+fn ext_emoji(name: &str, is_dir: bool) -> String {
+    if is_dir {
+        return "📁".to_string();
+    }
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let s = match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tiff" => "🖼",
+        "mp4" | "mkv" | "mov" | "avi" | "webm" | "wmv" | "flv" | "m4v" => "🎞",
+        "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "wma" => "🎵",
+        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "zst" => "🗜",
+        "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "go" | "c" | "cpp" | "h" | "hpp"
+        | "java" | "cs" | "rb" | "php" | "sh" | "ps1" | "lua" => "💻",
+        "pdf" => "📕",
+        "doc" | "docx" | "odt" => "📘",
+        "xls" | "xlsx" | "csv" => "📗",
+        "ppt" | "pptx" => "📙",
+        "txt" | "md" | "log" | "rst" => "📝",
+        "exe" | "msi" | "bat" | "cmd" => "⚙",
+        "json" | "yaml" | "yml" | "toml" | "xml" | "ini" => "🔧",
+        _ => "📄",
+    };
+    s.to_string()
+}
+
 pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let cur_path = pane.cur_path;
     let path_input = pane.path_input;
@@ -355,17 +385,33 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let pane_for_drag = pane_for_rows.clone();
             let app_for_drag = app_for_rows.clone();
 
-            // アイコン (拡張子モード: 高速 + LRU キャッシュ)
+            // アイコン: icon_set 設定で表示形式を切替 (theme_rev で再構築されるので
+            // get_untracked で OK)
             let icon_name = row.name.clone();
-            let icon = img(move || {
-                let res = if is_dir {
-                    ficons::folder_icon_png(false)
-                } else {
-                    ficons::system_icon_png(&icon_name, false, true)
-                };
-                res.map(|arc| (*arc).clone()).unwrap_or_default()
-            })
-            .style(|s| s.width(16).height(16));
+            let icon_name_for_emoji = row.name.clone();
+            let icon_set = app_for_rows.settings.icon_set.get_untracked();
+            let icon: floem::AnyView = if icon_set == "emoji" {
+                let s = ext_emoji(&icon_name_for_emoji, is_dir);
+                label(move || s.clone())
+                    .style(|s| s.width(20).font_size(14.0).items_center())
+                    .into_any()
+            } else if icon_set == "minimal" {
+                let g = if is_dir { "▸" } else { "·" };
+                label(move || g.to_string())
+                    .style(|s| s.width(20).color(theme::text_dim()).items_center())
+                    .into_any()
+            } else {
+                img(move || {
+                    let res = if is_dir {
+                        ficons::folder_icon_png(false)
+                    } else {
+                        ficons::system_icon_png(&icon_name, false, true)
+                    };
+                    res.map(|arc| (*arc).clone()).unwrap_or_default()
+                })
+                .style(|s| s.width(16).height(16))
+                .into_any()
+            };
 
             h_stack((
                 container(icon).style(|s| s.width(24).items_center()),

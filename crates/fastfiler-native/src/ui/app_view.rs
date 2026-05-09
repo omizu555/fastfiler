@@ -160,8 +160,16 @@ pub fn app_view() -> impl IntoView {
         let theme_sig = app.settings.theme;
         let preset_sig = app.settings.theme_preset;
         let accent_sig = app.settings.accent_color;
-        floem::reactive::create_effect(move |prev: Option<(String, String, String)>| {
-            let cur = (theme_sig.get(), preset_sig.get(), accent_sig.get());
+        let icon_set_sig = app.settings.icon_set;
+        let icon_pack_sig = app.settings.icon_pack;
+        floem::reactive::create_effect(move |prev: Option<(String, String, String, String, String)>| {
+            let cur = (
+                theme_sig.get(),
+                preset_sig.get(),
+                accent_sig.get(),
+                icon_set_sig.get(),
+                icon_pack_sig.get(),
+            );
             if let Some(p) = prev.as_ref() {
                 if p != &cur {
                     crate::theme::set_mode_from_str(&cur.0);
