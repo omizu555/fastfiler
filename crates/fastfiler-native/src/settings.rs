@@ -5,11 +5,11 @@
 //
 // 設定値は元 Tauri 版 (src/store/core.ts の AppState) を踏襲。
 
+use floem::event::EventListener;
 use floem::prelude::*;
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, dropdown::Dropdown, dyn_container, h_stack, label, scroll, text_input,
-    v_stack, Decorators,
+    button, container, dyn_container, h_stack, label, scroll, text_input, v_stack, Decorators,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -461,33 +461,108 @@ fn row_select(
     .style(|s| s.padding(4).items_center().gap(8))
 }
 
-/// インストール済みフォントから選ぶコンボボックス。
-/// 空文字 (システムデフォルト) を先頭に、Windows レジストリから収集した family を並べる。
+/// インストール済みフォントから選ぶ簡易コンボボックス。
+/// text_input でフィルタ可能、▼ で候補を開閉、候補クリックで確定する。
 fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
-    let mut items: Vec<String> = fonts::installed_fonts().to_vec();
-    if items.is_empty() {
-        // フォント一覧が取得できない環境は input にフォールバック
+    let all_fonts: Vec<String> = fonts::installed_fonts().to_vec();
+    if all_fonts.is_empty() {
         return row_input(title, sig).into_any();
     }
-    let cur = sig.get_untracked();
-    if !cur.is_empty() && !items.iter().any(|f| f == &cur) {
-        items.insert(1, cur);
+    let open = RwSignal::new(false);
+    let filter = RwSignal::new(sig.get_untracked());
+
+    // sig が外部から変わったら入力欄も同期
+    {
+        let filter = filter;
+        floem::reactive::create_effect(move |_| {
+            let v = sig.get();
+            if filter.get_untracked() != v {
+                filter.set(v);
+            }
+        });
     }
-    let dd = Dropdown::new_rw(sig, items.clone()).style(|s: floem::style::Style| {
-        s.width(260)
-            .background(theme::bg_modal())
-            .color(theme::text_normal())
-            .class(floem::views::scroll::ScrollClass, |s| {
-                s.height(320).max_height(320).background(theme::bg_modal())
+
+    let fonts_for_list = all_fonts.clone();
+    let list_view = dyn_container(
+        move || (open.get(), filter.get()),
+        move |(o, f)| {
+            if !o {
+                return container(label(|| String::new())).style(|s| s.height(0)).into_any();
+            }
+            let f_lc = f.to_lowercase();
+            let items: Vec<String> = fonts_for_list
+                .iter()
+                .filter(|n| f_lc.is_empty() || n.to_lowercase().contains(&f_lc))
+                .take(500)
+                .cloned()
+                .collect();
+            let entries: Vec<floem::AnyView> = items
+                .into_iter()
+                .map(|name| {
+                    let n_for_click = name.clone();
+                    let n_for_label = name.clone();
+                    label(move || {
+                        if n_for_label.is_empty() {
+                            String::from("(system default)")
+                        } else {
+                            n_for_label.clone()
+                        }
+                    })
+                    .style(|s| {
+                        s.padding_horiz(8)
+                            .padding_vert(4)
+                            .width_full()
+                            .cursor(CursorStyle::Pointer)
+                            .color(theme::text_normal())
+                    })
+                    .on_click_stop(move |_| {
+                        sig.set(n_for_click.clone());
+                        filter.set(n_for_click.clone());
+                        open.set(false);
+                    })
+                    .into_any()
+                })
+                .collect();
+            floem::views::scroll(
+                floem::views::stack_from_iter(entries).style(|s| s.flex_col().width_full()),
+            )
+            .style(|s| {
+                s.height(280)
+                    .width(260)
+                    .border(1)
+                    .border_color(theme::border_default())
+                    .background(theme::bg_modal())
             })
-            .class(floem::prelude::ListClass, |s| s.min_height(0))
+            .into_any()
+        },
+    );
+
+    let toggle_btn = button("▼").action(move || {
+        let cur = open.get_untracked();
+        open.set(!cur);
     });
+
+    let input = text_input(filter)
+        .style(|s| {
+            s.width(220)
+                .height(24)
+                .padding_horiz(6)
+                .border(1)
+                .border_color(theme::border_default())
+                .background(theme::bg_modal())
+                .color(theme::text_normal())
+        })
+        .on_event_stop(EventListener::FocusGained, move |_| {
+            open.set(true);
+        });
+
     h_stack((
         label(move || title.to_string())
             .style(|s| s.width(220).padding(6).color(theme::text_label())),
-        dd,
+        v_stack((h_stack((input, toggle_btn)).style(|s| s.gap(2)), list_view))
+            .style(|s| s.flex_col()),
     ))
-    .style(|s| s.padding(4).items_center().gap(8))
+    .style(|s| s.padding(4).items_start().gap(8))
     .into_any()
 }
 
