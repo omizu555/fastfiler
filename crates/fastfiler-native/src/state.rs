@@ -151,40 +151,61 @@ impl PaneState {
             return;
         }
         let t = Instant::now();
-        match read_folder(&target, self.show_hidden.get()) {
+        match read_folder(&target, self.show_hidden.get_untracked()) {
             Ok(mut v) => {
-                sort_rows(&mut v, self.sort_key.get(), self.sort_desc.get());
+                sort_rows(&mut v, self.sort_key.get_untracked(), self.sort_desc.get_untracked());
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 let len = v.len();
-                if push_history {
-                    let prev = self.cur_path.get();
+                let prev_path = self.cur_path.get_untracked();
+                let same_path = prev_path == target;
+                if push_history && !same_path {
                     self.history.update(|h| {
-                        h.back.push_back(prev);
+                        h.back.push_back(prev_path.clone());
                         h.forward.clear();
                     });
                 }
-                self.cur_path.set(target.clone());
-                self.path_input.set(target.to_string_lossy().into_owned());
-                self.title.set(pretty_title(&target));
+                // 変化時のみ set してシグナル通知の連鎖を抑える
+                if !same_path {
+                    self.cur_path.set(target.clone());
+                    let s = target.to_string_lossy().into_owned();
+                    if self.path_input.with_untracked(|p| p != &s) {
+                        self.path_input.set(s);
+                    }
+                    let title_new = pretty_title(&target);
+                    if self.title.with_untracked(|p| p != &title_new) {
+                        self.title.set(title_new);
+                    }
+                }
                 self.rows.set(v);
-                self.selected.set(im::OrdSet::new());
-                self.anchor.set(None);
+                if !self.selected.with_untracked(|s| s.is_empty()) {
+                    self.selected.set(im::OrdSet::new());
+                }
+                if self.anchor.get_untracked().is_some() {
+                    self.anchor.set(None);
+                }
                 self.stats.set(Stats {
                     load_ms: ms,
                     count: len,
                 });
-                self.status_msg.set(String::from("ok"));
+                if self.status_msg.with_untracked(|m| m != "ok") {
+                    self.status_msg.set(String::from("ok"));
+                }
 
                 let s = target.to_string_lossy().into_owned();
                 let mut wp = self.watched.lock();
-                if let Some(old) = wp.as_ref() {
-                    self.watcher.unwatch(old);
+                let need_rewatch = wp.as_deref() != Some(s.as_str());
+                if need_rewatch {
+                    if let Some(old) = wp.as_ref() {
+                        self.watcher.unwatch(old);
+                    }
+                    *wp = Some(s.clone());
+                    *self.sink.counter.lock() = 0;
+                    if self.fs_change_tick.get_untracked() != 0 {
+                        self.fs_change_tick.set(0);
+                    }
+                    let sd: Arc<dyn EventSink> = self.sink.clone();
+                    let _ = self.watcher.watch_with_sink(s, sd);
                 }
-                *wp = Some(s.clone());
-                *self.sink.counter.lock() = 0;
-                self.fs_change_tick.set(0);
-                let sd: Arc<dyn EventSink> = self.sink.clone();
-                let _ = self.watcher.watch_with_sink(s, sd);
             }
             Err(e) => self.status_msg.set(format!("read failed: {}", e)),
         }
