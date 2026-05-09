@@ -4,6 +4,8 @@
 // 設定変更時は次回起動から反映 (再起動不要にすると全 view 再構築が必要なため)。
 // アクセントカラー (`ACCENT`) は selection 色等に使用。
 
+pub mod fonts;
+
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use floem::peniko::Color;

@@ -14,7 +14,7 @@ use floem::views::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::fonts;
+use crate::theme::fonts;
 use crate::theme;
 
 // ────────────────────────────────────────────────────────────────
