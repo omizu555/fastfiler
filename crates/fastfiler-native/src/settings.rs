@@ -539,6 +539,11 @@ fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
 
     let toggle_btn = button("▼").action(move || {
         let cur = open.get_untracked();
+        if !cur {
+            filter.set(String::new());
+        } else {
+            filter.set(sig.get_untracked());
+        }
         open.set(!cur);
     });
 
@@ -553,7 +558,12 @@ fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
                 .color(theme::text_normal())
         })
         .on_event_stop(EventListener::FocusGained, move |_| {
+            filter.set(String::new());
             open.set(true);
+        })
+        .on_event_stop(EventListener::FocusLost, move |_| {
+            // フォーカスが外れたら表示を選択値に戻す (候補クリックは別系統で処理済み)
+            filter.set(sig.get_untracked());
         });
 
     h_stack((
