@@ -591,9 +591,48 @@ struct DragState {
     active: bool,
 }
 
+static NEXT_TAB_ID: AtomicU64 = AtomicU64::new(1);
+
+/// 1 タブ = 複数フォルダペイン (左から 1..N)。
+/// タブ名は panes[0] (primary) のフォルダ名から派生する。
+#[derive(Clone)]
+struct Tab {
+    id: u64,
+    panes: RwSignal<im::Vector<PaneState>>,
+}
+
+impl Tab {
+    fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
+        let p = PaneState::new(start, show_hidden);
+        Self {
+            id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
+            panes: RwSignal::new(im::vector![p]),
+        }
+    }
+
+    fn primary(&self) -> PaneState {
+        self.panes.with(|v| v[0].clone())
+    }
+
+    /// 必要なら primary のパスを複製して n 個まで増やす。
+    fn ensure_panes(&self, n: usize, show_hidden: RwSignal<bool>) {
+        let cur_len = self.panes.with(|v| v.len());
+        if cur_len >= n {
+            return;
+        }
+        let base_path = self.primary().cur_path.get_untracked();
+        self.panes.update(|v| {
+            for _ in v.len()..n {
+                v.push_back(PaneState::new(base_path.clone(), show_hidden));
+            }
+        });
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
-    tabs: RwSignal<im::Vector<PaneState>>,
+    tabs: RwSignal<im::Vector<Tab>>,
+    /// active タブ id
     active: RwSignal<u64>,
     tab_cols: RwSignal<usize>,
     settings: AppSettings,
@@ -605,10 +644,10 @@ struct AppState {
 impl AppState {
     fn new(start: PathBuf) -> Self {
         let settings = AppSettings::new();
-        let pane = PaneState::new(start, settings.show_hidden);
-        let id = pane.id;
+        let tab = Tab::new(start, settings.show_hidden);
+        let id = tab.id;
         Self {
-            tabs: RwSignal::new(im::vector![pane]),
+            tabs: RwSignal::new(im::vector![tab]),
             active: RwSignal::new(id),
             tab_cols: RwSignal::new(1),
             settings,
@@ -618,34 +657,50 @@ impl AppState {
         }
     }
 
-    fn active_pane(&self) -> Option<PaneState> {
+    fn active_tab(&self) -> Option<Tab> {
         let id = self.active.get();
-        self.tabs.get().iter().find(|p| p.id == id).cloned()
+        self.tabs.get().iter().find(|t| t.id == id).cloned()
+    }
+
+    /// 互換用: アクティブタブの primary ペイン
+    fn active_pane(&self) -> Option<PaneState> {
+        self.active_tab().map(|t| t.primary())
     }
 
     fn add_tab(&self, start: PathBuf) {
-        let pane = PaneState::new(start, self.settings.show_hidden);
-        let id = pane.id;
-        self.tabs.update(|t| t.push_back(pane));
+        let tab = Tab::new(start, self.settings.show_hidden);
+        let id = tab.id;
+        self.tabs.update(|t| t.push_back(tab));
         self.active.set(id);
     }
 
     fn close_tab(&self, id: u64) {
         self.tabs.update(|t| {
-            if let Some(idx) = t.iter().position(|p| p.id == id) {
+            if let Some(idx) = t.iter().position(|x| x.id == id) {
                 t.remove(idx);
             }
         });
         let remaining = self.tabs.get();
         if remaining.is_empty() {
-            // 最後の 1 つは閉じない代わりに、初期パスで新規作成して維持する
             self.add_tab(initial_path());
-        } else if !remaining.iter().any(|p| p.id == self.active.get()) {
-            // アクティブが消えたら末尾を選ぶ
+        } else if !remaining.iter().any(|t| t.id == self.active.get()) {
             if let Some(last) = remaining.last() {
                 self.active.set(last.id);
             }
         }
+    }
+
+    /// 指定 pane id を保持するペインを全タブから検索
+    fn find_pane(&self, pane_id: u64) -> Option<PaneState> {
+        self.tabs.with(|tabs| {
+            for t in tabs.iter() {
+                let found = t.panes.with(|ps| ps.iter().find(|p| p.id == pane_id).cloned());
+                if let Some(p) = found {
+                    return Some(p);
+                }
+            }
+            None
+        })
     }
 }
 
@@ -653,14 +708,21 @@ impl AppState {
 // Views
 // ────────────────────────────────────────────────────────────────
 
-fn tab_button(app: AppState, pane: PaneState) -> impl IntoView {
-    let id = pane.id;
-    let title = pane.title;
+fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
+    let id = tab.id;
+    let panes_sig = tab.panes;
     let active = app.active;
 
     let title_label = label(move || {
-        let t = title.get();
-        if t.is_empty() { String::from("(root)") } else { t }
+        // primary ペインの title を反応的に取得
+        panes_sig.with(|v| {
+            v.head()
+                .map(|p| {
+                    let t = p.title.get();
+                    if t.is_empty() { String::from("(root)") } else { t }
+                })
+                .unwrap_or_else(|| String::from("(empty)"))
+        })
     })
     .style(|s| s.flex_grow(1.0).padding_horiz(8));
 
@@ -754,8 +816,8 @@ fn tabs_panel(app: AppState) -> impl IntoView {
                 let end = ((c + 1) * per_col).min(total);
                 let mut col_items: Vec<floem::AnyView> = Vec::new();
                 if start < end {
-                    for p in tabs.iter().skip(start).take(end - start) {
-                        col_items.push(tab_button(app.clone(), p.clone()).into_any());
+                    for t in tabs.iter().skip(start).take(end - start) {
+                        col_items.push(tab_button(app.clone(), t.clone()).into_any());
                     }
                 }
                 let col_view = floem::views::stack_from_iter(col_items)
@@ -1278,12 +1340,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 if target_id == ds.source_pane {
                     return;
                 }
-                let target_pane = app_for_up
-                    .tabs
-                    .get_untracked()
-                    .iter()
-                    .find(|p| p.id == target_id)
-                    .cloned();
+                let target_pane = app_for_up.find_pane(target_id);
                 let Some(tp) = target_pane else { return };
                 let dest_dir = tp.cur_path.get_untracked();
                 let mut ok = 0u32;
@@ -1317,13 +1374,7 @@ fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 tp.status_msg
                     .set(format!("D&D {} OK={} / NG={}", label, ok, err));
                 tp.reload();
-                if let Some(sp) = app_for_up
-                    .tabs
-                    .get_untracked()
-                    .iter()
-                    .find(|p| p.id == ds.source_pane)
-                    .cloned()
-                {
+                if let Some(sp) = app_for_up.find_pane(ds.source_pane) {
                     sp.reload();
                 }
             }
@@ -1560,8 +1611,8 @@ fn footer_bar(app: AppState) -> impl IntoView {
         let cnt = tabs
             .get()
             .iter()
-            .find(|p| p.id == id)
-            .map(|p| p.stats.get().count)
+            .find(|t| t.id == id)
+            .map(|t| t.primary().stats.get().count)
             .unwrap_or(0);
         format!("items: {}", cnt)
     })
@@ -1606,6 +1657,7 @@ fn app_view() -> impl IntoView {
                     let app = app.clone();
                     let tab_columns_sig = app.settings.tab_columns;
                     let app_for_panes = app.clone();
+                    let show_hidden_sig = app.settings.show_hidden;
                     let active_panes = dyn_container(
                         move || {
                             let id = active.get();
@@ -1615,17 +1667,14 @@ fn app_view() -> impl IntoView {
                                 .unwrap_or(1)
                                 .clamp(1, 4);
                             let tabs_v = tabs.get();
-                            let active_idx = tabs_v.iter().position(|p| p.id == id).unwrap_or(0);
-                            let total = tabs_v.len();
-                            let cols = cols.min(total.max(1));
-                            // active を起点に右へ最大 cols 個 (足りなければ左へ折り返し)
-                            let mut start = active_idx;
-                            if active_idx + cols > total && total >= cols {
-                                start = total - cols;
-                            }
-                            let panes: Vec<PaneState> = (0..cols)
-                                .filter_map(|i| tabs_v.get(start + i).cloned())
-                                .collect();
+                            let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
+                                .or_else(|| tabs_v.iter().next().cloned());
+                            let panes: Vec<PaneState> = if let Some(t) = active_tab {
+                                t.ensure_panes(cols, show_hidden_sig);
+                                t.panes.with(|v| v.iter().take(cols).cloned().collect())
+                            } else {
+                                Vec::new()
+                            };
                             (panes, cols)
                         },
                         move |(panes, _cols)| {
