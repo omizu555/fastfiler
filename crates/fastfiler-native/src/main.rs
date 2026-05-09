@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fastfiler_domain::events::EventSink;
+use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::fs as ffs;
 use fastfiler_domain::watcher::WatcherCore;
 use floem::event::{Event, EventListener};
@@ -147,6 +148,14 @@ impl EventSink for CounterSink {
 // PaneState (1 タブ = 1 ペイン)
 // ────────────────────────────────────────────────────────────────
 
+#[derive(Clone, Debug)]
+enum ModalKind {
+    None,
+    NewFolder,
+    /// 元の名前 (リネーム対象)
+    Rename(String),
+}
+
 #[derive(Clone)]
 struct PaneState {
     id: u64,
@@ -155,7 +164,9 @@ struct PaneState {
     path_input: RwSignal<String>,
     rows: RwSignal<im::Vector<FileRow>>,
     stats: RwSignal<Stats>,
-    selected: RwSignal<Option<usize>>,
+    selected: RwSignal<im::OrdSet<usize>>,
+    /// 最後にクリックした行 (Shift+Click のアンカー / キーボード操作の起点)
+    anchor: RwSignal<Option<usize>>,
     status_msg: RwSignal<String>,
     history: RwSignal<History>,
     watcher: Arc<WatcherCore>,
@@ -163,6 +174,9 @@ struct PaneState {
     watched: Arc<Mutex<Option<String>>>,
     fs_change_tick: RwSignal<u32>,
     show_hidden: RwSignal<bool>,
+    /// モーダル種別 (新規フォルダ / リネーム)
+    modal_kind: RwSignal<ModalKind>,
+    modal_input: RwSignal<String>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
@@ -178,7 +192,8 @@ impl PaneState {
             path_input: RwSignal::new(start.to_string_lossy().into_owned()),
             rows: RwSignal::new(initial_rows),
             stats: RwSignal::new(Stats { load_ms: 0.0, count: initial_count }),
-            selected: RwSignal::new(None),
+            selected: RwSignal::new(im::OrdSet::new()),
+            anchor: RwSignal::new(None),
             status_msg: RwSignal::new(String::from("ready")),
             history: RwSignal::new(History::default()),
             watcher: Arc::new(WatcherCore::default()),
@@ -186,6 +201,8 @@ impl PaneState {
             watched: Arc::new(Mutex::new(None)),
             fs_change_tick: RwSignal::new(0),
             show_hidden,
+            modal_kind: RwSignal::new(ModalKind::None),
+            modal_input: RwSignal::new(String::new()),
         }
     }
 
@@ -212,7 +229,8 @@ impl PaneState {
                 self.path_input.set(target.to_string_lossy().into_owned());
                 self.title.set(pretty_title(&target));
                 self.rows.set(v);
-                self.selected.set(None);
+                self.selected.set(im::OrdSet::new());
+                self.anchor.set(None);
                 self.stats.set(Stats { load_ms: ms, count: len });
                 self.status_msg.set(String::from("ok"));
 
@@ -258,6 +276,144 @@ impl PaneState {
     fn reload(&self) {
         let cur = self.cur_path.get();
         self.navigate(cur, false);
+    }
+
+    /// 選択行のフルパスを返す
+    fn selected_paths(&self) -> Vec<PathBuf> {
+        let rows = self.rows.get();
+        let cur = self.cur_path.get();
+        self.selected
+            .get()
+            .iter()
+            .filter_map(|i| rows.get(*i).map(|r| cur.join(&r.name)))
+            .collect()
+    }
+
+    /// 選択行が 1 件のときのみインデックスを返す
+    fn single_selected(&self) -> Option<usize> {
+        let s = self.selected.get();
+        if s.len() == 1 { s.iter().next().copied() } else { None }
+    }
+
+    /// 行 idx をクリック (修飾キー対応)
+    fn click_row(&self, idx: usize, ctrl: bool, shift: bool) {
+        if shift {
+            let anchor = self.anchor.get().unwrap_or(idx);
+            let (lo, hi) = if anchor <= idx { (anchor, idx) } else { (idx, anchor) };
+            let mut set = if ctrl { self.selected.get() } else { im::OrdSet::new() };
+            for i in lo..=hi {
+                set.insert(i);
+            }
+            self.selected.set(set);
+        } else if ctrl {
+            self.selected.update(|s| {
+                if s.contains(&idx) {
+                    s.remove(&idx);
+                } else {
+                    s.insert(idx);
+                }
+            });
+            self.anchor.set(Some(idx));
+        } else {
+            let mut set = im::OrdSet::new();
+            set.insert(idx);
+            self.selected.set(set);
+            self.anchor.set(Some(idx));
+        }
+    }
+
+    fn select_all(&self) {
+        let len = self.rows.with(|v| v.len());
+        let mut set = im::OrdSet::new();
+        for i in 0..len {
+            set.insert(i);
+        }
+        self.selected.set(set);
+    }
+
+    /// 選択をゴミ箱へ送る
+    fn delete_selected(&self) {
+        let paths: Vec<String> = self
+            .selected_paths()
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            return;
+        }
+        let n = paths.len();
+        match fops::delete_to_trash(paths) {
+            Ok(()) => {
+                self.status_msg.set(format!("ごみ箱へ送りました ({} 件)", n));
+                self.reload();
+            }
+            Err(e) => self.status_msg.set(format!("削除失敗: {}", e)),
+        }
+    }
+
+    fn open_new_folder_modal(&self) {
+        self.modal_input.set(String::from("New Folder"));
+        self.modal_kind.set(ModalKind::NewFolder);
+    }
+
+    fn open_rename_modal(&self) {
+        let Some(idx) = self.single_selected() else {
+            self.status_msg.set(String::from("リネームは 1 件のみ選択時"));
+            return;
+        };
+        let name = self.rows.with(|v| v.get(idx).map(|r| r.name.clone()));
+        if let Some(name) = name {
+            self.modal_input.set(name.clone());
+            self.modal_kind.set(ModalKind::Rename(name));
+        }
+    }
+
+    fn close_modal(&self) {
+        self.modal_kind.set(ModalKind::None);
+        self.modal_input.set(String::new());
+    }
+
+    fn confirm_modal(&self) {
+        let kind = self.modal_kind.get();
+        let input = self.modal_input.get().trim().to_string();
+        if input.is_empty() {
+            self.close_modal();
+            return;
+        }
+        let cur = self.cur_path.get();
+        match kind {
+            ModalKind::None => {}
+            ModalKind::NewFolder => {
+                let target = cur.join(&input);
+                match fops::create_dir(target.to_string_lossy().into_owned()) {
+                    Ok(()) => {
+                        self.status_msg.set(format!("作成: {}", input));
+                        self.close_modal();
+                        self.reload();
+                    }
+                    Err(e) => self.status_msg.set(format!("作成失敗: {}", e)),
+                }
+            }
+            ModalKind::Rename(orig) => {
+                if input == orig {
+                    self.close_modal();
+                    return;
+                }
+                let from = cur.join(&orig);
+                let to = cur.join(&input);
+                match fops::rename_path(
+                    from.to_string_lossy().into_owned(),
+                    to.to_string_lossy().into_owned(),
+                ) {
+                    Ok(()) => {
+                        self.status_msg.set(format!("リネーム: {} → {}", orig, input));
+                        self.close_modal();
+                        self.reload();
+                    }
+                    Err(e) => self.status_msg.set(format!("リネーム失敗: {}", e)),
+                }
+            }
+        }
     }
 }
 
@@ -496,7 +652,10 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let rows = pane.rows;
     let stats = pane.stats;
     let selected = pane.selected;
+    let anchor = pane.anchor;
     let status_msg = pane.status_msg;
+    let modal_kind = pane.modal_kind;
+    let modal_input = pane.modal_input;
     let sink = pane.sink.clone();
 
     let pane_for_open = pane.clone();
@@ -506,6 +665,14 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
     let pane_for_addr_enter = pane.clone();
+    let pane_for_newfolder = pane.clone();
+    let pane_for_rename = pane.clone();
+    let pane_for_delete = pane.clone();
+    let pane_for_modal_ok = pane.clone();
+    let pane_for_modal_cancel = pane.clone();
+    let pane_for_modal_enter = pane.clone();
+    let pane_for_keys = pane.clone();
+    let pane_for_click = pane.clone();
 
     let toolbar = h_stack((
         button("←").action(move || pane_for_back.back()),
@@ -533,6 +700,9 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             let p = PathBuf::from(s.trim());
             pane_for_open.navigate(p, true);
         }),
+        button("New Folder").action(move || pane_for_newfolder.open_new_folder_modal()),
+        button("Rename").action(move || pane_for_rename.open_rename_modal()),
+        button("Delete").action(move || pane_for_delete.delete_selected()),
     ))
     .style(|s| s.gap(6).padding(6).items_center());
 
@@ -560,7 +730,8 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             let is_dir = row.is_dir;
             let bg_idx = idx;
             let name_for_open = row.name.clone();
-            let pane = pane_for_dblclick.clone();
+            let pane_dbl = pane_for_dblclick.clone();
+            let pane_clk = pane_for_click.clone();
             h_stack((
                 text(format!("{}", idx)).style(|s| s.width(60).padding_horiz(6)),
                 text(row.name).style(move |s| {
@@ -578,23 +749,27 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                 } else {
                     Color::rgb8(34, 34, 38)
                 };
-                let sel = selected.get() == Some(bg_idx);
+                let sel = selected.with(|s| s.contains(&bg_idx));
                 let bg = if sel { Color::rgb8(58, 96, 158) } else { zebra };
                 s.height(row_height)
                     .items_center()
                     .background(bg)
                     .cursor(CursorStyle::Pointer)
             })
-            .on_click_stop(move |_| {
-                selected.set(Some(bg_idx));
+            .on_click_stop(move |e| {
+                let (ctrl, shift) = if let Event::PointerUp(p) = e {
+                    (p.modifiers.control(), p.modifiers.shift())
+                } else {
+                    (false, false)
+                };
+                pane_clk.click_row(bg_idx, ctrl, shift);
             })
             .on_double_click_stop(move |_| {
                 let cur = cur_path.get();
                 let target = cur.join(&name_for_open);
                 if is_dir {
-                    pane.navigate(target, true);
+                    pane_dbl.navigate(target, true);
                 } else {
-                    // ファイルはシェルで開く (関連付け起動)
                     let _ = fastfiler_domain::shell::open_with_shell(
                         target.to_string_lossy().into_owned(),
                     );
@@ -608,12 +783,12 @@ fn pane_view(pane: PaneState) -> impl IntoView {
 
     let status = label(move || {
         let st = stats.get();
-        let sel = selected.get();
+        let sel_count = selected.with(|s| s.len());
         let cnt = sink.0.lock();
         let msg = status_msg.get();
         format!(
-            "items: {}   load: {:.2} ms   selected: {:?}   fs-change: {}   {}",
-            st.count, st.load_ms, sel, *cnt, msg
+            "items: {}   load: {:.2} ms   selected: {}   fs-change: {}   {}",
+            st.count, st.load_ms, sel_count, *cnt, msg
         )
     })
     .style(|s| {
@@ -625,15 +800,82 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             .border_color(Color::rgb8(60, 60, 60))
     });
 
-    v_stack((toolbar, header, scrollable, status))
+    // モーダル (新規フォルダ / リネーム入力)
+    let modal_bar = dyn_container(
+        move || modal_kind.get(),
+        move |kind| match kind {
+            ModalKind::None => container(label(|| String::new())).style(|s| s.height(0)).into_any(),
+            other => {
+                let title = match &other {
+                    ModalKind::NewFolder => "新規フォルダ名",
+                    ModalKind::Rename(_) => "新しい名前",
+                    ModalKind::None => "",
+                };
+                let pane_ok = pane_for_modal_ok.clone();
+                let pane_cancel = pane_for_modal_cancel.clone();
+                let pane_enter = pane_for_modal_enter.clone();
+                h_stack((
+                    label(move || title.to_string())
+                        .style(|s| s.padding_horiz(8).color(Color::rgb8(220, 220, 220))),
+                    text_input(modal_input)
+                        .style(|s| {
+                            s.flex_grow(1.0)
+                                .padding(4)
+                                .border(1)
+                                .border_color(Color::rgb8(120, 120, 120))
+                        })
+                        .on_event_stop(EventListener::KeyDown, move |e| {
+                            if let Event::KeyDown(ke) = e {
+                                match &ke.key.logical_key {
+                                    Key::Named(NamedKey::Enter) => pane_enter.confirm_modal(),
+                                    Key::Named(NamedKey::Escape) => pane_enter.close_modal(),
+                                    _ => {}
+                                }
+                            }
+                        }),
+                    button("OK").action(move || pane_ok.confirm_modal()),
+                    button("Cancel").action(move || pane_cancel.close_modal()),
+                ))
+                .style(|s| {
+                    s.gap(6)
+                        .padding(6)
+                        .items_center()
+                        .background(Color::rgb8(36, 36, 40))
+                        .border_bottom(1)
+                        .border_color(Color::rgb8(80, 80, 80))
+                })
+                .into_any()
+            }
+        },
+    );
+
+    v_stack((toolbar, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
         .on_event_stop(EventListener::KeyDown, move |e| {
             if let Event::KeyDown(ke) = e {
+                let mods = &ke.modifiers;
+                let ctrl = mods.control();
+                let shift = mods.shift();
+                match &ke.key.logical_key {
+                    Key::Named(NamedKey::Delete) => {
+                        pane_for_keys.delete_selected();
+                        return;
+                    }
+                    Key::Named(NamedKey::F2) => {
+                        pane_for_keys.open_rename_modal();
+                        return;
+                    }
+                    Key::Character(c) if ctrl && (c == "a" || c == "A") => {
+                        pane_for_keys.select_all();
+                        return;
+                    }
+                    _ => {}
+                }
                 let len = rows.with(|v| v.len());
                 if len == 0 {
                     return;
                 }
-                let cur = selected.get().unwrap_or(0);
+                let cur = anchor.get().unwrap_or(0);
                 let next = match &ke.key.logical_key {
                     Key::Named(NamedKey::ArrowDown) => Some((cur + 1).min(len - 1)),
                     Key::Named(NamedKey::ArrowUp) => Some(cur.saturating_sub(1)),
@@ -644,7 +886,7 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                     _ => None,
                 };
                 if let Some(n) = next {
-                    selected.set(Some(n));
+                    pane_for_keys.click_row(n, false, shift);
                 }
             }
         })
