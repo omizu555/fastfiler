@@ -189,7 +189,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     )
     .style(|s| {
         s.height(24)
-            .width_full()
+            .flex_grow(1.0)
             .background(theme::bg_modal())
             .border_bottom(1)
             .border_color(theme::border_modal())
@@ -477,7 +477,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_move = app.clone();
     let app_for_up = app.clone();
     let app_for_focus = app.clone();
-    v_stack((toolbar, breadcrumb, modal_bar, header, scrollable, status))
+    let top_bar = h_stack((toolbar, breadcrumb))
+        .style(|s| s.width_full().items_center().border_bottom(1).border_color(theme::border_modal()));
+    v_stack((top_bar, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
         .on_event_cont(EventListener::PointerDown, move |_| {
             // クリックされたペインを active に

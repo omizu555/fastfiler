@@ -65,17 +65,17 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
                 .border_color(border_col)
                 .cursor(CursorStyle::Pointer)
         })
-        .on_event_stop(EventListener::PointerDown, move |_| {
+        .on_event_cont(EventListener::PointerDown, move |_| {
             tab_dragging.set(Some(id));
         })
-        .on_event_stop(EventListener::PointerEnter, move |_| {
+        .on_event_cont(EventListener::PointerEnter, move |_| {
             if let Some(from) = tab_dragging.get_untracked() {
                 if from != id {
                     app_for_drag.reorder_tab(from, id);
                 }
             }
         })
-        .on_event_stop(EventListener::PointerUp, move |_| {
+        .on_event_cont(EventListener::PointerUp, move |_| {
             tab_dragging.set(None);
         })
         .on_click_stop(move |_| active.set(id))

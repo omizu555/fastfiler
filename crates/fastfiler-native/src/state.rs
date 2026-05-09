@@ -571,11 +571,14 @@ impl AppState {
         if from_id == to_id { return; }
         self.tabs.update(|t| {
             let from = t.iter().position(|x| x.id == from_id);
-            let to = t.iter().position(|x| x.id == to_id);
-            if let (Some(f), Some(to)) = (from, to) {
+            if let Some(f) = from {
                 let item = t.remove(f);
-                let insert_at = if f < to { to } else { to };
-                t.insert(insert_at, item);
+                // 取り出し後の to_id の位置に挿入 (target のところに割り込む)
+                if let Some(to) = t.iter().position(|x| x.id == to_id) {
+                    t.insert(to, item);
+                } else {
+                    t.push_back(item);
+                }
             }
         });
     }
