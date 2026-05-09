@@ -25,6 +25,7 @@ use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::win_clipboard as wcb;
 use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
+use floem::kurbo::{Point, Rect};
 use floem::menu::{Menu, MenuItem};
 use floem::peniko::Color;
 use floem::prelude::*;
@@ -581,6 +582,15 @@ fn unique_dest(dir: &Path, name: &str) -> PathBuf {
 // AppState (タブ集合)
 // ────────────────────────────────────────────────────────────────
 
+#[derive(Clone, Debug)]
+struct DragState {
+    source_pane: u64,
+    paths: Vec<PathBuf>,
+    start_window: Option<Point>,
+    current_window: Point,
+    active: bool,
+}
+
 #[derive(Clone)]
 struct AppState {
     tabs: RwSignal<im::Vector<PaneState>>,
@@ -588,6 +598,8 @@ struct AppState {
     tab_cols: RwSignal<usize>,
     settings: AppSettings,
     settings_open: RwSignal<bool>,
+    pane_rects: RwSignal<im::HashMap<u64, Rect>>,
+    dragging: RwSignal<Option<DragState>>,
 }
 
 impl AppState {
@@ -601,6 +613,8 @@ impl AppState {
             tab_cols: RwSignal::new(1),
             settings,
             settings_open: RwSignal::new(false),
+            pane_rects: RwSignal::new(im::HashMap::new()),
+            dragging: RwSignal::new(None),
         }
     }
 
@@ -806,7 +820,7 @@ fn tabs_panel(app: AppState) -> impl IntoView {
     })
 }
 
-fn pane_view(pane: PaneState) -> impl IntoView {
+fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let cur_path = pane.cur_path;
     let path_input = pane.path_input;
     let rows = pane.rows;
@@ -975,6 +989,8 @@ fn pane_view(pane: PaneState) -> impl IntoView {
 
     let row_height: f64 = 22.0;
 
+    let app_for_rows = app.clone();
+    let pane_for_rows = pane.clone();
     let list = virtual_stack(
         VirtualDirection::Vertical,
         VirtualItemSize::Fixed(Box::new(move || row_height)),
@@ -984,8 +1000,11 @@ fn pane_view(pane: PaneState) -> impl IntoView {
             let is_dir = row.is_dir;
             let bg_idx = idx;
             let name_for_open = row.name.clone();
+            let row_name_for_drag = row.name.clone();
             let pane_dbl = pane_for_dblclick.clone();
             let pane_clk = pane_for_click.clone();
+            let pane_for_drag = pane_for_rows.clone();
+            let app_for_drag = app_for_rows.clone();
             h_stack((
                 text(format!("{}", idx)).style(|s| s.width(60).padding_horiz(6)),
                 text(row.name).style(move |s| {
@@ -1009,6 +1028,33 @@ fn pane_view(pane: PaneState) -> impl IntoView {
                     .items_center()
                     .background(bg)
                     .cursor(CursorStyle::Pointer)
+            })
+            .on_event_cont(EventListener::PointerDown, move |e| {
+                if let Event::PointerDown(p) = e {
+                    if !p.button.is_primary() {
+                        return;
+                    }
+                    let cur = pane_for_drag.cur_path.get_untracked();
+                    let row_path = cur.join(&row_name_for_drag);
+                    let in_sel =
+                        pane_for_drag.selected.with_untracked(|s| s.contains(&bg_idx));
+                    let paths: Vec<PathBuf> = if in_sel {
+                        let sel = pane_for_drag.selected.get_untracked();
+                        let rs = pane_for_drag.rows.get_untracked();
+                        sel.iter()
+                            .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
+                            .collect()
+                    } else {
+                        vec![row_path]
+                    };
+                    app_for_drag.dragging.set(Some(DragState {
+                        source_pane: pane_for_drag.id,
+                        paths,
+                        start_window: None,
+                        current_window: Point::ZERO,
+                        active: false,
+                    }));
+                }
             })
             .on_click_stop(move |e| {
                 let (ctrl, shift) = if let Event::PointerUp(p) = e {
@@ -1161,8 +1207,127 @@ fn pane_view(pane: PaneState) -> impl IntoView {
     );
 
     let pane_for_xbuttons = pane.clone();
+    let pane_id = pane.id;
+    let app_for_rect = app.clone();
+    let app_for_rect2 = app.clone();
+    let app_for_move = app.clone();
+    let app_for_up = app.clone();
     v_stack((toolbar, breadcrumb, modal_bar, header, scrollable, status))
         .style(|s| s.size_full().flex_col())
+        .on_resize(move |rect| {
+            app_for_rect.pane_rects.update(|m| {
+                let cur = m.get(&pane_id).copied().unwrap_or(Rect::ZERO);
+                let new_rect = Rect::from_origin_size(cur.origin(), rect.size());
+                m.insert(pane_id, new_rect);
+            });
+        })
+        .on_move(move |pt| {
+            app_for_rect2.pane_rects.update(|m| {
+                let cur = m.get(&pane_id).copied().unwrap_or(Rect::ZERO);
+                let new_rect = Rect::from_origin_size(pt, cur.size());
+                m.insert(pane_id, new_rect);
+            });
+        })
+        .on_event_cont(EventListener::PointerMove, move |e| {
+            if let Event::PointerMove(p) = e {
+                let dragging = app_for_move.dragging.get_untracked();
+                let Some(_) = dragging else { return };
+                let pane_origin = app_for_move
+                    .pane_rects
+                    .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
+                let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
+                app_for_move.dragging.update(|d| {
+                    if let Some(ds) = d {
+                        if ds.source_pane != pane_id {
+                            return;
+                        }
+                        if ds.start_window.is_none() {
+                            ds.start_window = Some(win_pt);
+                        }
+                        ds.current_window = win_pt;
+                        if !ds.active {
+                            let s = ds.start_window.unwrap();
+                            let dx = win_pt.x - s.x;
+                            let dy = win_pt.y - s.y;
+                            if (dx * dx + dy * dy).sqrt() > 5.0 {
+                                ds.active = true;
+                            }
+                        }
+                    }
+                });
+            }
+        })
+        .on_event_cont(EventListener::PointerUp, move |e| {
+            if let Event::PointerUp(p) = e {
+                let drag_opt = app_for_up.dragging.get_untracked();
+                let Some(ds) = drag_opt else { return };
+                app_for_up.dragging.set(None);
+                if !ds.active || ds.source_pane != pane_id {
+                    return;
+                }
+                let pane_origin = app_for_up
+                    .pane_rects
+                    .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
+                let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
+                let copy = p.modifiers.control();
+                let target_id = app_for_up.pane_rects.with_untracked(|m| {
+                    m.iter()
+                        .find_map(|(id, r)| if r.contains(win_pt) { Some(*id) } else { None })
+                });
+                let Some(target_id) = target_id else { return };
+                if target_id == ds.source_pane {
+                    return;
+                }
+                let target_pane = app_for_up
+                    .tabs
+                    .get_untracked()
+                    .iter()
+                    .find(|p| p.id == target_id)
+                    .cloned();
+                let Some(tp) = target_pane else { return };
+                let dest_dir = tp.cur_path.get_untracked();
+                let mut ok = 0u32;
+                let mut err = 0u32;
+                for src in &ds.paths {
+                    let name = match src.file_name() {
+                        Some(n) => n.to_string_lossy().into_owned(),
+                        None => {
+                            err += 1;
+                            continue;
+                        }
+                    };
+                    let dst = unique_dest(&dest_dir, &name);
+                    let res = if copy {
+                        fops::copy_path(
+                            src.to_string_lossy().into_owned(),
+                            dst.to_string_lossy().into_owned(),
+                        )
+                    } else {
+                        fops::move_path(
+                            src.to_string_lossy().into_owned(),
+                            dst.to_string_lossy().into_owned(),
+                        )
+                    };
+                    match res {
+                        Ok(()) => ok += 1,
+                        Err(_) => err += 1,
+                    }
+                }
+                let label = if copy { "コピー" } else { "移動" };
+                tp.status_msg
+                    .set(format!("D&D {} OK={} / NG={}", label, ok, err));
+                tp.reload();
+                if let Some(sp) = app_for_up
+                    .tabs
+                    .get_untracked()
+                    .iter()
+                    .find(|p| p.id == ds.source_pane)
+                    .cloned()
+                {
+                    sp.reload();
+                }
+            }
+        })
         .on_event_stop(EventListener::PointerDown, move |e| {
             if let Event::PointerDown(p) = e {
                 if p.button.is_x1() {
@@ -1440,6 +1605,7 @@ fn app_view() -> impl IntoView {
                 } else {
                     let app = app.clone();
                     let tab_columns_sig = app.settings.tab_columns;
+                    let app_for_panes = app.clone();
                     let active_panes = dyn_container(
                         move || {
                             let id = active.get();
@@ -1472,7 +1638,8 @@ fn app_view() -> impl IntoView {
                                 .into_iter()
                                 .enumerate()
                                 .map(|(i, p)| {
-                                    let v = container(pane_view(p)).style(move |s| {
+                                    let app_for_pv = app_for_panes.clone();
+                                    let v = container(pane_view(p, app_for_pv)).style(move |s| {
                                         let s = s.flex_grow(1.0).min_width(0).flex_basis(0).height_full();
                                         if i > 0 {
                                             s.border_left(1).border_color(Color::rgb8(60, 60, 60))
