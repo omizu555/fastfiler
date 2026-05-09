@@ -495,8 +495,10 @@ pub struct AppState {
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
     /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
     pub tree_tick: RwSignal<u64>,
-    /// タブ並び替え中のドラッグ元タブ id
+    /// タブ並び替え中のドラッグ元タブ id (実際にドラッグ開始したもののみ)
     pub tab_dragging: RwSignal<Option<u64>>,
+    /// PointerDown 直後の保留状態 (タブid, 押した位置)。距離しきい値を超えたら tab_dragging に昇格する
+    pub tab_drag_pending: RwSignal<Option<(u64, floem::kurbo::Point)>>,
 }
 
 impl AppState {
@@ -544,6 +546,7 @@ impl AppState {
             splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
             tab_dragging: RwSignal::new(None),
+            tab_drag_pending: RwSignal::new(None),
         }
     }
 

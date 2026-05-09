@@ -107,11 +107,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .style(|s| {
                             s.flex_grow(1.0)
                                 .min_width(0)
-                                .height(22)
+                                .height(20)
                                 .padding_horiz(6)
-                                .padding_vert(2)
-                                .border(1)
-                                .border_color(theme::border_focus())
+                                .padding_vert(0)
+                                .border(0)
                                 .background(theme::bg_modal())
                                 .color(theme::text_normal())
                         })
@@ -128,7 +127,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             }
                         }),
                 ))
-                .style(|s| s.padding_horiz(4).padding_vert(1).width_full().items_center())
+                .style(|s| s.padding_horiz(4).width_full().height(24).items_center())
                 .into_any()
             } else {
                 let mut acc = PathBuf::new();
@@ -192,11 +191,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         },
     )
     .style(|s| {
-        s.height(24)
+        s.min_height(24)
             .flex_grow(1.0)
             .background(theme::bg_modal())
-            .border_bottom(1)
-            .border_color(theme::border_modal())
     });
 
     let arrow = move |k: SortKey| -> String {

@@ -16,6 +16,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let root_sig = tab.root;
     let active = app.active;
     let tab_dragging = app.tab_dragging;
+    let tab_drag_pending = app.tab_drag_pending;
 
     let title_label = label(move || {
         // first leaf の title を反応的に取得
@@ -65,8 +66,25 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
                 .border_color(border_col)
                 .cursor(CursorStyle::Pointer)
         })
-        .on_event_cont(EventListener::PointerDown, move |_| {
-            tab_dragging.set(Some(id));
+        .on_event_cont(EventListener::PointerDown, move |e| {
+            // 押した瞬間は pending のみ。実際のドラッグは threshold 超え後に発火
+            if let floem::event::Event::PointerDown(p) = e {
+                tab_drag_pending.set(Some((id, p.pos)));
+                tab_dragging.set(None);
+            }
+        })
+        .on_event_cont(EventListener::PointerMove, move |e| {
+            if let floem::event::Event::PointerMove(p) = e {
+                if let Some((pid, start)) = tab_drag_pending.get_untracked() {
+                    let dx = p.pos.x - start.x;
+                    let dy = p.pos.y - start.y;
+                    if (dx * dx + dy * dy) >= 25.0 {
+                        // 5px 超え: ドラッグ確定
+                        tab_dragging.set(Some(pid));
+                        tab_drag_pending.set(None);
+                    }
+                }
+            }
         })
         .on_event_cont(EventListener::PointerEnter, move |_| {
             if let Some(from) = tab_dragging.get_untracked() {
@@ -77,6 +95,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerUp, move |_| {
             tab_dragging.set(None);
+            tab_drag_pending.set(None);
         })
         .on_click_stop(move |_| active.set(id))
 }
