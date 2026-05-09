@@ -35,13 +35,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let fs_event_signal = pane.fs_event_signal;
     let fs_change_tick = pane.fs_change_tick;
 
-    // ファイル監視 → 自動 reload (デバウンスなしの素朴版)
+    // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
     let pane_for_fs = pane.clone();
     floem::reactive::create_effect(move |_| {
-        // signal を track して変化時に reload
+        // signal を track して変化時に rows のみ更新
         if fs_event_signal.get().is_some() {
             fs_change_tick.update(|n| *n = n.wrapping_add(1));
-            pane_for_fs.reload();
+            pane_for_fs.refresh_rows_only();
         }
     });
 

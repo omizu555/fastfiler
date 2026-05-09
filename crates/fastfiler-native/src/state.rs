@@ -215,8 +215,37 @@ impl PaneState {
         }
     }
     pub fn reload(&self) {
-        let cur = self.cur_path.get();
+        let cur = self.cur_path.get_untracked();
         self.navigate(cur, false);
+    }
+
+    /// ファイル監視イベントによる軽量再読込。
+    /// navigate と違い cur_path/title/path_input/history/watcher を触らず、
+    /// rows と stats のみを差分検出して更新する。シグナル更新の連鎖を抑える。
+    pub fn refresh_rows_only(&self) {
+        let cur = self.cur_path.get_untracked();
+        let show_hidden = self.show_hidden.get_untracked();
+        let Ok(mut v) = read_folder(&cur, show_hidden) else { return; };
+        sort_rows(&mut v, self.sort_key.get_untracked(), self.sort_desc.get_untracked());
+        let new_len = v.len();
+        // 簡易差分: 件数 + name 列が同じなら更新スキップ
+        let same = self.rows.with_untracked(|r| {
+            r.len() == new_len
+                && r.iter().zip(v.iter()).all(|(a, b)| a.name == b.name && a.size == b.size && a.modified == b.modified)
+        });
+        if same {
+            return;
+        }
+        // 削除等で行数が減った場合に備えて選択をクリア
+        let cur_sel_max = self.selected.with_untracked(|s| s.iter().copied().max());
+        if let Some(mx) = cur_sel_max {
+            if mx >= new_len {
+                self.selected.set(im::OrdSet::new());
+                self.anchor.set(None);
+            }
+        }
+        self.rows.set(v);
+        self.stats.update(|s| s.count = new_len);
     }
 
     /// 選択行のフルパスを返す
