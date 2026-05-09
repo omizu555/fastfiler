@@ -46,6 +46,25 @@ pub fn app_view() -> impl IntoView {
             cur
         });
     }
+    // show_hidden 切替時に全 pane の rows を再読込 (dyn_container 再構築を避けるため独立 effect)
+    {
+        let app_for_hidden = app.clone();
+        let show_hidden_sig = app.settings.show_hidden;
+        floem::reactive::create_effect(move |prev: Option<bool>| {
+            let cur = show_hidden_sig.get();
+            if let Some(p) = prev {
+                if p != cur {
+                    let tabs_v = app_for_hidden.tabs.get_untracked();
+                    for tab in tabs_v.iter() {
+                        for pane in tab.all_panes() {
+                            pane.refresh_rows_only();
+                        }
+                    }
+                }
+            }
+            cur
+        });
+    }
     // タブ一覧 / 各タブの primary パス変化時に open_tabs を更新 + 保存
     {
         let app_for_tabs = app.clone();
@@ -84,18 +103,10 @@ pub fn app_view() -> impl IntoView {
                     settings_view(app.settings.clone(), settings_open).into_any()
                 } else {
                     let app = app.clone();
-                    let tab_columns_sig = app.settings.tab_columns;
                     let app_for_panes = app.clone();
-                    let show_hidden_sig = app.settings.show_hidden;
                     let active_panes = dyn_container(
                         move || {
                             let id = active.get();
-                            let _setting_cols = tab_columns_sig
-                                .get()
-                                .parse::<usize>()
-                                .unwrap_or(1)
-                                .clamp(1, 4);
-                            let _ = show_hidden_sig.get();
                             let tabs_v = tabs.get();
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
