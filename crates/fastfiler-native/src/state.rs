@@ -267,6 +267,54 @@ pub enum SplitNode {
     },
 }
 
+/// SplitNode を JSON に書き出すための Serializable 形 (PaneState の代わりに path のみ保持)
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(tag = "type")]
+pub enum SavedSplit {
+    Leaf { path: String },
+    Split { dir: String, children: Vec<SavedSplit> },
+}
+
+impl SplitNode {
+    pub fn to_saved(&self) -> SavedSplit {
+        match self {
+            SplitNode::Leaf(p) => SavedSplit::Leaf {
+                path: p.cur_path.get_untracked().to_string_lossy().into_owned(),
+            },
+            SplitNode::Split { dir, children } => SavedSplit::Split {
+                dir: match dir {
+                    SplitDir::Horizontal => "h".to_string(),
+                    SplitDir::Vertical => "v".to_string(),
+                },
+                children: children.iter().map(|c| c.to_saved()).collect(),
+            },
+        }
+    }
+
+    /// SavedSplit から SplitNode を構築。各 Leaf に新規 PaneState を作成する。
+    pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>) -> Self {
+        match saved {
+            SavedSplit::Leaf { path } => {
+                let p = PathBuf::from(path);
+                let p = if p.exists() { p } else { PathBuf::from("C:\\") };
+                SplitNode::Leaf(PaneState::new(p, show_hidden))
+            }
+            SavedSplit::Split { dir, children } => {
+                let dir = if dir == "v" { SplitDir::Vertical } else { SplitDir::Horizontal };
+                let mut kids = Vec::with_capacity(children.len());
+                for c in children {
+                    kids.push(SplitNode::from_saved(c, show_hidden));
+                }
+                if kids.is_empty() {
+                    SplitNode::Leaf(PaneState::new(PathBuf::from("C:\\"), show_hidden))
+                } else {
+                    SplitNode::Split { dir, children: kids }
+                }
+            }
+        }
+    }
+}
+
 impl SplitNode {
     /// 全 leaf を deep-first で収集
     pub fn collect_leaves(&self, out: &mut Vec<PaneState>) {
@@ -398,6 +446,20 @@ impl Tab {
         }
     }
 
+    /// 永続化された SplitNode から Tab を復元
+    pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>) -> Self {
+        let node = SplitNode::from_saved(saved, show_hidden);
+        let mut leaves = Vec::new();
+        node.collect_leaves(&mut leaves);
+        let pid = leaves.first().map(|p| p.id).unwrap_or(0);
+        let s = Scope::new();
+        Self {
+            id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
+            root: s.create_rw_signal(node),
+            active_pane: s.create_rw_signal(pid),
+        }
+    }
+
     pub fn primary(&self) -> PaneState {
         self.root.with(|r| r.first_leaf()).expect("tab must have at least one pane")
     }
@@ -433,19 +495,31 @@ pub struct AppState {
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
     /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
     pub tree_tick: RwSignal<u64>,
+    /// タブ並び替え中のドラッグ元タブ id
+    pub tab_dragging: RwSignal<Option<u64>>,
 }
 
 impl AppState {
     pub fn new(start: PathBuf) -> Self {
         let settings = AppSettings::new();
 
-        // 起動時タブ復元: 保存された open_tabs があればそれを使う
+        // 起動時タブ復元: tab_layouts (BSP 構造) を最優先、次に open_tabs (パスのみ)
         let saved_paths = settings.open_tabs.get_untracked();
+        let saved_layouts = settings.tab_layouts.get_untracked();
         let mut tabs_vec: im::Vector<Tab> = im::Vector::new();
-        for p in &saved_paths {
-            let path = PathBuf::from(p);
-            if path.exists() {
-                tabs_vec.push_back(Tab::new(path, settings.show_hidden));
+        if !saved_layouts.is_empty() {
+            for json in &saved_layouts {
+                if let Ok(saved) = serde_json::from_str::<SavedSplit>(json) {
+                    tabs_vec.push_back(Tab::from_saved(&saved, settings.show_hidden));
+                }
+            }
+        }
+        if tabs_vec.is_empty() {
+            for p in &saved_paths {
+                let path = PathBuf::from(p);
+                if path.exists() {
+                    tabs_vec.push_back(Tab::new(path, settings.show_hidden));
+                }
             }
         }
         if tabs_vec.is_empty() {
@@ -469,6 +543,7 @@ impl AppState {
             dragging: RwSignal::new(None),
             splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
+            tab_dragging: RwSignal::new(None),
         }
     }
 
@@ -489,6 +564,20 @@ impl AppState {
         if self.active.get_untracked() != id {
             self.active.set(id);
         }
+    }
+
+    /// from_id のタブを to_id の位置に並び替える。同じなら何もしない。
+    pub fn reorder_tab(&self, from_id: u64, to_id: u64) {
+        if from_id == to_id { return; }
+        self.tabs.update(|t| {
+            let from = t.iter().position(|x| x.id == from_id);
+            let to = t.iter().position(|x| x.id == to_id);
+            if let (Some(f), Some(to)) = (from, to) {
+                let item = t.remove(f);
+                let insert_at = if f < to { to } else { to };
+                t.insert(insert_at, item);
+            }
+        });
     }
 
     pub fn close_tab(&self, id: u64) {

@@ -72,6 +72,8 @@ pub struct AppSettings {
 
     // 開いていたタブのパス一覧 (起動時復元用)
     pub open_tabs: RwSignal<Vec<String>>,
+    /// 各タブの BSP レイアウト JSON 文字列 (open_tabs と同順)。空なら open_tabs から復元 (単一ペイン)。
+    pub tab_layouts: RwSignal<Vec<String>>,
 }
 
 impl AppSettings {
@@ -148,6 +150,7 @@ impl AppSettings {
             window_h: RwSignal::new(p.window_h),
             window_maximized: RwSignal::new(p.window_maximized),
             open_tabs: RwSignal::new(p.open_tabs.clone()),
+            tab_layouts: RwSignal::new(p.tab_layouts.clone()),
         }
     }
 
@@ -213,6 +216,7 @@ pub struct PersistedSettings {
     #[serde(default)] pub window_maximized: bool,
 
     #[serde(default)] pub open_tabs: Vec<String>,
+    #[serde(default)] pub tab_layouts: Vec<String>,
 }
 
 fn def_true() -> bool { true }
@@ -273,6 +277,7 @@ impl Default for PersistedSettings {
             window_h: None,
             window_maximized: false,
             open_tabs: Vec::new(),
+            tab_layouts: Vec::new(),
         }
     }
 }
@@ -327,6 +332,7 @@ impl PersistedSettings {
             window_h: a.window_h.get(),
             window_maximized: a.window_maximized.get(),
             open_tabs: a.open_tabs.get(),
+            tab_layouts: a.tab_layouts.get(),
         }
     }
 

@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use floem::event::EventListener;
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::style::{CursorStyle, FlexWrap};
@@ -14,6 +15,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let id = tab.id;
     let root_sig = tab.root;
     let active = app.active;
+    let tab_dragging = app.tab_dragging;
 
     let title_label = label(move || {
         // first leaf の title を反応的に取得
@@ -39,17 +41,42 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
             move |_| app.close_tab(id)
         });
 
+    let app_for_drag = app.clone();
     h_stack((title_label, close_btn))
         .style(move |s| {
             let is_active = active.get() == id;
-            let bg = if is_active { theme::accent_select() } else { theme::bg_zebra_b() };
+            let is_drop_target =
+                tab_dragging.get().map_or(false, |d| d != id);
+            let bg = if is_active {
+                theme::accent_select()
+            } else {
+                theme::bg_zebra_b()
+            };
+            let border_col = if is_drop_target {
+                theme::accent_select()
+            } else {
+                theme::border_default()
+            };
             s.height(28)
                 .width_full()
                 .items_center()
                 .background(bg)
                 .border(1)
-                .border_color(theme::border_default())
+                .border_color(border_col)
                 .cursor(CursorStyle::Pointer)
+        })
+        .on_event_stop(EventListener::PointerDown, move |_| {
+            tab_dragging.set(Some(id));
+        })
+        .on_event_stop(EventListener::PointerEnter, move |_| {
+            if let Some(from) = tab_dragging.get_untracked() {
+                if from != id {
+                    app_for_drag.reorder_tab(from, id);
+                }
+            }
+        })
+        .on_event_stop(EventListener::PointerUp, move |_| {
+            tab_dragging.set(None);
         })
         .on_click_stop(move |_| active.set(id))
 }
