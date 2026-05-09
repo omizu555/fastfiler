@@ -19,7 +19,7 @@ use std::time::Instant;
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::watcher::WatcherCore;
 use floem::kurbo::{Point, Rect};
-use floem::reactive::{RwSignal, SignalGet, SignalUpdate, SignalWith};
+use floem::reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith};
 use parking_lot::Mutex;
 
 use crate::fs_model::{
@@ -110,20 +110,24 @@ impl PaneState {
         sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
         let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<()>();
+        // 全シグナルを untethered な Scope で生成する。これは
+        // PaneState が click ハンドラやエフェクト内でも生成され得るため、
+        // 親 scope の dispose に巻き込まれて signal が死ぬのを防ぐ目的。
+        let s = Scope::new();
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
-            title: RwSignal::new(pretty_title(&start)),
-            cur_path: RwSignal::new(start.clone()),
-            path_input: RwSignal::new(start.to_string_lossy().into_owned()),
-            rows: RwSignal::new(initial_rows),
-            stats: RwSignal::new(Stats {
+            title: s.create_rw_signal(pretty_title(&start)),
+            cur_path: s.create_rw_signal(start.clone()),
+            path_input: s.create_rw_signal(start.to_string_lossy().into_owned()),
+            rows: s.create_rw_signal(initial_rows),
+            stats: s.create_rw_signal(Stats {
                 load_ms: 0.0,
                 count: initial_count,
             }),
-            selected: RwSignal::new(im::OrdSet::new()),
-            anchor: RwSignal::new(None),
-            status_msg: RwSignal::new(String::from("ready")),
-            history: RwSignal::new(History::default()),
+            selected: s.create_rw_signal(im::OrdSet::new()),
+            anchor: s.create_rw_signal(None),
+            status_msg: s.create_rw_signal(String::from("ready")),
+            history: s.create_rw_signal(History::default()),
             watcher: Arc::new(WatcherCore::default()),
             sink: Arc::new(CounterSink {
                 counter: Mutex::new(0),
@@ -131,12 +135,12 @@ impl PaneState {
             }),
             fs_rx,
             watched: Arc::new(Mutex::new(None)),
-            fs_change_tick: RwSignal::new(0),
+            fs_change_tick: s.create_rw_signal(0),
             show_hidden,
-            modal_kind: RwSignal::new(ModalKind::None),
-            modal_input: RwSignal::new(String::new()),
-            sort_key: RwSignal::new(SortKey::Name),
-            sort_desc: RwSignal::new(false),
+            modal_kind: s.create_rw_signal(ModalKind::None),
+            modal_input: s.create_rw_signal(String::new()),
+            sort_key: s.create_rw_signal(SortKey::Name),
+            sort_desc: s.create_rw_signal(false),
         }
     }
 
@@ -385,10 +389,12 @@ impl Tab {
     pub fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
         let p = PaneState::new(start, show_hidden);
         let pid = p.id;
+        // Tab の signal も untethered scope に置く (click ハンドラから生成されることがあるため)
+        let s = Scope::new();
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
-            root: RwSignal::new(SplitNode::Leaf(p)),
-            active_pane: RwSignal::new(pid),
+            root: s.create_rw_signal(SplitNode::Leaf(p)),
+            active_pane: s.create_rw_signal(pid),
         }
     }
 

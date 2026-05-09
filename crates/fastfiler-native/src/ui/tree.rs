@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use fastfiler_domain::fs as ffs;
 use floem::prelude::*;
-use floem::reactive::{SignalGet, SignalUpdate};
+use floem::reactive::{Scope, SignalGet, SignalUpdate};
 use floem::style::CursorStyle;
 use floem::views::{container, dyn_container, h_stack, label, scroll, v_stack, Decorators};
 
@@ -26,12 +26,15 @@ impl TreeNode {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        // TreeNode は load_children/expand_to_path 経由で effect 内で生成され得るため、
+        // signal を untethered scope に置いて effect 再走時の自動 dispose を回避する。
+        let s = Scope::new();
         Self {
             path,
             name,
-            expanded: RwSignal::new(false),
-            loaded: RwSignal::new(false),
-            children: RwSignal::new(im::Vector::new()),
+            expanded: s.create_rw_signal(false),
+            loaded: s.create_rw_signal(false),
+            children: s.create_rw_signal(im::Vector::new()),
         }
     }
 
