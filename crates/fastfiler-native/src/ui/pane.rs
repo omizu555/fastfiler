@@ -193,13 +193,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_close_pane = app.clone();
     let pane_id_for_close = pane.id;
     let search_open_for_btn = pane.search_open;
+    let search_query_for_btn = pane.search_query;
+    let search_results_for_btn = pane.search_results;
     let hide_toolbar_sig = app.settings.hide_pane_toolbar;
     let toolbar = h_stack((
         button("↑").action(move || pane_for_up.up()),
         button("⟳").action(move || pane_for_reload.reload()),
         button("🔍").action(move || {
             let cur = search_open_for_btn.get_untracked();
-            search_open_for_btn.set(!cur);
+            if cur {
+                search_query_for_btn.set(String::new());
+                search_results_for_btn.set(None);
+                search_open_for_btn.set(false);
+            } else {
+                search_open_for_btn.set(true);
+            }
         }),
         button("⇔分割").action(move || app_for_split_h.split_active(false)),
         button("⇕分割").action(move || app_for_split_v.split_active(true)),
@@ -643,6 +651,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 return container(label(|| String::new())).style(|s| s.height(0)).into_any();
             }
             let q = search_query;
+            let results_clear = pane.search_results;
             h_stack((
                 label(|| String::from("🔍"))
                     .style(|s| s.padding_horiz(6).color(theme::text_dim())),
@@ -663,12 +672,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         if let Event::KeyDown(ke) = e {
                             if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
                                 q.set(String::new());
+                                results_clear.set(None);
                                 search_open.set(false);
                             }
                         }
                     }),
                 button("✕").action(move || {
                     q.set(String::new());
+                    results_clear.set(None);
                     search_open.set(false);
                 }),
             ))
