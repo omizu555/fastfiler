@@ -616,20 +616,6 @@ impl Tab {
     fn primary(&self) -> PaneState {
         self.panes.with(|v| v[0].clone())
     }
-
-    /// 必要なら primary のパスを複製して n 個まで増やす。
-    fn ensure_panes(&self, n: usize, show_hidden: RwSignal<bool>) {
-        let cur_len = self.panes.with(|v| v.len());
-        if cur_len >= n {
-            return;
-        }
-        let base_path = self.primary().cur_path.get_untracked();
-        self.panes.update(|v| {
-            for _ in v.len()..n {
-                v.push_back(PaneState::new(base_path.clone(), show_hidden));
-            }
-        });
-    }
 }
 
 #[derive(Clone)]
@@ -1751,16 +1737,17 @@ fn app_view() -> impl IntoView {
                     let active_panes = dyn_container(
                         move || {
                             let id = active.get();
-                            let setting_cols = tab_columns_sig
+                            let _setting_cols = tab_columns_sig
                                 .get()
                                 .parse::<usize>()
                                 .unwrap_or(1)
                                 .clamp(1, 4);
+                            let _ = show_hidden_sig.get();
                             let tabs_v = tabs.get();
                             let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
                                 .or_else(|| tabs_v.iter().next().cloned());
                             let (panes, vertical) = if let Some(t) = active_tab {
-                                t.ensure_panes(setting_cols, show_hidden_sig);
+                                // ensure_panes は reactive scope 外で行う必要があるためここでは呼ばない
                                 let v = t.vertical.get();
                                 let ps: Vec<PaneState> =
                                     t.panes.with(|v| v.iter().cloned().collect());
