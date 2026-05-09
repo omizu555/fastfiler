@@ -76,6 +76,55 @@ fn reload_expanded_recursive(node: &TreeNode) -> u32 {
     n
 }
 
+/// アクティブペインの cur_path に向かって、ルートからツリーを展開する。
+/// 既に展開済みでも load_children を呼んで最新化。戻り値: 到達できた末端ノード深さ。
+fn expand_to_path(roots: &im::Vector<TreeNode>, target: &std::path::Path) -> u32 {
+    use std::path::{Component, PathBuf};
+    // target を正規化された絶対パスにし、ドライブから順に各セグメントを accumulate
+    let mut acc = PathBuf::new();
+    let mut segs: Vec<PathBuf> = Vec::new();
+    for c in target.components() {
+        match c {
+            Component::Prefix(p) => {
+                acc.push(p.as_os_str());
+                // Windows: "C:" の後に "\\" を付けて "C:\\" にしないと list_drives() の root と一致しない
+                let mut with_sep = acc.clone();
+                with_sep.push("\\");
+                segs.push(with_sep.clone());
+                acc = with_sep;
+            }
+            Component::RootDir => { /* prefix で済 */ }
+            Component::Normal(n) => {
+                acc.push(n);
+                segs.push(acc.clone());
+            }
+            _ => {}
+        }
+    }
+    let Some(first) = segs.first() else { return 0 };
+    let Some(root) = roots.iter().find(|r| r.path == *first) else { return 0 };
+
+    let mut depth = 0u32;
+    let mut cur = root.clone();
+    cur.load_children();
+    if !cur.expanded.get_untracked() {
+        cur.expanded.set(true);
+    }
+    depth += 1;
+
+    for seg in segs.iter().skip(1) {
+        let kids = cur.children.get_untracked();
+        let Some(child) = kids.iter().find(|c| c.path == *seg).cloned() else { break };
+        child.load_children();
+        if !child.expanded.get_untracked() {
+            child.expanded.set(true);
+        }
+        cur = child;
+        depth += 1;
+    }
+    depth
+}
+
 pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyView {
     let expanded = node.expanded;
     let children = node.children;
@@ -164,6 +213,33 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
         if count > 0 {
             crate::flog!("[tree] tick={} reloaded {} expanded nodes", t, count);
         }
+    });
+
+    // アクティブペインの cur_path に追従してツリーを自動展開する effect。
+    // active タブ → そのタブの active_pane → そのペインの cur_path を全て track。
+    let app_for_follow = app.clone();
+    let roots_for_follow = roots_sig;
+    floem::reactive::create_effect(move |_| {
+        // active タブ id を track
+        let id = app_for_follow.active.get();
+        let tabs = app_for_follow.tabs.get();
+        let Some(tab) = tabs.iter().find(|t| t.id == id).cloned() else { return };
+        // active_pane id を track
+        let active_pane_id = tab.active_pane.get();
+        // root を track して再描画にも追従
+        tab.root.with(|_| {});
+        let panes = tab.all_panes();
+        let pane = panes
+            .iter()
+            .find(|p| p.id == active_pane_id)
+            .cloned()
+            .or_else(|| panes.first().cloned());
+        let Some(pane) = pane else { return };
+        // cur_path を track
+        let path = pane.cur_path.get();
+        let roots = roots_for_follow.get_untracked();
+        let depth = expand_to_path(&roots, &path);
+        crate::flog!("[tree] follow pane={} path={} depth={}", pane.id, path.display(), depth);
     });
 
     let app_for_render = app.clone();
