@@ -21,7 +21,11 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
             r.first_leaf()
                 .map(|p| {
                     let t = p.title.get();
-                    if t.is_empty() { String::from("(root)") } else { t }
+                    if t.is_empty() {
+                        String::from("(root)")
+                    } else {
+                        t
+                    }
                 })
                 .unwrap_or_else(|| String::from("(empty)"))
         })
@@ -67,7 +71,11 @@ pub fn cols_selector(app: AppState) -> impl IntoView {
         label(move || format!("{}", n))
             .style(move |s| {
                 let active = cols.get() == n;
-                let bg = if active { theme::accent_select() } else { theme::bg_header() };
+                let bg = if active {
+                    theme::accent_select()
+                } else {
+                    theme::bg_header()
+                };
                 s.width(22)
                     .height(22)
                     .items_center()
@@ -143,9 +151,16 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
         move |(tabs, cols, width_str)| {
             let app = app_for_grid.clone();
             let total = tabs.len();
-            let rows = if total == 0 { 0 } else { (total + cols - 1) / cols };
+            let rows = if total == 0 {
+                0
+            } else {
+                (total + cols - 1) / cols
+            };
             // パネル幅から固定列幅を算出 (padding 8 + gap 2 * (cols-1))
-            let panel_w = width_str.parse::<f32>().unwrap_or(220.0).clamp(120.0, 600.0);
+            let panel_w = width_str
+                .parse::<f32>()
+                .unwrap_or(220.0)
+                .clamp(120.0, 600.0);
             let inner = (panel_w - 8.0 - 2.0 * (cols.saturating_sub(1) as f32)).max(60.0);
             let col_w = (inner / cols as f32).max(50.0);
             let mut row_views: Vec<floem::AnyView> = Vec::with_capacity(rows);
@@ -173,7 +188,12 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
 
     // ヘッダー右側に ↑↓ + を配置して縦スペース節約
     let header = h_stack((
-        label(|| String::from("Tabs")).style(|s| s.padding(6).font_bold().flex_grow(1.0).color(theme::text_label())),
+        label(|| String::from("Tabs")).style(|s| {
+            s.padding(6)
+                .font_bold()
+                .flex_grow(1.0)
+                .color(theme::text_label())
+        }),
         cols_selector(app.clone()),
         plus,
         up_btn,
@@ -218,8 +238,12 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
             .border_color(theme::border_default())
     });
 
-    let body = v_stack((header, drives_section, scroll(grid).style(|s| s.flex_grow(1.0).min_height(0).width_full())))
-        .style(|s| s.flex_col().size_full().gap(4).padding(4));
+    let body = v_stack((
+        header,
+        drives_section,
+        scroll(grid).style(|s| s.flex_grow(1.0).min_height(0).width_full()),
+    ))
+    .style(|s| s.flex_col().size_full().gap(4).padding(4));
 
     let tabs_width_sig2 = app.settings.tabs_width;
     container(body).style(move |s| {
@@ -235,7 +259,3 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
             .border_color(theme::border_default())
     })
 }
-
-
-
-

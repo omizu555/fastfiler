@@ -53,7 +53,10 @@ mod sys {
     }
 
     fn to_wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     pub fn system_icon_png(
@@ -76,7 +79,9 @@ mod sys {
     ) -> AppResult<std::sync::Arc<Vec<u8>>> {
         let key = {
             let mut k = cache_key(path, ext_only, large);
-            if is_dir { k.push('d'); }
+            if is_dir {
+                k.push('d');
+            }
             k
         };
         if let Some(v) = CACHE.lock().unwrap().get(&key) {
@@ -85,7 +90,12 @@ mod sys {
         unsafe {
             let mut info: SHFILEINFOW = std::mem::zeroed();
             let wpath = to_wide(path);
-            let mut flags = SHGFI_ICON | if large { SHGFI_LARGEICON } else { SHGFI_SMALLICON };
+            let mut flags = SHGFI_ICON
+                | if large {
+                    SHGFI_LARGEICON
+                } else {
+                    SHGFI_SMALLICON
+                };
             let attrs = if ext_only {
                 flags |= SHGFI_USEFILEATTRIBUTES;
                 if is_dir {
@@ -104,7 +114,10 @@ mod sys {
                 flags,
             );
             if r == 0 || info.hIcon.0.is_null() {
-                return Err(AppError::Other(format!("SHGetFileInfoW failed for {}", path)));
+                return Err(AppError::Other(format!(
+                    "SHGetFileInfoW failed for {}",
+                    path
+                )));
             }
             let png = hicon_to_png(info.hIcon)?;
             let _ = DestroyIcon(info.hIcon);

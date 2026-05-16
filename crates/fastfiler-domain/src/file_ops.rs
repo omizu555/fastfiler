@@ -21,7 +21,11 @@ pub fn delete_path(path: String, recursive: bool) -> AppResult<()> {
     let p = PathBuf::from(&path);
     let meta = fs::metadata(&p)?;
     if meta.is_dir() {
-        if recursive { fs::remove_dir_all(&p)?; } else { fs::remove_dir(&p)?; }
+        if recursive {
+            fs::remove_dir_all(&p)?;
+        } else {
+            fs::remove_dir(&p)?;
+        }
     } else {
         fs::remove_file(&p)?;
     }
@@ -90,7 +94,9 @@ pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
     #[cfg(not(windows))]
     {
         let _ = paths;
-        Err(AppError::NotSupported("trash only supported on Windows".into()))
+        Err(AppError::NotSupported(
+            "trash only supported on Windows".into(),
+        ))
     }
 }
 
@@ -99,8 +105,8 @@ mod trash_impl {
     use super::*;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::Shell::{
-        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
-        FO_DELETE, SHFILEOPSTRUCTW,
+        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE,
+        SHFILEOPSTRUCTW,
     };
 
     pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
@@ -125,10 +131,8 @@ mod trash_impl {
             op.wFunc = FO_DELETE;
             op.pFrom = windows::core::PCWSTR(wide.as_ptr());
             op.pTo = windows::core::PCWSTR::null();
-            op.fFlags = (FOF_ALLOWUNDO.0
-                | FOF_NOCONFIRMATION.0
-                | FOF_NOERRORUI.0
-                | FOF_SILENT.0) as u16;
+            op.fFlags =
+                (FOF_ALLOWUNDO.0 | FOF_NOCONFIRMATION.0 | FOF_NOERRORUI.0 | FOF_SILENT.0) as u16;
             SHFileOperationW(&mut op as *mut _)
         }));
 
@@ -144,4 +148,3 @@ mod trash_impl {
         }
     }
 }
-

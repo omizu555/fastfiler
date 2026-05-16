@@ -20,8 +20,14 @@ fn kind_returns_machine_readable_tag() {
 #[test]
 fn display_messages_include_context() {
     assert_eq!(format!("{}", AppError::Canceled), "canceled");
-    assert_eq!(format!("{}", AppError::Plugin("zip read".into())), "plugin error: zip read");
-    assert_eq!(format!("{}", AppError::EnvMissing("APPDATA")), "env var missing: APPDATA");
+    assert_eq!(
+        format!("{}", AppError::Plugin("zip read".into())),
+        "plugin error: zip read"
+    );
+    assert_eq!(
+        format!("{}", AppError::EnvMissing("APPDATA")),
+        "env var missing: APPDATA"
+    );
 }
 
 #[test]

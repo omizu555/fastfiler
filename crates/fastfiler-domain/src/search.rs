@@ -45,7 +45,7 @@ pub struct SearchOptions {
     pub use_regex: bool,
     pub include_hidden: bool,
     pub max_results: usize,
-    pub backend: String,             // "builtin" | "everything"
+    pub backend: String, // "builtin" | "everything"
     pub everything_port: u16,
     pub everything_scope: bool,
 }
@@ -97,7 +97,11 @@ fn run_job(
     opts: SearchOptions,
 ) {
     if opts.backend == "everything" {
-        let scope = if opts.everything_scope { Some(root.as_str()) } else { None };
+        let scope = if opts.everything_scope {
+            Some(root.as_str())
+        } else {
+            None
+        };
         match everything::query(
             opts.everything_port,
             &pattern,
@@ -112,7 +116,12 @@ fn run_job(
                     if cancel.load(Ordering::Relaxed) == 1 {
                         break;
                     }
-                    let hit = SearchHit { job_id, path: h.path, name: h.name, is_dir: h.is_dir };
+                    let hit = SearchHit {
+                        job_id,
+                        path: h.path,
+                        name: h.name,
+                        is_dir: h.is_dir,
+                    };
                     events::emit(sink.as_ref(), "search-hit", &hit);
                     total += 1;
                 }
@@ -217,7 +226,11 @@ fn run_builtin(
     total
 }
 
-fn build_matcher(pattern: &str, case_sensitive: bool, regex_mode: bool) -> Box<dyn Fn(&str) -> bool + Send> {
+fn build_matcher(
+    pattern: &str,
+    case_sensitive: bool,
+    regex_mode: bool,
+) -> Box<dyn Fn(&str) -> bool + Send> {
     if regex_mode {
         let mut builder = regex::RegexBuilder::new(pattern);
         builder.case_insensitive(!case_sensitive);

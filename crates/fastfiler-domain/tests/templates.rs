@@ -10,7 +10,8 @@ fn s(p: &std::path::Path) -> String {
 #[test]
 fn create_empty_file_creates_file_with_body() {
     let tmp = TempDir::new().unwrap();
-    let path = templates::create_empty_file(s(tmp.path()), "memo.txt".into(), Some("hi".into())).unwrap();
+    let path =
+        templates::create_empty_file(s(tmp.path()), "memo.txt".into(), Some("hi".into())).unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"hi");
 }
 
@@ -35,6 +36,7 @@ fn create_file_from_template_copies_content() {
     let dest_dir = tmp.path().join("out");
     fs::create_dir(&dest_dir).unwrap();
 
-    let path = templates::create_file_from_template(s(&tpl), s(&dest_dir), Some("new.txt".into())).unwrap();
+    let path = templates::create_file_from_template(s(&tpl), s(&dest_dir), Some("new.txt".into()))
+        .unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"TEMPLATE BODY");
 }

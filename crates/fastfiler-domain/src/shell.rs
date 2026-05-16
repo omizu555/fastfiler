@@ -24,9 +24,7 @@ pub fn open_with_shell(path: String) -> AppResult<()> {
             .unwrap_or_default();
         let verb: Option<&str> = match ext.as_str() {
             "iso" | "img" | "vhd" | "vhdx" => Some("mount"),
-            "xltx" | "xltm" | "xlt"
-            | "dotx" | "dotm" | "dot"
-            | "potx" | "potm" | "pot" => None,
+            "xltx" | "xltm" | "xlt" | "dotx" | "dotm" | "dot" | "potx" | "potm" | "pot" => None,
             _ => Some("open"),
         };
         win::shell_exec(verb, &path, None)
@@ -75,13 +73,14 @@ mod win {
     use windows::Win32::System::Com::{
         CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
     };
-    use windows::Win32::UI::Shell::{
-        SHObjectProperties, ShellExecuteW, SHOP_FILEPATH,
-    };
+    use windows::Win32::UI::Shell::{SHObjectProperties, ShellExecuteW, SHOP_FILEPATH};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     fn wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     pub fn shell_exec(op: Option<&str>, file: &str, args: Option<&str>) -> AppResult<()> {
@@ -104,7 +103,10 @@ mod win {
             )
         };
         if hinst.0 as isize <= 32 {
-            return Err(AppError::Win32(format!("ShellExecuteW failed ({})", hinst.0 as isize)));
+            return Err(AppError::Win32(format!(
+                "ShellExecuteW failed ({})",
+                hinst.0 as isize
+            )));
         }
         Ok(())
     }
@@ -134,4 +136,3 @@ mod win {
             .map_err(|_| AppError::Win32("properties thread panicked".into()))?
     }
 }
-

@@ -20,8 +20,7 @@ pub struct TemplateInfo {
 }
 
 fn templates_dir_inner() -> AppResult<PathBuf> {
-    let appdata = std::env::var("APPDATA")
-        .map_err(|_| AppError::EnvMissing("APPDATA"))?;
+    let appdata = std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
     let dir = PathBuf::from(appdata).join("fastfiler").join("templates");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
@@ -102,10 +101,17 @@ fn split_base_ext(name: &str) -> (String, String) {
     (name.to_string(), String::new())
 }
 
-pub fn create_empty_file(dest_dir: String, file_name: String, body: Option<String>) -> AppResult<String> {
+pub fn create_empty_file(
+    dest_dir: String,
+    file_name: String,
+    body: Option<String>,
+) -> AppResult<String> {
     let dir = PathBuf::from(&dest_dir);
     if !dir.is_dir() {
-        return Err(AppError::Other(format!("destination is not a directory: {}", dest_dir)));
+        return Err(AppError::Other(format!(
+            "destination is not a directory: {}",
+            dest_dir
+        )));
     }
     let (base, ext) = split_base_ext(&file_name);
     let p = unique_path(&dir, &base, &ext);
@@ -126,10 +132,16 @@ pub fn create_file_from_template(
     let src = PathBuf::from(&template_path);
     let dir = PathBuf::from(&dest_dir);
     if !src.is_file() {
-        return Err(AppError::Other(format!("template not found: {}", template_path)));
+        return Err(AppError::Other(format!(
+            "template not found: {}",
+            template_path
+        )));
     }
     if !dir.is_dir() {
-        return Err(AppError::Other(format!("destination is not a directory: {}", dest_dir)));
+        return Err(AppError::Other(format!(
+            "destination is not a directory: {}",
+            dest_dir
+        )));
     }
     let name = file_name.unwrap_or_else(|| {
         src.file_name()

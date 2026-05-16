@@ -7,12 +7,12 @@ use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
 use floem::kurbo::{Point, Rect};
 use floem::menu::{Menu, MenuItem};
-use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::prelude::*;
+use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::style::CursorStyle;
 use floem::views::{
-    button, container, dyn_container, h_stack, img, label, scroll, text, text_input,
-    v_stack, virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
+    button, container, dyn_container, h_stack, img, label, scroll, text, text_input, v_stack,
+    virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
 };
 
 use fastfiler_domain::file_ops as fops;
@@ -37,8 +37,8 @@ fn ext_emoji(name: &str, is_dir: bool) -> String {
         "mp4" | "mkv" | "mov" | "avi" | "webm" | "wmv" | "flv" | "m4v" => "🎞",
         "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "wma" => "🎵",
         "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "zst" => "🗜",
-        "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "go" | "c" | "cpp" | "h" | "hpp"
-        | "java" | "cs" | "rb" | "php" | "sh" | "ps1" | "lua" => "💻",
+        "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "go" | "c" | "cpp" | "h" | "hpp" | "java"
+        | "cs" | "rb" | "php" | "sh" | "ps1" | "lua" => "💻",
         "pdf" => "📕",
         "doc" | "docx" | "odt" => "📘",
         "xls" | "xlsx" | "csv" => "📗",
@@ -49,6 +49,50 @@ fn ext_emoji(name: &str, is_dir: bool) -> String {
         _ => "📄",
     };
     s.to_string()
+}
+
+fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
+    let sanitized = input.replace(['\r', '\n', '\t'], " ");
+    let usable = (col_width - padding_px * 2.0).max(0.0);
+    if usable < 8.0 {
+        return String::new();
+    }
+    let ellipsis_px = 7.0f32;
+    let budget_px = (usable - ellipsis_px).max(0.0);
+    if budget_px <= 0.0 {
+        return String::new();
+    }
+
+    let mut used = 0.0f32;
+    let mut out = String::new();
+    let mut truncated = false;
+    for ch in sanitized.chars() {
+        let ch_px = if ch.is_ascii() { 7.0 } else { 14.0 };
+        if used + ch_px > budget_px {
+            truncated = true;
+            break;
+        }
+        out.push(ch);
+        used += ch_px;
+    }
+
+    if !truncated {
+        return sanitized;
+    }
+    if out.is_empty() {
+        if usable >= ellipsis_px {
+            return String::from("…");
+        }
+        return String::new();
+    }
+    out.push('…');
+    out
+}
+
+#[derive(Clone, Copy)]
+enum ColumnResizeTarget {
+    Name,
+    Size,
 }
 
 pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
@@ -63,6 +107,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let modal_input = pane.modal_input;
     let search_query = pane.search_query;
     let search_open = pane.search_open;
+    let name_col_width_sig = pane.name_col_width;
+    let size_col_width_sig = pane.size_col_width;
+    let mtime_col_width_sig = pane.mtime_col_width;
+    let col_resize_drag = floem::reactive::Scope::new()
+        .create_rw_signal(None::<(ColumnResizeTarget, f64, f32, f32, f32)>);
+    let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
     let sink = pane.sink.clone();
     let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
     let fs_change_tick = pane.fs_change_tick;
@@ -78,8 +128,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         if v.is_some() {
             let next = cur.wrapping_add(1);
             fs_change_tick.set(next);
-            crate::flog!("[fs] pane={} event received, tick {}->{}",
-                pane_id_for_fs, cur, next);
+            crate::flog!(
+                "[fs] pane={} event received, tick {}->{}",
+                pane_id_for_fs,
+                cur,
+                next
+            );
             pane_for_fs.refresh_rows_only();
             // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
             app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
@@ -150,35 +204,39 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             if editing {
                 let path_input = path_input;
                 let pane_enter = pane_for_addr_enter2.clone();
-                h_stack((
-                    text_input(path_input)
-                        .style(|s| {
-                            s.flex_grow(1.0)
-                                .flex_basis(0)
-                                .min_width(0)
-                                .width_full()
-                                .height(24)
-                                .padding_horiz(8)
-                                .padding_vert(4)
-                                .border(1)
-                                .border_color(theme::border_focus())
-                                .background(theme::bg_modal())
-                                .color(theme::text_normal())
-                        })
-                        .on_event_stop(EventListener::KeyDown, move |e| {
-                            if let Event::KeyDown(ke) = e {
-                                if matches!(ke.key.logical_key, Key::Named(NamedKey::Enter)) {
-                                    let s = path_input.get();
-                                    let p2 = PathBuf::from(s.trim());
-                                    pane_enter.navigate(p2, true);
-                                    edit_mode.set(false);
-                                } else if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
-                                    edit_mode.set(false);
-                                }
+                h_stack((text_input(path_input)
+                    .style(|s| {
+                        s.flex_grow(1.0)
+                            .flex_basis(0)
+                            .min_width(0)
+                            .width_full()
+                            .height(24)
+                            .padding_horiz(8)
+                            .padding_vert(4)
+                            .border(1)
+                            .border_color(theme::border_focus())
+                            .background(theme::bg_modal())
+                            .color(theme::text_normal())
+                    })
+                    .on_event_stop(EventListener::KeyDown, move |e| {
+                        if let Event::KeyDown(ke) = e {
+                            if matches!(ke.key.logical_key, Key::Named(NamedKey::Enter)) {
+                                let s = path_input.get();
+                                let p2 = PathBuf::from(s.trim());
+                                pane_enter.navigate(p2, true);
+                                edit_mode.set(false);
+                            } else if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
+                                edit_mode.set(false);
                             }
-                        }),
-                ))
-                .style(|s| s.padding_horiz(4).padding_vert(2).width_full().height(28).items_center())
+                        }
+                    }),))
+                .style(|s| {
+                    s.padding_horiz(4)
+                        .padding_vert(2)
+                        .width_full()
+                        .height(28)
+                        .items_center()
+                })
                 .into_any()
             } else {
                 let mut acc = PathBuf::new();
@@ -207,7 +265,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let target = acc.clone();
                     let pane_seg = pane_for_crumb.clone();
                     let display = part.trim_end_matches(|c| c == '\\' || c == '/').to_string();
-                    let display = if display.is_empty() { String::from("(root)") } else { display };
+                    let display = if display.is_empty() {
+                        String::from("(root)")
+                    } else {
+                        display
+                    };
                     items.push(
                         label(move || display.clone())
                             .style(|s| {
@@ -230,7 +292,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     floem::views::stack_from_iter(items)
                         .style(|s| s.flex_row().items_center().gap(0).width_full()),
                 )
-                .style(|s| s.padding_horiz(4).padding_vert(1).width_full().cursor(CursorStyle::Text))
+                .style(|s| {
+                    s.padding_horiz(4)
+                        .padding_vert(1)
+                        .width_full()
+                        .cursor(CursorStyle::Text)
+                })
                 .on_click_stop(move |_| {
                     // 入力欄の中身を最新パスに同期してから編集モードへ
                     let cur = cur_path.get_untracked();
@@ -251,23 +318,98 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
     let arrow = move |k: SortKey| -> String {
         if sort_key_sig.get() == k {
-            if sort_desc_sig.get() { String::from(" ▼") } else { String::from(" ▲") }
+            if sort_desc_sig.get() {
+                String::from(" ▼")
+            } else {
+                String::from(" ▲")
+            }
         } else {
             String::new()
         }
     };
 
     let header_search_open = pane.search_open;
+    let app_for_resize_name = app.clone();
+    let app_for_resize_size = app.clone();
+    let pane_id_for_resize = pane.id;
+    let col_resize_for_name = col_resize_drag;
+    let col_resize_for_size = col_resize_drag;
+    let name_w_sig_for_name = name_col_width_sig;
+    let size_w_sig_for_name = size_col_width_sig;
+    let mtime_w_sig_for_name = mtime_col_width_sig;
+    let name_w_sig_for_size = name_col_width_sig;
+    let size_w_sig_for_size = size_col_width_sig;
+    let mtime_w_sig_for_size = mtime_col_width_sig;
     let header = h_stack((
         text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
         label(move || format!("Name{}", arrow(SortKey::Name)))
-            .style(|s| s.flex_grow(1.0).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .style(move |s| {
+                let w = name_col_width_sig.get().clamp(24.0, 1200.0);
+                s.width(w)
+                    .padding_horiz(6)
+                    .font_bold()
+                    .cursor(CursorStyle::Pointer)
+            })
             .on_click_stop(move |_| pane_for_sort_name.click_sort(SortKey::Name)),
+        container(label(|| String::new()))
+            .style(|s| {
+                s.width(5.0)
+                    .height_full()
+                    .cursor(CursorStyle::ColResize)
+                    .background(theme::border_default())
+            })
+            .on_event_stop(EventListener::PointerDown, move |e| {
+                if let Event::PointerDown(_p) = e {
+                    if let Some(t) = app_for_resize_name.active_tab() {
+                        if t.active_pane.get_untracked() != pane_id_for_resize {
+                            t.active_pane.set(pane_id_for_resize);
+                        }
+                    }
+                    let n = name_w_sig_for_name.get_untracked().clamp(24.0, 1200.0);
+                    let s = size_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
+                    let m = mtime_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
+                    let start_x = 60.0 + n as f64 + 2.5;
+                    col_resize_for_name.set(Some((ColumnResizeTarget::Name, start_x, n, s, m)));
+                }
+            }),
         label(move || format!("Size{}", arrow(SortKey::Size)))
-            .style(|s| s.width(110).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .style(move |s| {
+                let w = size_col_width_sig.get().clamp(24.0, 600.0);
+                s.width(w)
+                    .padding_horiz(6)
+                    .font_bold()
+                    .cursor(CursorStyle::Pointer)
+            })
             .on_click_stop(move |_| pane_for_sort_size.click_sort(SortKey::Size)),
+        container(label(|| String::new()))
+            .style(|s| {
+                s.width(5.0)
+                    .height_full()
+                    .cursor(CursorStyle::ColResize)
+                    .background(theme::border_default())
+            })
+            .on_event_stop(EventListener::PointerDown, move |e| {
+                if let Event::PointerDown(_p) = e {
+                    if let Some(t) = app_for_resize_size.active_tab() {
+                        if t.active_pane.get_untracked() != pane_id_for_resize {
+                            t.active_pane.set(pane_id_for_resize);
+                        }
+                    }
+                    let n = name_w_sig_for_size.get_untracked().clamp(24.0, 1200.0);
+                    let s = size_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
+                    let m = mtime_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
+                    let start_x = 60.0 + n as f64 + 5.0 + s as f64 + 2.5;
+                    col_resize_for_size.set(Some((ColumnResizeTarget::Size, start_x, n, s, m)));
+                }
+            }),
         label(move || format!("Modified{}", arrow(SortKey::Modified)))
-            .style(|s| s.width(140).padding_horiz(6).font_bold().cursor(CursorStyle::Pointer))
+            .style(move |s| {
+                let w = mtime_col_width_sig.get().clamp(24.0, 600.0);
+                s.width(w)
+                    .padding_horiz(6)
+                    .font_bold()
+                    .cursor(CursorStyle::Pointer)
+            })
             .on_click_stop(move |_| pane_for_sort_mtime.click_sort(SortKey::Modified)),
         label(|| String::from("Path")).style(move |s| {
             let s = s.padding_horiz(6).font_bold();
@@ -280,6 +422,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     ))
     .style(|s| {
         s.height(24)
+            .width_full()
+            .min_width(0)
             .border_bottom(1)
             .border_color(theme::border_strong())
             .background(theme::bg_header())
@@ -328,6 +472,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             // get_untracked で OK)
             let icon_name = row.name.clone();
             let icon_name_for_emoji = row.name.clone();
+            let name_raw = row.name.clone();
+            let size_raw = row.size_text.clone();
+            let mtime_raw = row.mtime_text.clone();
             let icon_set = app_for_rows.settings.icon_set.get_untracked();
             let icon: floem::AnyView = if icon_set == "emoji" {
                 let s = ext_emoji(&icon_name_for_emoji, is_dir);
@@ -367,7 +514,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             };
             let path_label: floem::AnyView = if show_path_col {
                 container(
-                    text(path_text)
+                    label(move || path_text.clone())
                         .style(|s| s.color(theme::text_dim()).min_width(0)),
                 )
                 .style(|s| {
@@ -386,23 +533,65 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             };
 
             h_stack((
-                container(icon).style(|s| s.width(24).items_center()),
-                container(text(row.name).style(move |s| {
-                    let s = s.min_width(0);
-                    if is_dir { s.color(theme::text_dir()) } else { s }
-                }))
-                .style(|s| {
-                    s.flex_grow(1.0)
-                        .flex_basis(0)
+                container(
+                    h_stack((container(icon).style(|s| s.width(24).items_center()),))
+                        .style(|s| s.width_full().height(22).padding_horiz(6).items_center()),
+                )
+                .style(|s| s.width(60).height(22).items_center()),
+                container(
+                    label(move || {
+                        elide_for_width(
+                            &name_raw,
+                            name_col_width_sig.get().clamp(24.0, 1200.0),
+                            6.0,
+                        )
+                    })
+                    .style(move |s| {
+                        let s = s.min_width(0);
+                        if is_dir {
+                            s.color(theme::text_dir())
+                        } else {
+                            s
+                        }
+                    }),
+                )
+                .style(move |s| {
+                    s.width(name_col_width_sig.get().clamp(24.0, 1200.0))
                         .min_width(0)
                         .height(22)
                         .padding_horiz(6)
                         .items_center()
                 }),
-                container(text(row.size_text).style(|s| s.color(theme::text_dim())))
-                    .style(|s| s.width(110).height(22).padding_horiz(6).items_center()),
-                container(text(row.mtime_text).style(|s| s.color(theme::text_dim())))
-                    .style(|s| s.width(140).height(22).padding_horiz(6).items_center()),
+                container(label(|| String::new())).style(|s| s.width(5.0).height(22)),
+                container(
+                    label(move || {
+                        elide_for_width(&size_raw, size_col_width_sig.get().clamp(24.0, 600.0), 6.0)
+                    })
+                    .style(|s| s.color(theme::text_dim())),
+                )
+                .style(move |s| {
+                    s.width(size_col_width_sig.get().clamp(24.0, 600.0))
+                        .height(22)
+                        .padding_horiz(6)
+                        .items_center()
+                }),
+                container(label(|| String::new())).style(|s| s.width(5.0).height(22)),
+                container(
+                    label(move || {
+                        elide_for_width(
+                            &mtime_raw,
+                            mtime_col_width_sig.get().clamp(24.0, 600.0),
+                            6.0,
+                        )
+                    })
+                    .style(|s| s.color(theme::text_dim())),
+                )
+                .style(move |s| {
+                    s.width(mtime_col_width_sig.get().clamp(24.0, 600.0))
+                        .height(22)
+                        .padding_horiz(6)
+                        .items_center()
+                }),
                 path_label,
             ))
             .style(move |s| {
@@ -414,6 +603,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let sel = selected.with(|s| s.contains(&bg_idx));
                 let bg = if sel { theme::accent_select() } else { zebra };
                 s.height(row_height)
+                    .width_full()
+                    .min_width(0)
                     .items_center()
                     .background(bg)
                     .cursor(CursorStyle::Pointer)
@@ -425,8 +616,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     }
                     let cur = pane_for_drag.cur_path.get_untracked();
                     let row_path = cur.join(&row_name_for_drag);
-                    let in_sel =
-                        pane_for_drag.selected.with_untracked(|s| s.contains(&bg_idx));
+                    let in_sel = pane_for_drag
+                        .selected
+                        .with_untracked(|s| s.contains(&bg_idx));
                     let paths: Vec<PathBuf> = if in_sel {
                         let sel = pane_for_drag.selected.get_untracked();
                         let rs = pane_for_drag.rows.get_untracked();
@@ -436,8 +628,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     } else {
                         vec![row_path]
                     };
-                    crate::flog!("[drag] start pane={} row={} in_sel={} paths={}",
-                        pane_for_drag.id, bg_idx, in_sel, paths.len());
+                    crate::flog!(
+                        "[drag] start pane={} row={} in_sel={} paths={}",
+                        pane_for_drag.id,
+                        bg_idx,
+                        in_sel,
+                        paths.len()
+                    );
                     app_for_drag.dragging.set(Some(DragState {
                         source_pane: pane_for_drag.id,
                         paths,
@@ -486,10 +683,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             let p = p_open.clone();
                             move || {
                                 let cur = p.cur_path.get();
-                                let name =
-                                    p.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
-                                let isd =
-                                    p.rows.with(|v| v.get(bg_idx).map(|r| r.is_dir).unwrap_or(false));
+                                let name = p.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                                let isd = p
+                                    .rows
+                                    .with(|v| v.get(bg_idx).map(|r| r.is_dir).unwrap_or(false));
                                 if let Some(n) = name {
                                     let target = cur.join(n);
                                     if isd {
@@ -515,18 +712,23 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             }
                         }))
                         .separator()
-                        .entry(MenuItem::new("切り取り").action(move || p_cut.clipboard_write("move")))
-                        .entry(MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")))
+                        .entry(
+                            MenuItem::new("切り取り").action(move || p_cut.clipboard_write("move")),
+                        )
+                        .entry(
+                            MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")),
+                        )
                         .entry(MenuItem::new("貼り付け").action(move || p_paste.clipboard_paste()))
                         .separator()
-                        .entry(MenuItem::new("名前の変更").action(move || p_rename.open_rename_modal()))
+                        .entry(
+                            MenuItem::new("名前の変更")
+                                .action(move || p_rename.open_rename_modal()),
+                        )
                         .entry(MenuItem::new("削除").action(move || p_delete.delete_selected()))
                         .separator()
                         .entry(MenuItem::new("プロパティ").action(move || {
                             let cur = p_props.cur_path.get();
-                            let name = p_props
-                                .rows
-                                .with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                            let name = p_props.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
                             if let Some(n) = name {
                                 let target = cur.join(n);
                                 let _ = fastfiler_domain::shell::show_properties(
@@ -566,13 +768,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         move || search_open.get(),
         move |open| {
             if !open {
-                return container(label(|| String::new())).style(|s| s.height(0)).into_any();
+                return container(label(|| String::new()))
+                    .style(|s| s.height(0))
+                    .into_any();
             }
             let q = search_query;
             let results_clear = pane.search_results;
             h_stack((
-                label(|| String::from("🔍"))
-                    .style(|s| s.padding_horiz(6).color(theme::text_dim())),
+                label(|| String::from("🔍")).style(|s| s.padding_horiz(6).color(theme::text_dim())),
                 text_input(q)
                     .style(|s| {
                         s.flex_grow(1.0)
@@ -621,7 +824,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let modal_bar = dyn_container(
         move || modal_kind.get(),
         move |kind| match kind {
-            ModalKind::None => container(label(|| String::new())).style(|s| s.height(0)).into_any(),
+            ModalKind::None => container(label(|| String::new()))
+                .style(|s| s.height(0))
+                .into_any(),
             other => {
                 let title = match &other {
                     ModalKind::NewFolder => "新規フォルダ名",
@@ -674,19 +879,46 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_move = app.clone();
     let app_for_up = app.clone();
     let app_for_focus = app.clone();
-    let top_bar = h_stack((toolbar, breadcrumb))
-        .style(|s| s.width_full().items_center().border_bottom(1).border_color(theme::border_modal()));
+    let app_for_active_style = app.clone();
+    let name_w_sig_for_drag = name_col_width_sig;
+    let size_w_sig_for_drag = size_col_width_sig;
+    let name_w_sig_for_drag_read = name_col_width_sig;
+    let size_w_sig_for_drag_read = size_col_width_sig;
+    let mtime_w_sig_for_drag_read = mtime_col_width_sig;
+    let pane_width_for_drag = pane_width_sig;
+    let col_resize_for_drag = col_resize_drag;
+    let col_resize_for_drag_end = col_resize_drag;
+    let top_bar = h_stack((toolbar, breadcrumb)).style(|s| {
+        s.width_full()
+            .items_center()
+            .border_bottom(1)
+            .border_color(theme::border_modal())
+    });
     v_stack((top_bar, search_bar, modal_bar, header, scrollable, status))
-        .style(|s| s.size_full().flex_col())
+        .style(move |s| {
+            let is_active = app_for_active_style
+                .active_tab()
+                .map(|t| t.active_pane.get() == pane_id)
+                .unwrap_or(false);
+            let s = s.size_full().flex_col().border(1);
+            if is_active {
+                s.border_color(theme::border_focus())
+            } else {
+                s.border_color(theme::border_default())
+            }
+        })
         .on_event_cont(EventListener::PointerDown, move |_| {
             // クリックされたペインを active に
             if let Some(t) = app_for_focus.active_tab() {
-                if t.all_panes().iter().any(|p| p.id == pane_id) && t.active_pane.get_untracked() != pane_id {
+                if t.all_panes().iter().any(|p| p.id == pane_id)
+                    && t.active_pane.get_untracked() != pane_id
+                {
                     t.active_pane.set(pane_id);
                 }
             }
         })
         .on_resize(move |rect| {
+            pane_width_sig.set(rect.width() as f32);
             app_for_rect.pane_rects.update(|m| {
                 let cur = m.get(&pane_id).copied().unwrap_or(Rect::ZERO);
                 let new_rect = Rect::from_origin_size(cur.origin(), rect.size());
@@ -702,6 +934,38 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerMove, move |e| {
             if let Event::PointerMove(p) = e {
+                if let Some((target, start_x, start_name, start_size, _start_mtime)) =
+                    col_resize_for_drag.get_untracked()
+                {
+                    let dx = (p.pos.x - start_x) as f32;
+                    let pane_w = pane_width_for_drag.get_untracked();
+                    let sep_total = 10.0f32;
+                    let base = 60.0f32 + sep_total;
+                    match target {
+                        ColumnResizeTarget::Name => {
+                            let mut new_w = (start_name + dx).clamp(24.0, 1200.0);
+                            if pane_w > 0.0 {
+                                let size_w = size_w_sig_for_drag_read.get_untracked();
+                                let mtime_w = mtime_w_sig_for_drag_read.get_untracked();
+                                let max_w =
+                                    (pane_w - base - size_w - mtime_w).max(24.0).min(1200.0);
+                                new_w = new_w.min(max_w);
+                            }
+                            name_w_sig_for_drag.set(new_w);
+                        }
+                        ColumnResizeTarget::Size => {
+                            let mut new_w = (start_size + dx).clamp(24.0, 600.0);
+                            if pane_w > 0.0 {
+                                let name_w = name_w_sig_for_drag_read.get_untracked();
+                                let mtime_w = mtime_w_sig_for_drag_read.get_untracked();
+                                let max_w = (pane_w - base - name_w - mtime_w).max(24.0).min(600.0);
+                                new_w = new_w.min(max_w);
+                            }
+                            size_w_sig_for_drag.set(new_w);
+                        }
+                    }
+                    return;
+                }
                 let dragging = app_for_move.dragging.get_untracked();
                 let Some(_) = dragging else { return };
                 let pane_origin = app_for_move
@@ -731,6 +995,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerUp, move |e| {
             if let Event::PointerUp(p) = e {
+                if col_resize_for_drag_end.get_untracked().is_some() {
+                    col_resize_for_drag_end.set(None);
+                    return;
+                }
                 // 左ボタン以外 (戻る/進む/中ボタン等) では drop 処理しない。
                 // dragging 状態は安全のためクリアする。
                 if !p.button.is_primary() {
@@ -743,11 +1011,19 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let drag_opt = app_for_up.dragging.get_untracked();
                 let Some(ds) = drag_opt else { return };
                 app_for_up.dragging.set(None);
-                crate::flog!("[drop] PointerUp pane={} ds.active={} ds.source_pane={} ds.paths={}",
-                    pane_id, ds.active, ds.source_pane, ds.paths.len());
+                crate::flog!(
+                    "[drop] PointerUp pane={} ds.active={} ds.source_pane={} ds.paths={}",
+                    pane_id,
+                    ds.active,
+                    ds.source_pane,
+                    ds.paths.len()
+                );
                 if !ds.active || ds.source_pane != pane_id {
-                    crate::flog!("[drop] skip (active={}, source_match={})",
-                        ds.active, ds.source_pane == pane_id);
+                    crate::flog!(
+                        "[drop] skip (active={}, source_match={})",
+                        ds.active,
+                        ds.source_pane == pane_id
+                    );
                     return;
                 }
                 let pane_origin = app_for_up
@@ -755,11 +1031,16 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
                 let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
                 let copy = p.modifiers.control();
-                let rects_dump: Vec<(u64, Rect)> = app_for_up.pane_rects.with_untracked(|m| {
-                    m.iter().map(|(k, v)| (*k, *v)).collect()
-                });
-                crate::flog!("[drop] win_pt=({:.1},{:.1}) copy={} pane_rects={:?}",
-                    win_pt.x, win_pt.y, copy, rects_dump);
+                let rects_dump: Vec<(u64, Rect)> = app_for_up
+                    .pane_rects
+                    .with_untracked(|m| m.iter().map(|(k, v)| (*k, *v)).collect());
+                crate::flog!(
+                    "[drop] win_pt=({:.1},{:.1}) copy={} pane_rects={:?}",
+                    win_pt.x,
+                    win_pt.y,
+                    copy,
+                    rects_dump
+                );
                 let target_id = app_for_up.pane_rects.with_untracked(|m| {
                     let allowed: std::collections::HashSet<u64> = app_for_up
                         .active_tab()
@@ -773,7 +1054,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     crate::flog!("[drop] no target pane found at win_pt");
                     return;
                 };
-                crate::flog!("[drop] target_id={} (source_pane={})", target_id, ds.source_pane);
+                crate::flog!(
+                    "[drop] target_id={} (source_pane={})",
+                    target_id,
+                    ds.source_pane
+                );
                 if target_id == ds.source_pane {
                     crate::flog!("[drop] same pane, skip");
                     return;
@@ -784,8 +1069,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     return;
                 };
                 let dest_dir = tp.cur_path.get_untracked();
-                crate::flog!("[drop] dest_dir={} mode={}", dest_dir.display(),
-                    if copy { "COPY" } else { "MOVE" });
+                crate::flog!(
+                    "[drop] dest_dir={} mode={}",
+                    dest_dir.display(),
+                    if copy { "COPY" } else { "MOVE" }
+                );
                 let mut ok = 0u32;
                 let mut err = 0u32;
                 for src in &ds.paths {
@@ -797,9 +1085,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         }
                     };
                     let dst = unique_dest(&dest_dir, &name);
-                    crate::flog!("[drop] {} src={} dst={}",
+                    crate::flog!(
+                        "[drop] {} src={} dst={}",
                         if copy { "copy_path" } else { "move_path" },
-                        src.display(), dst.display());
+                        src.display(),
+                        dst.display()
+                    );
                     let res = if copy {
                         fops::copy_path(
                             src.to_string_lossy().into_owned(),
@@ -813,7 +1104,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     };
                     match res {
                         Ok(()) => ok += 1,
-                        Err(e) => { crate::flog!("[drop] op error: {}", e); err += 1; }
+                        Err(e) => {
+                            crate::flog!("[drop] op error: {}", e);
+                            err += 1;
+                        }
                     }
                 }
                 let label = if copy { "コピー" } else { "移動" };
@@ -865,4 +1159,3 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             }
         })
 }
-

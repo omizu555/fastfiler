@@ -38,14 +38,16 @@ pub(super) fn row_input(title: &'static str, sig: RwSignal<String>) -> impl Into
 }
 
 pub(super) fn row_check(title: &'static str, sig: RwSignal<bool>) -> impl IntoView {
-    h_stack((
-        label(move || {
-            let mark = if sig.get() { "[v]" } else { "[ ]" };
-            format!("{} {}", mark, title)
-        })
-        .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(theme::text_normal()))
-        .on_click_stop(move |_| sig.set(!sig.get())),
-    ))
+    h_stack((label(move || {
+        let mark = if sig.get() { "[v]" } else { "[ ]" };
+        format!("{} {}", mark, title)
+    })
+    .style(|s| {
+        s.padding(6)
+            .cursor(CursorStyle::Pointer)
+            .color(theme::text_normal())
+    })
+    .on_click_stop(move |_| sig.set(!sig.get())),))
     .style(|s| s.padding(4))
 }
 
@@ -61,7 +63,11 @@ pub(super) fn row_select(
             label(move || opt.to_string())
                 .style(move |st| {
                     let active = s.get() == opt;
-                    let bg = if active { theme::accent_select() } else { theme::bg_chrome() };
+                    let bg = if active {
+                        theme::accent_select()
+                    } else {
+                        theme::bg_chrome()
+                    };
                     st.padding_horiz(10)
                         .padding_vert(4)
                         .background(bg)
@@ -109,7 +115,9 @@ pub(super) fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoV
         move || (open.get(), filter.get()),
         move |(o, f)| {
             if !o {
-                return container(label(|| String::new())).style(|s| s.height(0)).into_any();
+                return container(label(|| String::new()))
+                    .style(|s| s.height(0))
+                    .into_any();
             }
             let f_lc = f.to_lowercase();
             let items: Vec<String> = fonts_for_list

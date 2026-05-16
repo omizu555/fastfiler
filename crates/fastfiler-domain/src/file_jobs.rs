@@ -40,30 +40,51 @@ impl JobRegistry {
         }
     }
 
-    pub fn run_copy(&self, sink: &dyn EventSink, job_id: u64, items: Vec<JobItem>) -> AppResult<()> {
+    pub fn run_copy(
+        &self,
+        sink: &dyn EventSink,
+        job_id: u64,
+        items: Vec<JobItem>,
+    ) -> AppResult<()> {
         let scan_paths: Vec<PathBuf> = items.iter().map(|i| PathBuf::from(&i.from)).collect();
         run_job(self, sink, job_id, "copy", scan_paths, |cancel, sink, c| {
             for it in &items {
-                copy_recursive(Path::new(&it.from), Path::new(&it.to), cancel, sink, job_id, "copy", c)?;
+                copy_recursive(
+                    Path::new(&it.from),
+                    Path::new(&it.to),
+                    cancel,
+                    sink,
+                    job_id,
+                    "copy",
+                    c,
+                )?;
             }
             Ok(())
         })
     }
 
-    pub fn run_move(&self, sink: &dyn EventSink, job_id: u64, items: Vec<JobItem>) -> AppResult<()> {
+    pub fn run_move(
+        &self,
+        sink: &dyn EventSink,
+        job_id: u64,
+        items: Vec<JobItem>,
+    ) -> AppResult<()> {
         let scan_paths: Vec<PathBuf> = items.iter().map(|i| PathBuf::from(&i.from)).collect();
         run_job(self, sink, job_id, "move", scan_paths, |cancel, sink, c| {
             for it in &items {
                 let src = Path::new(&it.from);
                 let dst = Path::new(&it.to);
-                if let Some(parent) = dst.parent() { fs::create_dir_all(parent)?; }
+                if let Some(parent) = dst.parent() {
+                    fs::create_dir_all(parent)?;
+                }
                 if fs::rename(src, dst).is_ok() {
                     let meta = fs::symlink_metadata(dst)?;
                     if meta.is_file() {
                         c.done_files += 1;
                         c.done_bytes += meta.len();
                     } else {
-                        let mut tf = 0u64; let mut tb = 0u64;
+                        let mut tf = 0u64;
+                        let mut tb = 0u64;
                         scan_size(dst, &mut tf, &mut tb);
                         c.done_files += tf;
                         c.done_bytes += tb;
@@ -72,20 +93,36 @@ impl JobRegistry {
                     continue;
                 }
                 copy_recursive(src, dst, cancel, sink, job_id, "move", c)?;
-                if src.is_dir() { fs::remove_dir_all(src)?; } else { fs::remove_file(src)?; }
+                if src.is_dir() {
+                    fs::remove_dir_all(src)?;
+                } else {
+                    fs::remove_file(src)?;
+                }
             }
             Ok(())
         })
     }
 
-    pub fn run_delete(&self, sink: &dyn EventSink, job_id: u64, paths: Vec<String>) -> AppResult<()> {
+    pub fn run_delete(
+        &self,
+        sink: &dyn EventSink,
+        job_id: u64,
+        paths: Vec<String>,
+    ) -> AppResult<()> {
         let scan_paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-        run_job(self, sink, job_id, "delete", scan_paths, |cancel, sink, c| {
-            for p in &paths {
-                delete_recursive(Path::new(p), cancel, sink, job_id, c)?;
-            }
-            Ok(())
-        })
+        run_job(
+            self,
+            sink,
+            job_id,
+            "delete",
+            scan_paths,
+            |cancel, sink, c| {
+                for p in &paths {
+                    delete_recursive(Path::new(p), cancel, sink, job_id, c)?;
+                }
+                Ok(())
+            },
+        )
     }
 }
 
@@ -147,19 +184,31 @@ struct Counters {
     last_emit: Instant,
 }
 
-fn maybe_emit(sink: &dyn EventSink, kind: &str, job_id: u64, c: &mut Counters, current: &str, force: bool) {
-    if !force && c.last_emit.elapsed().as_millis() < 80 { return; }
+fn maybe_emit(
+    sink: &dyn EventSink,
+    kind: &str,
+    job_id: u64,
+    c: &mut Counters,
+    current: &str,
+    force: bool,
+) {
+    if !force && c.last_emit.elapsed().as_millis() < 80 {
+        return;
+    }
     c.last_emit = Instant::now();
-    emit_progress(sink, &JobProgress {
-        job_id,
-        kind: kind.into(),
-        phase: "run".into(),
-        total_files: c.total_files,
-        done_files: c.done_files,
-        total_bytes: c.total_bytes,
-        done_bytes: c.done_bytes,
-        current: current.into(),
-    });
+    emit_progress(
+        sink,
+        &JobProgress {
+            job_id,
+            kind: kind.into(),
+            phase: "run".into(),
+            total_files: c.total_files,
+            done_files: c.done_files,
+            total_bytes: c.total_bytes,
+            done_bytes: c.done_bytes,
+            current: current.into(),
+        },
+    );
 }
 
 fn copy_file_with_progress(
@@ -172,14 +221,20 @@ fn copy_file_with_progress(
     c: &mut Counters,
 ) -> AppResult<()> {
     use std::io::{Read, Write};
-    if let Some(parent) = dst.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut sf = fs::File::open(src)?;
     let mut df = fs::File::create(dst)?;
     let mut buf = vec![0u8; 256 * 1024];
     loop {
-        if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
+        if cancel.load(Ordering::SeqCst) {
+            return Err(AppError::Canceled);
+        }
         let n = sf.read(&mut buf)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         df.write_all(&buf[..n])?;
         c.done_bytes += n as u64;
         maybe_emit(sink, kind, job_id, c, &src.display().to_string(), false);
@@ -198,7 +253,9 @@ fn copy_recursive(
     kind: &str,
     c: &mut Counters,
 ) -> AppResult<()> {
-    if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
+    if cancel.load(Ordering::SeqCst) {
+        return Err(AppError::Canceled);
+    }
     let meta = fs::symlink_metadata(src)?;
     if meta.is_dir() {
         fs::create_dir_all(dst)?;
@@ -221,7 +278,9 @@ fn delete_recursive(
     job_id: u64,
     c: &mut Counters,
 ) -> AppResult<()> {
-    if cancel.load(Ordering::SeqCst) { return Err(AppError::Canceled); }
+    if cancel.load(Ordering::SeqCst) {
+        return Err(AppError::Canceled);
+    }
     let meta = fs::symlink_metadata(path)?;
     if meta.is_dir() {
         for ent in fs::read_dir(path)? {
@@ -234,7 +293,14 @@ fn delete_recursive(
         fs::remove_file(path)?;
         c.done_bytes += sz;
         c.done_files += 1;
-        maybe_emit(sink, "delete", job_id, c, &path.display().to_string(), false);
+        maybe_emit(
+            sink,
+            "delete",
+            job_id,
+            c,
+            &path.display().to_string(),
+            false,
+        );
     }
     Ok(())
 }
@@ -254,12 +320,29 @@ where
 
     let mut total_files = 0u64;
     let mut total_bytes = 0u64;
-    for p in &items_for_scan { scan_size(p, &mut total_files, &mut total_bytes); }
-    let mut c = Counters { total_files, done_files: 0, total_bytes, done_bytes: 0, last_emit: Instant::now() };
-    emit_progress(sink, &JobProgress {
-        job_id, kind: kind.into(), phase: "scan".into(),
-        total_files, done_files: 0, total_bytes, done_bytes: 0, current: String::new(),
-    });
+    for p in &items_for_scan {
+        scan_size(p, &mut total_files, &mut total_bytes);
+    }
+    let mut c = Counters {
+        total_files,
+        done_files: 0,
+        total_bytes,
+        done_bytes: 0,
+        last_emit: Instant::now(),
+    };
+    emit_progress(
+        sink,
+        &JobProgress {
+            job_id,
+            kind: kind.into(),
+            phase: "scan".into(),
+            total_files,
+            done_files: 0,
+            total_bytes,
+            done_bytes: 0,
+            current: String::new(),
+        },
+    );
 
     let result = body(&cancel, sink, &mut c);
 
@@ -270,12 +353,23 @@ where
         Ok(_) => (true, None),
         Err(e) => (false, Some(e.to_string())),
     };
-    events::emit(sink, "fs:job:done", &JobDone {
-        job_id, kind: kind.into(), ok, canceled,
-        error: err,
-        total_files: c.total_files, done_files: c.done_files,
-        total_bytes: c.total_bytes, done_bytes: c.done_bytes,
-    });
-    if canceled { return Err(AppError::Canceled); }
+    events::emit(
+        sink,
+        "fs:job:done",
+        &JobDone {
+            job_id,
+            kind: kind.into(),
+            ok,
+            canceled,
+            error: err,
+            total_files: c.total_files,
+            done_files: c.done_files,
+            total_bytes: c.total_bytes,
+            done_bytes: c.done_bytes,
+        },
+    );
+    if canceled {
+        return Err(AppError::Canceled);
+    }
     result
 }

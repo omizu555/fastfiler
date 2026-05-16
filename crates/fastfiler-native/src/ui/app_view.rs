@@ -37,11 +37,7 @@ fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
                     let child_view = render_split_node(child, app);
                     container(child_view)
                         .style(move |s| {
-                            let s = s
-                                .flex_grow(1.0)
-                                .flex_basis(0)
-                                .min_width(0)
-                                .min_height(0);
+                            let s = s.flex_grow(1.0).flex_basis(0).min_width(0).min_height(0);
                             if i > 0 && count > 1 {
                                 match dir {
                                     SplitDir::Horizontal => {
@@ -118,13 +114,7 @@ pub fn app_view() -> impl IntoView {
             let tabs_v = app_for_tabs.tabs.get();
             let paths: Vec<String> = tabs_v
                 .iter()
-                .map(|t| {
-                    t.primary()
-                        .cur_path
-                        .get()
-                        .to_string_lossy()
-                        .into_owned()
-                })
+                .map(|t| t.primary().cur_path.get().to_string_lossy().into_owned())
                 .collect();
             let layouts: Vec<String> = tabs_v
                 .iter()
@@ -162,125 +152,130 @@ pub fn app_view() -> impl IntoView {
         let accent_sig = app.settings.accent_color;
         let icon_set_sig = app.settings.icon_set;
         let icon_pack_sig = app.settings.icon_pack;
-        floem::reactive::create_effect(move |prev: Option<(String, String, String, String, String)>| {
-            let cur = (
-                theme_sig.get(),
-                preset_sig.get(),
-                accent_sig.get(),
-                icon_set_sig.get(),
-                icon_pack_sig.get(),
-            );
-            if let Some(p) = prev.as_ref() {
-                if p != &cur {
-                    crate::theme::set_mode_from_str(&cur.0);
-                    crate::theme::set_preset_from_str(&cur.1);
-                    crate::theme::set_accent_from_str(&cur.2);
-                    app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
+        floem::reactive::create_effect(
+            move |prev: Option<(String, String, String, String, String)>| {
+                let cur = (
+                    theme_sig.get(),
+                    preset_sig.get(),
+                    accent_sig.get(),
+                    icon_set_sig.get(),
+                    icon_pack_sig.get(),
+                );
+                if let Some(p) = prev.as_ref() {
+                    if p != &cur {
+                        crate::theme::set_mode_from_str(&cur.0);
+                        crate::theme::set_preset_from_str(&cur.1);
+                        crate::theme::set_accent_from_str(&cur.2);
+                        app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
+                    }
                 }
-            }
-            cur
-        });
+                cur
+            },
+        );
     }
 
     let theme_rev = app.theme_rev;
-    let switcher = dyn_container(
-        move || (settings_open.get(), theme_rev.get()),
-        {
-            let app = app.clone();
-            move |(open, _rev)| {
-                if open {
-                    settings_view(app.settings.clone(), settings_open).into_any()
-                } else {
-                    let app = app.clone();
-                    let app_for_panes = app.clone();
-                    let active_panes = dyn_container(
-                        move || {
-                            let id = active.get();
-                            let tabs_v = tabs.get();
-                            let active_tab = tabs_v.iter().find(|t| t.id == id).cloned()
-                                .or_else(|| tabs_v.iter().next().cloned());
-                            active_tab.map(|t| t.root.get())
-                        },
-                        move |root: Option<SplitNode>| {
-                            let app = app_for_panes.clone();
-                            match root {
-                                None => label(|| String::from("(no tab)"))
-                                    .style(|s| s.size_full().padding(20))
-                                    .into_any(),
-                                Some(node) => render_split_node(node, app).into_any(),
-                            }
-                        },
-                    )
-                    .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
-                    let app_for_layout = app.clone();
-                    let active_panes_view = active_panes.into_any();
-                    let layout_sig = app.settings.workspace_layout;
-                    let dock_tabs_sig = app.settings.panel_dock_tabs;
-                    let dock_tree_sig = app.settings.panel_dock_tree;
-                    let active_panes_holder = std::rc::Rc::new(std::cell::RefCell::new(Some(active_panes_view)));
-                    let main_row = dyn_container(
-                        move || {
-                            let layout = layout_sig.get();
-                            let dt = dock_tabs_sig.get();
-                            let dr = dock_tree_sig.get();
-                            (layout, dt, dr)
-                        },
-                        move |(layout, dock_tabs, dock_tree)| {
-                            let app = app_for_layout.clone();
-                            let tabs_hidden = layout == "tabsHidden" || dock_tabs == "hidden";
-                            let tree_hidden = dock_tree == "hidden";
-                            let tabs_right = dock_tabs == "right" || layout == "tabsRight";
-                            let tree_right = dock_tree == "right";
+    let switcher = dyn_container(move || (settings_open.get(), theme_rev.get()), {
+        let app = app.clone();
+        move |(open, _rev)| {
+            if open {
+                settings_view(app.settings.clone(), settings_open).into_any()
+            } else {
+                let app = app.clone();
+                let app_for_panes = app.clone();
+                let active_panes = dyn_container(
+                    move || {
+                        let id = active.get();
+                        let tabs_v = tabs.get();
+                        let active_tab = tabs_v
+                            .iter()
+                            .find(|t| t.id == id)
+                            .cloned()
+                            .or_else(|| tabs_v.iter().next().cloned());
+                        active_tab.map(|t| t.root.get())
+                    },
+                    move |root: Option<SplitNode>| {
+                        let app = app_for_panes.clone();
+                        match root {
+                            None => label(|| String::from("(no tab)"))
+                                .style(|s| s.size_full().padding(20))
+                                .into_any(),
+                            Some(node) => render_split_node(node, app).into_any(),
+                        }
+                    },
+                )
+                .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
+                let app_for_layout = app.clone();
+                let active_panes_view = active_panes.into_any();
+                let layout_sig = app.settings.workspace_layout;
+                let dock_tabs_sig = app.settings.panel_dock_tabs;
+                let dock_tree_sig = app.settings.panel_dock_tree;
+                let active_panes_holder =
+                    std::rc::Rc::new(std::cell::RefCell::new(Some(active_panes_view)));
+                let main_row = dyn_container(
+                    move || {
+                        let layout = layout_sig.get();
+                        let dt = dock_tabs_sig.get();
+                        let dr = dock_tree_sig.get();
+                        (layout, dt, dr)
+                    },
+                    move |(layout, dock_tabs, dock_tree)| {
+                        let app = app_for_layout.clone();
+                        let tabs_hidden = layout == "tabsHidden" || dock_tabs == "hidden";
+                        let tree_hidden = dock_tree == "hidden";
+                        let tabs_right = dock_tabs == "right" || layout == "tabsRight";
+                        let tree_right = dock_tree == "right";
 
-                            let mut items: Vec<floem::AnyView> = Vec::new();
-                            if !tabs_hidden && !tabs_right {
-                                items.push(tabs_panel(app.clone()).into_any());
-                                items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
-                            }
-                            if !tree_hidden && !tree_right {
-                                items.push(tree_pane(app.clone()).into_any());
-                                items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
-                            }
-                            // 中央 active_panes (ホルダから取り出し、再構築の都度新規生成)
-                            let center = active_panes_holder
-                                .borrow_mut()
-                                .take()
-                                .unwrap_or_else(|| {
-                                    label(|| String::from("(no center)"))
-                                        .style(|s| s.size_full())
-                                        .into_any()
-                                });
-                            items.push(center);
-                            if !tree_hidden && tree_right {
-                                items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
-                                items.push(tree_pane(app.clone()).into_any());
-                            }
-                            if !tabs_hidden && tabs_right {
-                                items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
-                                items.push(tabs_panel(app.clone()).into_any());
-                            }
-                            floem::views::stack_from_iter(items)
-                                .style(|s| s.flex_row().flex_grow(1.0).min_height(0).width_full())
+                        let mut items: Vec<floem::AnyView> = Vec::new();
+                        if !tabs_hidden && !tabs_right {
+                            items.push(tabs_panel(app.clone()).into_any());
+                            items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
+                        }
+                        if !tree_hidden && !tree_right {
+                            items.push(tree_pane(app.clone()).into_any());
+                            items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
+                        }
+                        // 中央 active_panes (ホルダから取り出し、再構築の都度新規生成)
+                        let center = active_panes_holder.borrow_mut().take().unwrap_or_else(|| {
+                            label(|| String::from("(no center)"))
+                                .style(|s| s.size_full())
                                 .into_any()
-                        },
-                    )
-                    .style(|s| s.flex_grow(1.0).min_height(0).width_full());
-                    v_stack((main_row, footer_bar(app.clone())))
-                        .style(|s| s.size_full().flex_col())
-                        .into_any()
-                }
+                        });
+                        items.push(center);
+                        if !tree_hidden && tree_right {
+                            items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
+                            items.push(tree_pane(app.clone()).into_any());
+                        }
+                        if !tabs_hidden && tabs_right {
+                            items.push(splitter(app.clone(), SplitterTarget::Tabs).into_any());
+                            items.push(tabs_panel(app.clone()).into_any());
+                        }
+                        floem::views::stack_from_iter(items)
+                            .style(|s| s.flex_row().flex_grow(1.0).min_height(0).width_full())
+                            .into_any()
+                    },
+                )
+                .style(|s| s.flex_grow(1.0).min_height(0).width_full());
+                v_stack((main_row, footer_bar(app.clone())))
+                    .style(|s| s.size_full().flex_col())
+                    .into_any()
             }
-        },
-    )
+        }
+    })
     .style(|s| s.size_full());
 
     let ui_font_size_sig = app.settings.ui_font_size;
     let ui_font_sig = app.settings.ui_font;
     container(switcher)
         .style(move |s| {
-            let fs = ui_font_size_sig.get().parse::<f32>().unwrap_or(13.0).clamp(8.0, 32.0);
+            let fs = ui_font_size_sig
+                .get()
+                .parse::<f32>()
+                .unwrap_or(13.0)
+                .clamp(8.0, 32.0);
             let family = ui_font_sig.get();
-            let s = s.size_full()
+            let s = s
+                .size_full()
                 .background(theme::bg_root())
                 .color(theme::text_normal())
                 .font_size(fs);
@@ -369,4 +364,3 @@ pub fn app_view() -> impl IntoView {
             }
         })
 }
-

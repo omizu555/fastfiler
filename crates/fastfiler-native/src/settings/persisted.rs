@@ -12,64 +12,127 @@ use super::model::AppSettings;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PersistedSettings {
-    #[serde(default = "def_initial_path")] pub initial_path: String,
-    #[serde(default)] pub show_hidden: bool,
-    #[serde(default = "def_true")] pub show_thumbnails: bool,
-    #[serde(default)] pub show_preview: bool,
-    #[serde(default)] pub show_plugin_panel: bool,
-    #[serde(default)] pub hide_pane_toolbar: bool,
-    #[serde(default = "def_system")] pub theme: String,
-    #[serde(default = "def_default")] pub theme_preset: String,
-    #[serde(default)] pub accent_color: String,
-    #[serde(default = "def_emoji")] pub icon_set: String,
-    #[serde(default = "def_default")] pub icon_pack: String,
-    #[serde(default)] pub ui_font: String,
-    #[serde(default = "def_13")] pub ui_font_size: String,
+    #[serde(default = "def_initial_path")]
+    pub initial_path: String,
+    #[serde(default)]
+    pub show_hidden: bool,
+    #[serde(default = "def_true")]
+    pub show_thumbnails: bool,
+    #[serde(default)]
+    pub show_preview: bool,
+    #[serde(default)]
+    pub show_plugin_panel: bool,
+    #[serde(default)]
+    pub hide_pane_toolbar: bool,
+    #[serde(default = "def_system")]
+    pub theme: String,
+    #[serde(default = "def_default")]
+    pub theme_preset: String,
+    #[serde(default)]
+    pub accent_color: String,
+    #[serde(default = "def_emoji")]
+    pub icon_set: String,
+    #[serde(default = "def_default")]
+    pub icon_pack: String,
+    #[serde(default)]
+    pub ui_font: String,
+    #[serde(default = "def_13")]
+    pub ui_font_size: String,
 
-    #[serde(default = "def_1")] pub tab_columns: String,
-    #[serde(default = "def_220")] pub tabs_width: String,
-    #[serde(default = "def_240")] pub tree_width: String,
-    #[serde(default)] pub same_panel_stack: bool,
-    #[serde(default = "def_tabs_left")] pub workspace_layout: String,
-    #[serde(default = "def_left")] pub panel_dock_tabs: String,
-    #[serde(default = "def_left")] pub panel_dock_tree: String,
+    #[serde(default = "def_1")]
+    pub tab_columns: String,
+    #[serde(default = "def_220")]
+    pub tabs_width: String,
+    #[serde(default = "def_240")]
+    pub tree_width: String,
+    #[serde(default)]
+    pub same_panel_stack: bool,
+    #[serde(default = "def_tabs_left")]
+    pub workspace_layout: String,
+    #[serde(default = "def_left")]
+    pub panel_dock_tabs: String,
+    #[serde(default = "def_left")]
+    pub panel_dock_tree: String,
 
-    #[serde(default = "def_builtin")] pub search_backend: String,
-    #[serde(default = "def_80")] pub everything_port: String,
-    #[serde(default = "def_true")] pub everything_scope: bool,
+    #[serde(default = "def_builtin")]
+    pub search_backend: String,
+    #[serde(default = "def_80")]
+    pub everything_port: String,
+    #[serde(default = "def_true")]
+    pub everything_scope: bool,
 
-    #[serde(default)] pub show_terminal: bool,
-    #[serde(default = "def_240")] pub terminal_height: String,
-    #[serde(default)] pub terminal_shell: String,
-    #[serde(default)] pub terminal_font: String,
-    #[serde(default = "def_13")] pub terminal_font_size: String,
+    #[serde(default)]
+    pub show_terminal: bool,
+    #[serde(default = "def_240")]
+    pub terminal_height: String,
+    #[serde(default)]
+    pub terminal_shell: String,
+    #[serde(default)]
+    pub terminal_font: String,
+    #[serde(default = "def_13")]
+    pub terminal_font_size: String,
 
-    #[serde(default)] pub hotkeys: Vec<(String, String)>,
-    #[serde(default)] pub plugins_enabled: Vec<(String, bool)>,
+    #[serde(default)]
+    pub hotkeys: Vec<(String, String)>,
+    #[serde(default)]
+    pub plugins_enabled: Vec<(String, bool)>,
 
-    #[serde(default)] pub window_x: Option<i32>,
-    #[serde(default)] pub window_y: Option<i32>,
-    #[serde(default)] pub window_w: Option<u32>,
-    #[serde(default)] pub window_h: Option<u32>,
-    #[serde(default)] pub window_maximized: bool,
+    #[serde(default)]
+    pub window_x: Option<i32>,
+    #[serde(default)]
+    pub window_y: Option<i32>,
+    #[serde(default)]
+    pub window_w: Option<u32>,
+    #[serde(default)]
+    pub window_h: Option<u32>,
+    #[serde(default)]
+    pub window_maximized: bool,
 
-    #[serde(default)] pub open_tabs: Vec<String>,
-    #[serde(default)] pub tab_layouts: Vec<String>,
+    #[serde(default)]
+    pub open_tabs: Vec<String>,
+    #[serde(default)]
+    pub tab_layouts: Vec<String>,
 }
 
-pub(super) fn def_true() -> bool { true }
-pub(super) fn def_initial_path() -> String { String::from("C:\\") }
-pub(super) fn def_system() -> String { String::from("system") }
-pub(super) fn def_default() -> String { String::from("default") }
-pub(super) fn def_emoji() -> String { String::from("emoji") }
-pub(super) fn def_13() -> String { String::from("13") }
-pub(super) fn def_1() -> String { String::from("1") }
-pub(super) fn def_220() -> String { String::from("220") }
-pub(super) fn def_240() -> String { String::from("240") }
-pub(super) fn def_tabs_left() -> String { String::from("tabsLeft") }
-pub(super) fn def_left() -> String { String::from("left") }
-pub(super) fn def_builtin() -> String { String::from("builtin") }
-pub(super) fn def_80() -> String { String::from("80") }
+pub(super) fn def_true() -> bool {
+    true
+}
+pub(super) fn def_initial_path() -> String {
+    String::from("C:\\")
+}
+pub(super) fn def_system() -> String {
+    String::from("system")
+}
+pub(super) fn def_default() -> String {
+    String::from("default")
+}
+pub(super) fn def_emoji() -> String {
+    String::from("emoji")
+}
+pub(super) fn def_13() -> String {
+    String::from("13")
+}
+pub(super) fn def_1() -> String {
+    String::from("1")
+}
+pub(super) fn def_220() -> String {
+    String::from("220")
+}
+pub(super) fn def_240() -> String {
+    String::from("240")
+}
+pub(super) fn def_tabs_left() -> String {
+    String::from("tabsLeft")
+}
+pub(super) fn def_left() -> String {
+    String::from("left")
+}
+pub(super) fn def_builtin() -> String {
+    String::from("builtin")
+}
+pub(super) fn def_80() -> String {
+    String::from("80")
+}
 
 impl Default for PersistedSettings {
     fn default() -> Self {

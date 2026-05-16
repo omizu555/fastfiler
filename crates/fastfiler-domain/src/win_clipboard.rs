@@ -29,6 +29,7 @@ pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {
 
 #[cfg(windows)]
 unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HANDLE, HWND};
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
@@ -36,7 +37,6 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
     use windows::Win32::System::Ole::CF_HDROP;
     use windows::Win32::UI::Shell::DROPFILES;
-    use windows::core::PCWSTR;
 
     // 1. CF_HDROP 用バイト列を準備
     //    DROPFILES + (path1\0 path2\0 ... \0)
@@ -59,7 +59,9 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
     let h_drop = GlobalAlloc(GHND, total)
         .map_err(|e| AppError::Win32(format!("GlobalAlloc(HDROP): {e}")))?;
     if h_drop.is_invalid() {
-        return Err(AppError::Win32("GlobalAlloc(HDROP) returned invalid".into()));
+        return Err(AppError::Win32(
+            "GlobalAlloc(HDROP) returned invalid".into(),
+        ));
     }
     {
         let p = GlobalLock(h_drop) as *mut u8;
@@ -83,7 +85,9 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
     let h_eff = GlobalAlloc(GHND, std::mem::size_of::<u32>())
         .map_err(|e| AppError::Win32(format!("GlobalAlloc(Effect): {e}")))?;
     if h_eff.is_invalid() {
-        return Err(AppError::Win32("GlobalAlloc(Effect) returned invalid".into()));
+        return Err(AppError::Win32(
+            "GlobalAlloc(Effect) returned invalid".into(),
+        ));
     }
     {
         let p = GlobalLock(h_eff) as *mut u32;
@@ -146,6 +150,7 @@ pub fn clipboard_read_paths() -> AppResult<Option<ClipboardPaths>> {
 
 #[cfg(windows)]
 unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HGLOBAL, HWND};
     use windows::Win32::System::DataExchange::{
         CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
@@ -154,7 +159,6 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
     use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
     use windows::Win32::System::Ole::CF_HDROP;
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
-    use windows::core::PCWSTR;
 
     if IsClipboardFormatAvailable(CF_HDROP.0 as u32).is_err() {
         return Ok(None);

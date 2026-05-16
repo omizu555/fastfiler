@@ -146,27 +146,71 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
                 }
             }
         }
-        "parent" => { if let Some(p) = pane { p.up(); } }
-        "refresh" => { if let Some(p) = pane { p.reload(); } }
-        "rename" => { if let Some(p) = pane { p.open_rename_modal(); } }
-        "delete" => { if let Some(p) = pane { p.delete_selected(); } }
+        "parent" => {
+            if let Some(p) = pane {
+                p.up();
+            }
+        }
+        "refresh" => {
+            if let Some(p) = pane {
+                p.reload();
+            }
+        }
+        "rename" => {
+            if let Some(p) = pane {
+                p.open_rename_modal();
+            }
+        }
+        "delete" => {
+            if let Some(p) = pane {
+                p.delete_selected();
+            }
+        }
         "delete-permanent" => {
             if let Some(p) = pane {
                 p.status_msg.set(String::from("(delete-permanent 未実装)"));
             }
         }
-        "new-folder" => { if let Some(p) = pane { p.open_new_folder_modal(); } }
-        "cut" => { if let Some(p) = pane { p.clipboard_write("move"); } }
-        "copy" => { if let Some(p) = pane { p.clipboard_write("copy"); } }
-        "paste" => { if let Some(p) = pane { p.clipboard_paste(); } }
-        "select-all" => { if let Some(p) = pane { p.select_all(); } }
+        "new-folder" => {
+            if let Some(p) = pane {
+                p.open_new_folder_modal();
+            }
+        }
+        "cut" => {
+            if let Some(p) = pane {
+                p.clipboard_write("move");
+            }
+        }
+        "copy" => {
+            if let Some(p) = pane {
+                p.clipboard_write("copy");
+            }
+        }
+        "paste" => {
+            if let Some(p) = pane {
+                p.clipboard_paste();
+            }
+        }
+        "select-all" => {
+            if let Some(p) = pane {
+                p.select_all();
+            }
+        }
         "address-bar" => {
             if let Some(p) = pane {
                 p.status_msg.set(String::from("(address-bar focus 未実装)"));
             }
         }
-        "pane-back" => { if let Some(p) = pane { p.back(); } }
-        "pane-forward" => { if let Some(p) = pane { p.forward(); } }
+        "pane-back" => {
+            if let Some(p) = pane {
+                p.back();
+            }
+        }
+        "pane-forward" => {
+            if let Some(p) = pane {
+                p.forward();
+            }
+        }
         // ─────────── タブ操作 ───────────
         "new-tab" => {
             let start = app
@@ -202,8 +246,8 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         // ─────────── 設定 ───────────
         "open-settings" => app.settings_open.set(true),
         // ─────────── 未実装 (status_msg にだけ流す) ───────────
-        "toggle-preview" | "toggle-plugin" | "toggle-tabs"
-        | "toggle-tree" | "undo" | "toggle-terminal" => {
+        "toggle-preview" | "toggle-plugin" | "toggle-tabs" | "toggle-tree" | "undo"
+        | "toggle-terminal" => {
             if let Some(p) = pane {
                 p.status_msg.set(format!("(action '{}' 未実装)", action));
             }

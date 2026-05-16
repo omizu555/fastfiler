@@ -80,7 +80,11 @@ impl PaneState {
         }
         if shift {
             let anchor = self.anchor.get_untracked().unwrap_or(idx);
-            let (lo, hi) = if anchor <= idx { (anchor, idx) } else { (idx, anchor) };
+            let (lo, hi) = if anchor <= idx {
+                (anchor, idx)
+            } else {
+                (idx, anchor)
+            };
             let mut set = if ctrl {
                 self.selected.get_untracked()
             } else {
@@ -140,7 +144,8 @@ impl PaneState {
         self.anchor.set(None);
         match result {
             Ok(Ok(())) => {
-                self.status_msg.set(format!("ごみ箱へ送りました ({} 件)", n));
+                self.status_msg
+                    .set(format!("ごみ箱へ送りました ({} 件)", n));
                 self.reload();
             }
             Ok(Err(e)) => {
@@ -172,7 +177,9 @@ impl PaneState {
                 .set(String::from("リネームは 1 件のみ選択時"));
             return;
         };
-        let name = self.rows.with_untracked(|v| v.get(idx).map(|r| r.name.clone()));
+        let name = self
+            .rows
+            .with_untracked(|v| v.get(idx).map(|r| r.name.clone()));
         if let Some(name) = name {
             self.modal_input.set(name.clone());
             self.modal_kind.set(ModalKind::Rename(name));
@@ -291,14 +298,19 @@ impl PaneState {
                 return;
             }
             Err(e) => {
-                self.status_msg.set(format!("クリップボード読込失敗: {}", e));
+                self.status_msg
+                    .set(format!("クリップボード読込失敗: {}", e));
                 return;
             }
         };
         let dst_dir = self.cur_path.get_untracked();
         let is_move = cb.op.eq_ignore_ascii_case("move");
-        crate::flog!("[paste] dst={} is_move={} count={}",
-            dst_dir.display(), is_move, cb.paths.len());
+        crate::flog!(
+            "[paste] dst={} is_move={} count={}",
+            dst_dir.display(),
+            is_move,
+            cb.paths.len()
+        );
         let mut ok = 0usize;
         let mut err = 0usize;
         for src in &cb.paths {
@@ -309,8 +321,12 @@ impl PaneState {
                 continue;
             };
             let dst = unique_dest(&dst_dir, &name);
-            crate::flog!("[paste] {} src={} dst={}",
-                if is_move { "move" } else { "copy" }, src, dst.display());
+            crate::flog!(
+                "[paste] {} src={} dst={}",
+                if is_move { "move" } else { "copy" },
+                src,
+                dst.display()
+            );
             let res = if is_move {
                 fops::move_path(src.clone(), dst.to_string_lossy().into_owned())
             } else {
@@ -318,7 +334,10 @@ impl PaneState {
             };
             match res {
                 Ok(()) => ok += 1,
-                Err(e) => { crate::flog!("[paste] op error: {}", e); err += 1; }
+                Err(e) => {
+                    crate::flog!("[paste] op error: {}", e);
+                    err += 1;
+                }
             }
         }
         let label = if is_move { "移動" } else { "コピー" };

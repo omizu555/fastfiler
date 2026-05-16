@@ -46,5 +46,3 @@ pub fn footer_bar(app: AppState) -> impl IntoView {
             .border_color(theme::border_default())
     })
 }
-
-

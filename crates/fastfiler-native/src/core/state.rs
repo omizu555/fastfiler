@@ -23,8 +23,7 @@ use floem::reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith};
 use parking_lot::Mutex;
 
 use crate::fs_model::{
-    initial_path, pretty_title, read_folder, sort_rows, FileRow, History, SortKey,
-    Stats,
+    initial_path, pretty_title, read_folder, sort_rows, FileRow, History, SortKey, Stats,
 };
 use crate::settings::AppSettings;
 
@@ -109,12 +108,31 @@ pub struct PaneState {
     pub search_results: RwSignal<Option<im::Vector<FileRow>>>,
     /// Everything リクエスト世代 (古い結果を捨てる)
     pub search_request_gen: RwSignal<u64>,
+    pub name_col_width: RwSignal<f32>,
+    pub size_col_width: RwSignal<f32>,
+    pub mtime_col_width: RwSignal<f32>,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
 
 impl PaneState {
     pub fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
+        Self::new_with_columns(
+            start,
+            show_hidden,
+            def_name_col_width(),
+            def_size_col_width(),
+            def_mtime_col_width(),
+        )
+    }
+
+    pub fn new_with_columns(
+        start: PathBuf,
+        show_hidden: RwSignal<bool>,
+        name_col_width: f32,
+        size_col_width: f32,
+        mtime_col_width: f32,
+    ) -> Self {
         let mut initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
         sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
@@ -154,6 +172,9 @@ impl PaneState {
             search_open: s.create_rw_signal(false),
             search_results: s.create_rw_signal(None),
             search_request_gen: s.create_rw_signal(0),
+            name_col_width: s.create_rw_signal(name_col_width.clamp(120.0, 1200.0)),
+            size_col_width: s.create_rw_signal(size_col_width.clamp(70.0, 600.0)),
+            mtime_col_width: s.create_rw_signal(mtime_col_width.clamp(90.0, 600.0)),
         }
     }
 
@@ -167,7 +188,11 @@ impl PaneState {
         let t = Instant::now();
         match read_folder(&target, self.show_hidden.get_untracked()) {
             Ok(mut v) => {
-                sort_rows(&mut v, self.sort_key.get_untracked(), self.sort_desc.get_untracked());
+                sort_rows(
+                    &mut v,
+                    self.sort_key.get_untracked(),
+                    self.sort_desc.get_untracked(),
+                );
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 let len = v.len();
                 let prev_path = self.cur_path.get_untracked();
@@ -231,15 +256,21 @@ impl PaneState {
     pub fn refresh_rows_only(&self) {
         let cur = self.cur_path.get_untracked();
         let show_hidden = self.show_hidden.get_untracked();
-        let Ok(mut v) = read_folder(&cur, show_hidden) else { return; };
-        sort_rows(&mut v, self.sort_key.get_untracked(), self.sort_desc.get_untracked());
+        let Ok(mut v) = read_folder(&cur, show_hidden) else {
+            return;
+        };
+        sort_rows(
+            &mut v,
+            self.sort_key.get_untracked(),
+            self.sort_desc.get_untracked(),
+        );
         let new_len = v.len();
         // 簡易差分: 件数 + name + size + mtime が同じなら更新スキップ
         let same = self.rows.with_untracked(|r| {
             r.len() == new_len
-                && r.iter().zip(v.iter()).all(|(a, b)| {
-                    a.name == b.name && a.size == b.size && a.modified == b.modified
-                })
+                && r.iter()
+                    .zip(v.iter())
+                    .all(|(a, b)| a.name == b.name && a.size == b.size && a.modified == b.modified)
         });
         if same {
             return;
@@ -280,12 +311,36 @@ pub enum SplitNode {
     },
 }
 
-/// SplitNode を JSON に書き出すための Serializable 形 (PaneState の代わりに path のみ保持)
+fn def_name_col_width() -> f32 {
+    280.0
+}
+
+fn def_size_col_width() -> f32 {
+    110.0
+}
+
+fn def_mtime_col_width() -> f32 {
+    140.0
+}
+
+/// SplitNode を JSON に書き出すための Serializable 形
+/// (PaneState の代わりに path + 列幅のみ保持)
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub enum SavedSplit {
-    Leaf { path: String },
-    Split { dir: String, children: Vec<SavedSplit> },
+    Leaf {
+        path: String,
+        #[serde(default = "def_name_col_width")]
+        name_col_width: f32,
+        #[serde(default = "def_size_col_width")]
+        size_col_width: f32,
+        #[serde(default = "def_mtime_col_width")]
+        mtime_col_width: f32,
+    },
+    Split {
+        dir: String,
+        children: Vec<SavedSplit>,
+    },
 }
 
 impl SplitNode {
@@ -293,6 +348,9 @@ impl SplitNode {
         match self {
             SplitNode::Leaf(p) => SavedSplit::Leaf {
                 path: p.cur_path.get_untracked().to_string_lossy().into_owned(),
+                name_col_width: p.name_col_width.get_untracked(),
+                size_col_width: p.size_col_width.get_untracked(),
+                mtime_col_width: p.mtime_col_width.get_untracked(),
             },
             SplitNode::Split { dir, children } => SavedSplit::Split {
                 dir: match dir {
@@ -307,13 +365,28 @@ impl SplitNode {
     /// SavedSplit から SplitNode を構築。各 Leaf に新規 PaneState を作成する。
     pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>) -> Self {
         match saved {
-            SavedSplit::Leaf { path } => {
+            SavedSplit::Leaf {
+                path,
+                name_col_width,
+                size_col_width,
+                mtime_col_width,
+            } => {
                 let p = PathBuf::from(path);
                 let p = if p.exists() { p } else { PathBuf::from("C:\\") };
-                SplitNode::Leaf(PaneState::new(p, show_hidden))
+                SplitNode::Leaf(PaneState::new_with_columns(
+                    p,
+                    show_hidden,
+                    *name_col_width,
+                    *size_col_width,
+                    *mtime_col_width,
+                ))
             }
             SavedSplit::Split { dir, children } => {
-                let dir = if dir == "v" { SplitDir::Vertical } else { SplitDir::Horizontal };
+                let dir = if dir == "v" {
+                    SplitDir::Vertical
+                } else {
+                    SplitDir::Horizontal
+                };
                 let mut kids = Vec::with_capacity(children.len());
                 for c in children {
                     kids.push(SplitNode::from_saved(c, show_hidden));
@@ -321,7 +394,10 @@ impl SplitNode {
                 if kids.is_empty() {
                     SplitNode::Leaf(PaneState::new(PathBuf::from("C:\\"), show_hidden))
                 } else {
-                    SplitNode::Split { dir, children: kids }
+                    SplitNode::Split {
+                        dir,
+                        children: kids,
+                    }
                 }
             }
         }
@@ -353,7 +429,11 @@ impl SplitNode {
     /// 戻り値: 分割成功なら true。
     pub fn split_leaf(&mut self, pane_id: u64, dir: SplitDir, new_pane: PaneState) -> bool {
         // 1. 自身が Split で、その子に対象 Leaf があり同方向なら子に追加
-        if let SplitNode::Split { dir: my_dir, children } = self {
+        if let SplitNode::Split {
+            dir: my_dir,
+            children,
+        } = self
+        {
             if *my_dir == dir {
                 for i in 0..children.len() {
                     if let SplitNode::Leaf(p) = &children[i] {
@@ -391,9 +471,10 @@ impl SplitNode {
     pub fn remove_leaf(&mut self, pane_id: u64) -> bool {
         if let SplitNode::Split { children, .. } = self {
             // 直下の Leaf を検査
-            if let Some(idx) = children.iter().position(|c| {
-                matches!(c, SplitNode::Leaf(p) if p.id == pane_id)
-            }) {
+            if let Some(idx) = children
+                .iter()
+                .position(|c| matches!(c, SplitNode::Leaf(p) if p.id == pane_id))
+            {
                 children.remove(idx);
                 self.collapse_if_single();
                 return true;
@@ -474,7 +555,9 @@ impl Tab {
     }
 
     pub fn primary(&self) -> PaneState {
-        self.root.with(|r| r.first_leaf()).expect("tab must have at least one pane")
+        self.root
+            .with(|r| r.first_leaf())
+            .expect("tab must have at least one pane")
     }
 
     pub fn all_panes(&self) -> Vec<PaneState> {
@@ -487,6 +570,22 @@ impl Tab {
 
     pub fn pane_count(&self) -> usize {
         self.root.with(|r| r.leaf_count())
+    }
+
+    pub fn active_pane_resolved(&self) -> Option<PaneState> {
+        let active_id = self.active_pane.get_untracked();
+        let panes = self.all_panes();
+        if panes.is_empty() {
+            return None;
+        }
+        if let Some(p) = panes.iter().find(|p| p.id == active_id).cloned() {
+            return Some(p);
+        }
+        let fallback = panes[0].clone();
+        if active_id != fallback.id {
+            self.active_pane.set(fallback.id);
+        }
+        Some(fallback)
     }
 }
 
@@ -569,7 +668,7 @@ impl AppState {
 
     /// 互換用: アクティブタブの primary ペイン
     pub fn active_pane(&self) -> Option<PaneState> {
-        self.active_tab().map(|t| t.primary())
+        self.active_tab().and_then(|t| t.active_pane_resolved())
     }
 
     pub fn add_tab(&self, start: PathBuf) {
@@ -639,22 +738,49 @@ impl AppState {
                 return;
             }
             let active_id = tab.active_pane.get_untracked();
-            let dir = if vertical { SplitDir::Vertical } else { SplitDir::Horizontal };
+            let dir = if vertical {
+                SplitDir::Vertical
+            } else {
+                SplitDir::Horizontal
+            };
             let base = tab
                 .all_panes()
                 .into_iter()
                 .find(|p| p.id == active_id)
                 .map(|p| p.cur_path.get_untracked())
                 .unwrap_or_else(|| tab.primary().cur_path.get_untracked());
+            let (name_col_w, size_col_w, mtime_col_w) = tab
+                .all_panes()
+                .into_iter()
+                .find(|p| p.id == active_id)
+                .map(|p| {
+                    (
+                        p.name_col_width.get_untracked(),
+                        p.size_col_width.get_untracked(),
+                        p.mtime_col_width.get_untracked(),
+                    )
+                })
+                .unwrap_or((
+                    def_name_col_width(),
+                    def_size_col_width(),
+                    def_mtime_col_width(),
+                ));
             let show_hidden = self.settings.show_hidden;
-            let new_pane = PaneState::new(base, show_hidden);
+            let new_pane =
+                PaneState::new_with_columns(base, show_hidden, name_col_w, size_col_w, mtime_col_w);
             let new_id = new_pane.id;
 
             let mut ok = false;
             tab.root.update(|r| {
                 ok = r.split_leaf(active_id, dir, new_pane.clone());
             });
-            crate::flog!("[split] dir={:?} active={} ok={} new_id={}", dir, active_id, ok, new_id);
+            crate::flog!(
+                "[split] dir={:?} active={} ok={} new_id={}",
+                dir,
+                active_id,
+                ok,
+                new_id
+            );
             if ok {
                 tab.active_pane.set(new_id);
             }

@@ -47,8 +47,7 @@ fn default_when() -> String {
 }
 
 fn commands_dir_inner() -> AppResult<PathBuf> {
-    let appdata =
-        std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
+    let appdata = std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
     let dir = PathBuf::from(appdata).join("fastfiler").join("commands");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;

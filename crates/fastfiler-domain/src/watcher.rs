@@ -40,7 +40,10 @@ impl WatcherCore {
                         EventKind::Remove(_) => "remove",
                         _ => "any",
                     };
-                    let payload = FsChange { path: path_for_event.clone(), kind };
+                    let payload = FsChange {
+                        path: path_for_event.clone(),
+                        kind,
+                    };
                     events::emit(sink.as_ref(), "fs-change", &payload);
                 }
             })

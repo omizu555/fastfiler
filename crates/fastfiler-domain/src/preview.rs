@@ -8,8 +8,15 @@ use std::io::Read;
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PreviewData {
-    Text { content: String, truncated: bool, encoding: String },
-    Binary { hex: String, size: u64 },
+    Text {
+        content: String,
+        truncated: bool,
+        encoding: String,
+    },
+    Binary {
+        hex: String,
+        size: u64,
+    },
     Empty,
 }
 
@@ -35,7 +42,11 @@ pub fn read_text_preview(path: String, max_bytes: Option<u64>) -> AppResult<Prev
             .map(|b| u16::from_le_bytes([b[0], b[1]]))
             .collect();
         let s = String::from_utf16_lossy(&body);
-        return Ok(PreviewData::Text { content: s, truncated, encoding: "UTF-16LE".into() });
+        return Ok(PreviewData::Text {
+            content: s,
+            truncated,
+            encoding: "UTF-16LE".into(),
+        });
     }
     if buf.starts_with(&[0xFE, 0xFF]) {
         let body: Vec<u16> = buf[2..]
@@ -43,15 +54,27 @@ pub fn read_text_preview(path: String, max_bytes: Option<u64>) -> AppResult<Prev
             .map(|b| u16::from_be_bytes([b[0], b[1]]))
             .collect();
         let s = String::from_utf16_lossy(&body);
-        return Ok(PreviewData::Text { content: s, truncated, encoding: "UTF-16BE".into() });
+        return Ok(PreviewData::Text {
+            content: s,
+            truncated,
+            encoding: "UTF-16BE".into(),
+        });
     }
     // UTF-8 試行
     match std::str::from_utf8(&buf) {
-        Ok(s) => Ok(PreviewData::Text { content: s.to_owned(), truncated, encoding: "UTF-8".into() }),
+        Ok(s) => Ok(PreviewData::Text {
+            content: s.to_owned(),
+            truncated,
+            encoding: "UTF-8".into(),
+        }),
         Err(_) => {
             // 失敗 → バイナリとして hex プレビュー（先頭 1KB のみ）
             let hex_len = buf.len().min(1024);
-            let hex = buf[..hex_len].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
+            let hex = buf[..hex_len]
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
             Ok(PreviewData::Binary { hex, size })
         }
     }

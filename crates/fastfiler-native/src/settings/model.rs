@@ -17,16 +17,16 @@ pub struct AppSettings {
     pub show_preview: RwSignal<bool>,
     pub show_plugin_panel: RwSignal<bool>,
     pub hide_pane_toolbar: RwSignal<bool>,
-    pub theme: RwSignal<String>,         // "system" | "dark" | "light"
-    pub theme_preset: RwSignal<String>,  // "default" | "dracula" | ...
-    pub accent_color: RwSignal<String>,  // "#rrggbb" or ""
-    pub icon_set: RwSignal<String>,      // "emoji" | "minimal" | "colored"
-    pub icon_pack: RwSignal<String>,     // "default" | "emoji" | ...
+    pub theme: RwSignal<String>,        // "system" | "dark" | "light"
+    pub theme_preset: RwSignal<String>, // "default" | "dracula" | ...
+    pub accent_color: RwSignal<String>, // "#rrggbb" or ""
+    pub icon_set: RwSignal<String>,     // "emoji" | "minimal" | "colored"
+    pub icon_pack: RwSignal<String>,    // "default" | "emoji" | ...
     pub ui_font: RwSignal<String>,
-    pub ui_font_size: RwSignal<String>,  // 文字列で保持 (text_input 用)
+    pub ui_font_size: RwSignal<String>, // 文字列で保持 (text_input 用)
 
     // Workspace
-    pub tab_columns: RwSignal<String>,   // "1".."4"
+    pub tab_columns: RwSignal<String>, // "1".."4"
     pub tabs_width: RwSignal<String>,
     pub tree_width: RwSignal<String>,
     pub same_panel_stack: RwSignal<bool>,
@@ -85,9 +85,7 @@ impl AppSettings {
             defaults
                 .iter()
                 .map(|(k, _)| {
-                    let v = map
-                        .remove(*k)
-                        .unwrap_or_default();
+                    let v = map.remove(*k).unwrap_or_default();
                     (k.to_string(), RwSignal::new(v))
                 })
                 .collect()

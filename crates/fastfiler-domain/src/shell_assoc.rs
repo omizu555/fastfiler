@@ -81,7 +81,9 @@ pub fn shell_assoc_status() -> Result<bool, String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     for pid in ["Folder", "Directory"] {
         let cmd_path = format!(r"Software\Classes\{pid}\shell\open\command");
-        let Ok(k) = hkcu.open_subkey(&cmd_path) else { return Ok(false); };
+        let Ok(k) = hkcu.open_subkey(&cmd_path) else {
+            return Ok(false);
+        };
         let v: Result<String, _> = k.get_value("");
         match v {
             Ok(s) if s.eq_ignore_ascii_case(&expected) => continue,
@@ -97,7 +99,9 @@ pub fn shell_assoc_enable() -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-pub fn shell_assoc_status() -> Result<bool, String> { Ok(false) }
+pub fn shell_assoc_status() -> Result<bool, String> {
+    Ok(false)
+}
 
 #[cfg(not(windows))]
 pub fn shell_assoc_enable() -> Result<(), String> {
@@ -132,13 +136,18 @@ pub fn shell_assoc_diagnose() -> Result<String, String> {
     out.push_str(&format!("現在の exe: {exe}\n期待値    : {expected}\n\n"));
     for pid in ["Folder", "Directory"] {
         out.push_str(&format!("[HKCU\\Software\\Classes\\{pid}]\n"));
-        for sub in ["shell\\open", "shell\\open\\command", "shell\\open\\ddeexec"] {
+        for sub in [
+            "shell\\open",
+            "shell\\open\\command",
+            "shell\\open\\ddeexec",
+        ] {
             let p = format!(r"Software\Classes\{pid}\{sub}");
             match hkcu.open_subkey(&p) {
                 Ok(k) => {
                     let def: Result<String, _> = k.get_value("");
                     let de: Result<String, _> = k.get_value("DelegateExecute");
-                    out.push_str(&format!("  {sub} (default)='{}' DelegateExecute='{}'\n",
+                    out.push_str(&format!(
+                        "  {sub} (default)='{}' DelegateExecute='{}'\n",
                         def.unwrap_or_else(|_| "<none>".into()),
                         de.unwrap_or_else(|_| "<none>".into()),
                     ));
@@ -152,4 +161,6 @@ pub fn shell_assoc_diagnose() -> Result<String, String> {
 }
 
 #[cfg(not(windows))]
-pub fn shell_assoc_diagnose() -> Result<String, String> { Ok(String::new()) }
+pub fn shell_assoc_diagnose() -> Result<String, String> {
+    Ok(String::new())
+}

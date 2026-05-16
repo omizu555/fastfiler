@@ -41,7 +41,10 @@ pub fn init() {
         write_line(format!("PANIC: {}", info));
         eprintln!("PANIC logged: {}", info);
     }));
-    write_line(format!("=== FastFiler started (pid={}) ===", std::process::id()));
+    write_line(format!(
+        "=== FastFiler started (pid={}) ===",
+        std::process::id()
+    ));
 }
 
 pub fn write_line(msg: String) {

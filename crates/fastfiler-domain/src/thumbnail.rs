@@ -24,7 +24,12 @@ struct LruCache {
 }
 
 impl LruCache {
-    fn new() -> Self { Self { map: HashMap::new(), order: Vec::new() } }
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: Vec::new(),
+        }
+    }
     fn get(&mut self, k: &str) -> Option<&ThumbnailResult> {
         if self.map.contains_key(k) {
             self.order.retain(|s| s != k);
@@ -87,12 +92,20 @@ pub fn get_thumbnail(path: String, size: u32) -> AppResult<ThumbnailResult> {
     let size = size.clamp(16, 512);
     let mtime = std::fs::metadata(&path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64
+        })
         .unwrap_or_default();
     let key = cache_key(&path, size, mtime);
 
     if let Some(hit) = CACHE.lock().get(&key) {
-        return Ok(ThumbnailResult { data_url: hit.data_url.clone(), width: hit.width, height: hit.height });
+        return Ok(ThumbnailResult {
+            data_url: hit.data_url.clone(),
+            width: hit.width,
+            height: hit.height,
+        });
     }
 
     if let Some(dp) = disk_cache_path(&key) {
@@ -103,7 +116,14 @@ pub fn get_thumbnail(path: String, size: u32) -> AppResult<ThumbnailResult> {
                     width: img.width(),
                     height: img.height(),
                 };
-                CACHE.lock().put(key, ThumbnailResult { data_url: res.data_url.clone(), width: res.width, height: res.height });
+                CACHE.lock().put(
+                    key,
+                    ThumbnailResult {
+                        data_url: res.data_url.clone(),
+                        width: res.width,
+                        height: res.height,
+                    },
+                );
                 return Ok(res);
             }
         }
@@ -122,7 +142,14 @@ pub fn get_thumbnail(path: String, size: u32) -> AppResult<ThumbnailResult> {
         if let Some(dp) = disk_cache_path(&key) {
             let _ = std::fs::write(&dp, &png);
         }
-        CACHE.lock().put(key, ThumbnailResult { data_url: result.data_url.clone(), width: result.width, height: result.height });
+        CACHE.lock().put(
+            key,
+            ThumbnailResult {
+                data_url: result.data_url.clone(),
+                width: result.width,
+                height: result.height,
+            },
+        );
         return Ok(result);
     }
     #[cfg(not(windows))]
@@ -141,8 +168,8 @@ mod win {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
-        DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
-        BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
+        DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+        DIB_RGB_COLORS, HBITMAP, HDC,
     };
     use windows::Win32::System::Com::{
         CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
@@ -162,15 +189,23 @@ mod win {
                 res
             }
         });
-        handle.join().map_err(|_| AppError::Win32("thumb thread panicked".into()))?
+        handle
+            .join()
+            .map_err(|_| AppError::Win32("thumb thread panicked".into()))?
     }
 
     unsafe fn inner(path: &str, size: u32) -> AppResult<Vec<u8>> {
-        let wide: Vec<u16> = OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = OsStr::new(path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let factory: IShellItemImageFactory =
             SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
                 .map_err(|e| AppError::Win32(format!("SHCreateItemFromParsingName: {e}")))?;
-        let sz = SIZE { cx: size as i32, cy: size as i32 };
+        let sz = SIZE {
+            cx: size as i32,
+            cy: size as i32,
+        };
         let hbmp: HBITMAP = factory
             .GetImage(sz, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK)
             .map_err(|e| AppError::Win32(format!("GetImage: {e}")))?;

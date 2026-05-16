@@ -8,9 +8,9 @@
 //!
 //! 公開 API はこのモジュールから re-export する。
 
+mod dialog;
 pub mod model;
 pub mod persisted;
-mod dialog;
 mod widgets;
 
 pub use dialog::settings_view;

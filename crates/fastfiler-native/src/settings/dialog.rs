@@ -2,7 +2,9 @@
 
 use floem::prelude::*;
 use floem::style::CursorStyle;
-use floem::views::{button, container, dyn_container, h_stack, label, scroll, text_input, v_stack, Decorators};
+use floem::views::{
+    button, container, dyn_container, h_stack, label, scroll, text_input, v_stack, Decorators,
+};
 
 use crate::theme;
 
@@ -16,17 +18,34 @@ fn tab_general(s: &AppSettings) -> floem::AnyView {
         row_check("隠しファイルを表示 (showHidden)", s.show_hidden),
         row_check("サムネイル表示 (showThumbnails)", s.show_thumbnails),
         row_check("プレビュー表示 (showPreview)", s.show_preview),
-        row_check("プラグインパネル表示 (showPluginPanel)", s.show_plugin_panel),
-        row_check("ペインツールバーを隠す (hidePaneToolbar)", s.hide_pane_toolbar),
+        row_check(
+            "プラグインパネル表示 (showPluginPanel)",
+            s.show_plugin_panel,
+        ),
+        row_check(
+            "ペインツールバーを隠す (hidePaneToolbar)",
+            s.hide_pane_toolbar,
+        ),
         section_label("Theme"),
         row_select("テーマ (theme)", s.theme, vec!["system", "dark", "light"]),
         row_select(
             "プリセット (themePreset)",
             s.theme_preset,
-            vec!["default", "dracula", "solarizedDark", "solarizedLight", "nord", "monokai"],
+            vec![
+                "default",
+                "dracula",
+                "solarizedDark",
+                "solarizedLight",
+                "nord",
+                "monokai",
+            ],
         ),
         row_input("アクセントカラー (#rrggbb)", s.accent_color),
-        row_select("アイコンセット (iconSet)", s.icon_set, vec!["emoji", "minimal", "colored"]),
+        row_select(
+            "アイコンセット (iconSet)",
+            s.icon_set,
+            vec!["emoji", "minimal", "colored"],
+        ),
         row_input("アイコンパック (iconPack)", s.icon_pack),
         section_label("Font"),
         row_font("UI フォント (uiFont)", s.ui_font),
@@ -66,7 +85,11 @@ fn tab_workspace(s: &AppSettings) -> floem::AnyView {
 fn tab_search(s: &AppSettings) -> floem::AnyView {
     let body = v_stack((
         section_label("Search"),
-        row_select("バックエンド (searchBackend)", s.search_backend, vec!["builtin", "everything"]),
+        row_select(
+            "バックエンド (searchBackend)",
+            s.search_backend,
+            vec!["builtin", "everything"],
+        ),
         row_input("Everything ポート (everythingPort)", s.everything_port),
         row_check("Everything スコープ (everythingScope)", s.everything_scope),
     ))
@@ -135,20 +158,23 @@ fn tab_plugins(s: &AppSettings) -> floem::AnyView {
                     let mark = if sig.get() { "[v]" } else { "[ ]" };
                     format!("{} {}", mark, id_text)
                 })
-                .style(|s| s.padding(6).cursor(CursorStyle::Pointer).color(theme::text_normal()))
+                .style(|s| {
+                    s.padding(6)
+                        .cursor(CursorStyle::Pointer)
+                        .color(theme::text_normal())
+                })
                 .on_click_stop(move |_| sig.set(!sig.get()))
                 .into_any(),
             );
         }
-        floem::views::stack_from_iter(rows).style(|s| s.flex_col()).into_any()
+        floem::views::stack_from_iter(rows)
+            .style(|s| s.flex_col())
+            .into_any()
     };
     container(body).style(|s| s.padding(8)).into_any()
 }
 
-pub fn settings_view(
-    settings: AppSettings,
-    open: RwSignal<bool>,
-) -> impl IntoView {
+pub fn settings_view(settings: AppSettings, open: RwSignal<bool>) -> impl IntoView {
     let active_tab: RwSignal<&'static str> = RwSignal::new("general");
 
     let make_tab = move |id: &'static str, title: &'static str| {
@@ -156,7 +182,11 @@ pub fn settings_view(
         label(move || title.to_string())
             .style(move |s| {
                 let on = active_tab.get() == id;
-                let bg = if on { theme::accent_select() } else { theme::bg_chrome() };
+                let bg = if on {
+                    theme::accent_select()
+                } else {
+                    theme::bg_chrome()
+                };
                 s.height(32)
                     .width_full()
                     .items_center()
@@ -171,8 +201,12 @@ pub fn settings_view(
     };
 
     let tabs_col = v_stack((
-        label(|| String::from("Settings"))
-            .style(|s| s.padding(12).font_bold().color(theme::text_normal()).font_size(15.0)),
+        label(|| String::from("Settings")).style(|s| {
+            s.padding(12)
+                .font_bold()
+                .color(theme::text_normal())
+                .font_size(15.0)
+        }),
         make_tab("general", "General"),
         make_tab("workspace", "Workspace"),
         make_tab("search", "Search"),
@@ -213,8 +247,13 @@ pub fn settings_view(
     });
 
     let header = h_stack((
-        label(|| String::from("⚙ Settings"))
-            .style(|s| s.padding(8).font_bold().font_size(15.0).color(theme::text_normal()).flex_grow(1.0)),
+        label(|| String::from("⚙ Settings")).style(|s| {
+            s.padding(8)
+                .font_bold()
+                .font_size(15.0)
+                .color(theme::text_normal())
+                .flex_grow(1.0)
+        }),
         close_btn,
     ))
     .style(|s| {
@@ -226,8 +265,11 @@ pub fn settings_view(
             .border_color(theme::border_default())
     });
 
-    let content = h_stack((tabs_col, scroll(body).style(|s| s.size_full().flex_grow(1.0))))
-        .style(|s| s.size_full().flex_grow(1.0));
+    let content = h_stack((
+        tabs_col,
+        scroll(body).style(|s| s.size_full().flex_grow(1.0)),
+    ))
+    .style(|s| s.size_full().flex_grow(1.0));
 
     v_stack((header, content)).style(|s| {
         s.size_full()

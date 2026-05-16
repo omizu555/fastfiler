@@ -20,5 +20,3 @@ pub fn splitter(app: AppState, target: SplitterTarget) -> impl IntoView {
             drag.set(Some(target));
         })
 }
-
-

@@ -29,7 +29,10 @@ fn run_copy_emits_progress_and_done() {
 
     let sink = Arc::new(CaptureSink::default());
     let reg = JobRegistry::default();
-    let item = JobItem { from: s(&src), to: s(&dst) };
+    let item = JobItem {
+        from: s(&src),
+        to: s(&dst),
+    };
     reg.run_copy(sink.as_ref(), 1, vec![item]).unwrap();
 
     assert_eq!(fs::read(&dst).unwrap(), b"hello world");
@@ -47,7 +50,10 @@ fn run_move_relocates_file() {
 
     let sink = Arc::new(CaptureSink::default());
     let reg = JobRegistry::default();
-    let item = JobItem { from: s(&src), to: s(&dst) };
+    let item = JobItem {
+        from: s(&src),
+        to: s(&dst),
+    };
     reg.run_move(sink.as_ref(), 2, vec![item]).unwrap();
 
     assert!(!src.exists());

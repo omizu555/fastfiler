@@ -130,7 +130,9 @@ fn expand_to_path(roots: &im::Vector<TreeNode>, target: &std::path::Path) -> u32
         }
     }
     let Some(first) = segs.first() else { return 0 };
-    let Some(root) = roots.iter().find(|r| r.path == *first) else { return 0 };
+    let Some(root) = roots.iter().find(|r| r.path == *first) else {
+        return 0;
+    };
 
     let mut depth = 0u32;
     let mut cur = root.clone();
@@ -142,7 +144,9 @@ fn expand_to_path(roots: &im::Vector<TreeNode>, target: &std::path::Path) -> u32
 
     for seg in segs.iter().skip(1) {
         let kids = cur.children.get_untracked();
-        let Some(child) = kids.iter().find(|c| c.path == *seg).cloned() else { break };
+        let Some(child) = kids.iter().find(|c| c.path == *seg).cloned() else {
+            break;
+        };
         child.load_children();
         if !child.expanded.get_untracked() {
             child.expanded.set(true);
@@ -163,7 +167,11 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     let node_for_toggle = node.clone();
 
     let arrow = label(move || {
-        if expanded.get() { String::from("▼") } else { String::from("▶") }
+        if expanded.get() {
+            String::from("▼")
+        } else {
+            String::from("▶")
+        }
     })
     .style(|s| {
         s.width(14)
@@ -193,9 +201,8 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
         });
 
     let indent = (depth as f32) * 14.0 + 4.0;
-    let row = h_stack((arrow, name_lbl)).style(move |s| {
-        s.height(22).items_center().padding_left(indent)
-    });
+    let row =
+        h_stack((arrow, name_lbl)).style(move |s| s.height(22).items_center().padding_left(indent));
 
     let app_for_kids = app.clone();
     let kids = dyn_container(
@@ -254,7 +261,9 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
         // active タブ id を track
         let id = app_for_follow.active.get();
         let tabs = app_for_follow.tabs.get();
-        let Some(tab) = tabs.iter().find(|t| t.id == id).cloned() else { return };
+        let Some(tab) = tabs.iter().find(|t| t.id == id).cloned() else {
+            return;
+        };
         // active_pane id を track
         let active_pane_id = tab.active_pane.get();
         // root を track して再描画にも追従
@@ -276,11 +285,21 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
             // 上に少しマージンを残してスクロール
             let target_y = (y - 44.0).max(0.0);
             scroll_target.set(Some(floem::kurbo::Point::new(0.0, target_y)));
-            crate::flog!("[tree] follow pane={} path={} depth={} idx={} scroll_y={}",
-                pane.id, path.display(), depth, idx, target_y);
+            crate::flog!(
+                "[tree] follow pane={} path={} depth={} idx={} scroll_y={}",
+                pane.id,
+                path.display(),
+                depth,
+                idx,
+                target_y
+            );
         } else {
-            crate::flog!("[tree] follow pane={} path={} depth={} (no idx)",
-                pane.id, path.display(), depth);
+            crate::flog!(
+                "[tree] follow pane={} path={} depth={} (no idx)",
+                pane.id,
+                path.display(),
+                depth
+            );
         }
     });
 
@@ -324,7 +343,3 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
             .border_color(theme::border_default())
     })
 }
-
-
-
-

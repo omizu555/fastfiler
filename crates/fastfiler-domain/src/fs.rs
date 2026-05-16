@@ -50,7 +50,9 @@ fn is_hidden(meta: &fs::Metadata) -> bool {
     (meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN) != 0
 }
 #[cfg(not(windows))]
-fn is_hidden(_meta: &fs::Metadata) -> bool { false }
+fn is_hidden(_meta: &fs::Metadata) -> bool {
+    false
+}
 
 pub fn list_dir(path: String) -> AppResult<Vec<FileEntry>> {
     let p = PathBuf::from(&path);
@@ -104,7 +106,10 @@ pub fn stat_path(path: String) -> AppResult<FileEntry> {
         kind,
         size: if meta.is_file() { meta.len() } else { 0 },
         modified: meta.modified().map(to_unix_secs).unwrap_or(0),
-        ext: p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()),
+        ext: p
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase()),
         hidden: is_hidden(&meta),
         readonly: meta.permissions().readonly(),
     })
@@ -282,11 +287,19 @@ pub fn disk_free(path: String) -> AppResult<DiskInfo> {
             )
             .map_err(|e| AppError::Win32(format!("GetDiskFreeSpaceExW: {e}")))?;
         }
-        Ok(DiskInfo { total, free, available })
+        Ok(DiskInfo {
+            total,
+            free,
+            available,
+        })
     }
     #[cfg(not(windows))]
     {
         let _ = path;
-        Ok(DiskInfo { total: 0, free: 0, available: 0 })
+        Ok(DiskInfo {
+            total: 0,
+            free: 0,
+            available: 0,
+        })
     }
 }
