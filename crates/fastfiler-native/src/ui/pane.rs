@@ -54,10 +54,11 @@ fn ext_emoji(name: &str, is_dir: bool) -> String {
 fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
     let sanitized = input.replace(['\r', '\n', '\t'], " ");
     let usable = (col_width - padding_px * 2.0).max(0.0);
-    if usable < 8.0 {
+    if usable < 12.0 {
         return String::new();
     }
-    let ellipsis_px = 7.0f32;
+    // フォント差異で折り返しが起きにくいよう、幅見積もりは保守的に取る。
+    let ellipsis_px = 12.0f32;
     let budget_px = (usable - ellipsis_px).max(0.0);
     if budget_px <= 0.0 {
         return String::new();
@@ -67,7 +68,7 @@ fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
     let mut out = String::new();
     let mut truncated = false;
     for ch in sanitized.chars() {
-        let ch_px = if ch.is_ascii() { 7.0 } else { 14.0 };
+        let ch_px = if ch.is_ascii() { 9.0 } else { 18.0 };
         if used + ch_px > budget_px {
             truncated = true;
             break;
@@ -79,14 +80,11 @@ fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
     if !truncated {
         return sanitized;
     }
+    let out = out.trim_end().to_string();
     if out.is_empty() {
-        if usable >= ellipsis_px {
-            return String::from("…");
-        }
-        return String::new();
+        return String::from("…");
     }
-    out.push('…');
-    out
+    format!("{}…", out)
 }
 
 #[derive(Clone, Copy)]
@@ -112,6 +110,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let mtime_col_width_sig = pane.mtime_col_width;
     let col_resize_drag = floem::reactive::Scope::new()
         .create_rw_signal(None::<(ColumnResizeTarget, f64, f32, f32, f32)>);
+    // ドラッグ候補 (PointerDown 時の文脈): (source_pane_id, paths, start_pos_in_pane).
+    // PointerMove で閾値を超えるまでは dragging に乗せず、誤発火を防ぐ。
+    let drag_candidate =
+        floem::reactive::Scope::new().create_rw_signal(None::<(u64, Vec<PathBuf>, Point)>);
     let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
     let sink = pane.sink.clone();
     let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
@@ -463,10 +465,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let bg_idx = idx;
             let name_for_open = row.name.clone();
             let row_name_for_drag = row.name.clone();
+            let row_name_for_drag_style = row.name.clone();
             let pane_dbl = pane_for_dblclick.clone();
             let pane_clk = pane_for_click.clone();
             let pane_for_drag = pane_for_rows.clone();
             let app_for_drag = app_for_rows.clone();
+            let pane_for_drag_style = pane_for_rows.clone();
+            let app_for_drag_style = app_for_rows.clone();
+            let drag_candidate_for_row = drag_candidate;
+            let drag_candidate_for_click = drag_candidate;
+            let drag_candidate_for_row_up = drag_candidate;
+            let app_for_click_clear = app_for_rows.clone();
+            let app_for_row_pointer_up = app_for_rows.clone();
+            let app_for_row_pointer_down_clear = app_for_rows.clone();
+            let pane_for_click_log = pane_for_rows.clone();
+            let _ = &app_for_drag;
 
             // アイコン: icon_set 設定で表示形式を切替 (theme_rev で再構築されるので
             // get_untracked で OK)
@@ -513,10 +526,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 String::new()
             };
             let path_label: floem::AnyView = if show_path_col {
-                container(
-                    label(move || path_text.clone())
-                        .style(|s| s.color(theme::text_dim()).min_width(0)),
-                )
+                container(label(move || path_text.clone()).style(|s| {
+                    s.color(theme::text_dim())
+                        .min_width(0)
+                        .cursor(CursorStyle::Pointer)
+                }))
                 .style(|s| {
                     s.flex_grow(1.0)
                         .flex_basis(0)
@@ -547,7 +561,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         )
                     })
                     .style(move |s| {
-                        let s = s.min_width(0);
+                        let s = s
+                            .min_width(0)
+                            .cursor(CursorStyle::Pointer)
+                            .selectable(false);
                         if is_dir {
                             s.color(theme::text_dir())
                         } else {
@@ -567,7 +584,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     label(move || {
                         elide_for_width(&size_raw, size_col_width_sig.get().clamp(24.0, 600.0), 6.0)
                     })
-                    .style(|s| s.color(theme::text_dim())),
+                    .style(|s| {
+                        s.color(theme::text_dim())
+                            .cursor(CursorStyle::Pointer)
+                            .selectable(false)
+                    }),
                 )
                 .style(move |s| {
                     s.width(size_col_width_sig.get().clamp(24.0, 600.0))
@@ -584,7 +605,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             6.0,
                         )
                     })
-                    .style(|s| s.color(theme::text_dim())),
+                    .style(|s| {
+                        s.color(theme::text_dim())
+                            .cursor(CursorStyle::Pointer)
+                            .selectable(false)
+                    }),
                 )
                 .style(move |s| {
                     s.width(mtime_col_width_sig.get().clamp(24.0, 600.0))
@@ -601,24 +626,65 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     theme::bg_zebra_b()
                 };
                 let sel = selected.with(|s| s.contains(&bg_idx));
-                let bg = if sel { theme::accent_select() } else { zebra };
-                s.height(row_height)
+                let drag_picked = app_for_drag_style
+                    .dragging
+                    .get()
+                    .map(|ds| {
+                        if !ds.active || ds.source_pane != pane_for_drag_style.id {
+                            return false;
+                        }
+                        let cur = pane_for_drag_style.cur_path.get_untracked();
+                        let row_path = cur.join(&row_name_for_drag_style);
+                        ds.paths.iter().any(|p| p == &row_path)
+                    })
+                    .unwrap_or(false);
+                let bg = if sel || drag_picked {
+                    theme::accent_select()
+                } else {
+                    zebra
+                };
+                let row_style = s
+                    .height(row_height)
                     .width_full()
                     .min_width(0)
                     .items_center()
                     .background(bg)
-                    .cursor(CursorStyle::Pointer)
+                    .cursor(CursorStyle::Pointer);
+                if sel || drag_picked {
+                    // 選択中/掴み中はホバーで色を変えない（accent を維持）。
+                    row_style
+                } else {
+                    row_style.hover(|s| s.background(theme::bg_hover()))
+                }
             })
-            .on_event_cont(EventListener::PointerDown, move |e| {
+            .on_event_stop(EventListener::PointerDown, move |e| {
                 if let Event::PointerDown(p) = e {
                     if !p.button.is_primary() {
                         return;
+                    }
+                    // 前回のドラッグ状態が残っていれば、ここで必ずリセット。
+                    // (前回 PointerUp が捕捉漏れしていた保険)
+                    if app_for_row_pointer_down_clear
+                        .dragging
+                        .get_untracked()
+                        .is_some()
+                    {
+                        crate::flog!("[drag] stale dragging cleared on new PointerDown");
+                        app_for_row_pointer_down_clear.dragging.set(None);
                     }
                     let cur = pane_for_drag.cur_path.get_untracked();
                     let row_path = cur.join(&row_name_for_drag);
                     let in_sel = pane_for_drag
                         .selected
                         .with_untracked(|s| s.contains(&bg_idx));
+                    // 選択外の行で押下 (修飾キーなし) → エクスプローラ同様その行に選択を切替。
+                    // これでクリック済みの別ファイルと併せて「2 個選択に見える」現象を防ぐ。
+                    if !in_sel && !p.modifiers.control() && !p.modifiers.shift() {
+                        let mut s = im::OrdSet::new();
+                        s.insert(bg_idx);
+                        pane_for_drag.selected.set(s);
+                        pane_for_drag.anchor.set(Some(bg_idx));
+                    }
                     let paths: Vec<PathBuf> = if in_sel {
                         let sel = pane_for_drag.selected.get_untracked();
                         let rs = pane_for_drag.rows.get_untracked();
@@ -629,27 +695,48 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         vec![row_path]
                     };
                     crate::flog!(
-                        "[drag] start pane={} row={} in_sel={} paths={}",
+                        "[drag] candidate pane={} row={} in_sel={} paths={}",
                         pane_for_drag.id,
                         bg_idx,
                         in_sel,
                         paths.len()
                     );
-                    app_for_drag.dragging.set(Some(DragState {
-                        source_pane: pane_for_drag.id,
-                        paths,
-                        start_window: None,
-                        current_window: Point::ZERO,
-                        active: false,
-                    }));
+                    // ここでは dragging を作らない。閾値を超えた PointerMove で初めて作る。
+                    drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos)));
+                }
+            })
+            .on_event_cont(EventListener::PointerUp, move |_| {
+                // 安全網: クリック判定にならず、かつペイン側 PointerUp にも届かない
+                // 経路があり得るので、行レベルでも必ず drag 関連状態を解除する。
+                // (同一ペイン内で離した時に drag 状態が残る現象への対策)
+                if drag_candidate_for_row_up.get_untracked().is_some() {
+                    drag_candidate_for_row_up.set(None);
+                }
+                if app_for_row_pointer_up.dragging.get_untracked().is_some() {
+                    crate::flog!("[drag] cleared by row PointerUp safety net");
+                    app_for_row_pointer_up.dragging.set(None);
                 }
             })
             .on_click_stop(move |e| {
+                // floem では Click ハンドラが Stop を返すと PointerUp リスナが消費される。
+                // そのためペイン側 PointerUp で行う候補クリアがここに届かない経路がある。
+                // クリック確定時点で必ず drag 関連状態を掃除する。
+                drag_candidate_for_click.set(None);
+                if app_for_click_clear.dragging.get_untracked().is_some() {
+                    app_for_click_clear.dragging.set(None);
+                }
                 let (ctrl, shift) = if let Event::PointerUp(p) = e {
                     (p.modifiers.control(), p.modifiers.shift())
                 } else {
                     (false, false)
                 };
+                crate::flog!(
+                    "[click] row pane={} idx={} ctrl={} shift={}",
+                    pane_for_click_log.id,
+                    bg_idx,
+                    ctrl,
+                    shift
+                );
                 pane_clk.click_row(bg_idx, ctrl, shift);
             })
             .on_double_click_stop(move |_| {
@@ -880,6 +967,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let app_for_up = app.clone();
     let app_for_focus = app.clone();
     let app_for_active_style = app.clone();
+    let app_for_drag_style = app.clone();
     let name_w_sig_for_drag = name_col_width_sig;
     let size_w_sig_for_drag = size_col_width_sig;
     let name_w_sig_for_drag_read = name_col_width_sig;
@@ -888,6 +976,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let pane_width_for_drag = pane_width_sig;
     let col_resize_for_drag = col_resize_drag;
     let col_resize_for_drag_end = col_resize_drag;
+    let drag_candidate_for_move = drag_candidate;
+    let drag_candidate_for_up = drag_candidate;
     let top_bar = h_stack((toolbar, breadcrumb)).style(|s| {
         s.width_full()
             .items_center()
@@ -900,8 +990,29 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 .active_tab()
                 .map(|t| t.active_pane.get() == pane_id)
                 .unwrap_or(false);
-            let s = s.size_full().flex_col().border(1);
-            if is_active {
+            let drag_state = app_for_drag_style.dragging.get();
+            let (is_drag_source, is_drag_target) = if let Some(ds) = drag_state {
+                if !ds.active {
+                    (false, false)
+                } else {
+                    let is_source = ds.source_pane == pane_id;
+                    let is_target = app_for_drag_style
+                        .pane_rects
+                        .with_untracked(|m| m.get(&pane_id).map(|r| r.contains(ds.current_window)))
+                        .unwrap_or(false)
+                        && !is_source;
+                    (is_source, is_target)
+                }
+            } else {
+                (false, false)
+            };
+            let s = s.size_full().flex_col().border(2);
+            if is_drag_target {
+                s.border_color(theme::border_focus())
+                    .background(theme::accent_select())
+            } else if is_drag_source {
+                s.border_color(theme::border_focus())
+            } else if is_active {
                 s.border_color(theme::border_focus())
             } else {
                 s.border_color(theme::border_default())
@@ -967,16 +1078,45 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     return;
                 }
                 let dragging = app_for_move.dragging.get_untracked();
-                let Some(_) = dragging else { return };
+                if dragging.is_none() {
+                    // dragging 未生成: 候補があり閾値超えなら、ここで初めて生成する。
+                    if let Some((source_pane, paths, start_pos)) =
+                        drag_candidate_for_move.get_untracked()
+                    {
+                        let dx = (p.pos.x - start_pos.x) as f32;
+                        let dy = (p.pos.y - start_pos.y) as f32;
+                        if (dx * dx + dy * dy).sqrt() > 5.0 {
+                            let pane_origin = app_for_move.pane_rects.with_untracked(|m| {
+                                m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO)
+                            });
+                            let win_start = Point::new(
+                                pane_origin.x + start_pos.x,
+                                pane_origin.y + start_pos.y,
+                            );
+                            let win_cur =
+                                Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
+                            crate::flog!(
+                                "[drag] start (threshold passed) source_pane={} paths={}",
+                                source_pane,
+                                paths.len()
+                            );
+                            app_for_move.dragging.set(Some(DragState {
+                                source_pane,
+                                paths,
+                                start_window: Some(win_start),
+                                current_window: win_cur,
+                                active: true,
+                            }));
+                        }
+                    }
+                    return;
+                }
                 let pane_origin = app_for_move
                     .pane_rects
                     .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
                 let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
                 app_for_move.dragging.update(|d| {
                     if let Some(ds) = d {
-                        if ds.source_pane != pane_id {
-                            return;
-                        }
                         if ds.start_window.is_none() {
                             ds.start_window = Some(win_pt);
                         }
@@ -999,6 +1139,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     col_resize_for_drag_end.set(None);
                     return;
                 }
+                // クリックの押し戻し時にも候補は確実にクリア（ドラッグ未成立含む）。
+                drag_candidate_for_up.set(None);
                 // 左ボタン以外 (戻る/進む/中ボタン等) では drop 処理しない。
                 // dragging 状態は安全のためクリアする。
                 if !p.button.is_primary() {
@@ -1018,27 +1160,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     ds.source_pane,
                     ds.paths.len()
                 );
-                if !ds.active || ds.source_pane != pane_id {
-                    crate::flog!(
-                        "[drop] skip (active={}, source_match={})",
-                        ds.active,
-                        ds.source_pane == pane_id
-                    );
+                if !ds.active {
+                    crate::flog!("[drop] skip (active={})", ds.active);
                     return;
                 }
                 let pane_origin = app_for_up
                     .pane_rects
                     .with_untracked(|m| m.get(&pane_id).map(|r| r.origin()).unwrap_or(Point::ZERO));
                 let win_pt = Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
-                let copy = p.modifiers.control();
                 let rects_dump: Vec<(u64, Rect)> = app_for_up
                     .pane_rects
                     .with_untracked(|m| m.iter().map(|(k, v)| (*k, *v)).collect());
                 crate::flog!(
-                    "[drop] win_pt=({:.1},{:.1}) copy={} pane_rects={:?}",
+                    "[drop] win_pt=({:.1},{:.1}) mode=COPY pane_rects={:?}",
                     win_pt.x,
                     win_pt.y,
-                    copy,
                     rects_dump
                 );
                 let target_id = app_for_up.pane_rects.with_untracked(|m| {
@@ -1069,11 +1205,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     return;
                 };
                 let dest_dir = tp.cur_path.get_untracked();
-                crate::flog!(
-                    "[drop] dest_dir={} mode={}",
-                    dest_dir.display(),
-                    if copy { "COPY" } else { "MOVE" }
-                );
+                crate::flog!("[drop] dest_dir={} mode={}", dest_dir.display(), "COPY");
                 let mut ok = 0u32;
                 let mut err = 0u32;
                 for src in &ds.paths {
@@ -1086,22 +1218,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     };
                     let dst = unique_dest(&dest_dir, &name);
                     crate::flog!(
-                        "[drop] {} src={} dst={}",
-                        if copy { "copy_path" } else { "move_path" },
+                        "[drop] copy_path src={} dst={}",
                         src.display(),
                         dst.display()
                     );
-                    let res = if copy {
-                        fops::copy_path(
-                            src.to_string_lossy().into_owned(),
-                            dst.to_string_lossy().into_owned(),
-                        )
-                    } else {
-                        fops::move_path(
-                            src.to_string_lossy().into_owned(),
-                            dst.to_string_lossy().into_owned(),
-                        )
-                    };
+                    let res = fops::copy_path(
+                        src.to_string_lossy().into_owned(),
+                        dst.to_string_lossy().into_owned(),
+                    );
                     match res {
                         Ok(()) => ok += 1,
                         Err(e) => {
@@ -1110,9 +1234,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         }
                     }
                 }
-                let label = if copy { "コピー" } else { "移動" };
                 tp.status_msg
-                    .set(format!("D&D {} OK={} / NG={}", label, ok, err));
+                    .set(format!("D&D コピー OK={} / NG={}", ok, err));
                 tp.reload();
                 if let Some(sp) = app_for_up.find_pane(ds.source_pane) {
                     sp.reload();

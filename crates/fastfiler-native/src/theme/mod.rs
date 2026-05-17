@@ -243,6 +243,10 @@ pub fn bg_zebra_b() -> Color {
     }
     pick((242, 244, 247), (34, 34, 38))
 }
+/// 行ホバー時の薄い強調色。選択色より控えめにし、明暗モードで自然に見える色を返す。
+pub fn bg_hover() -> Color {
+    pick((226, 232, 244), (52, 56, 66))
+}
 
 // 罫線
 pub fn border_default() -> Color {
