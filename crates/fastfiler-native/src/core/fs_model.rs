@@ -153,9 +153,36 @@ pub fn initial_path() -> PathBuf {
 }
 
 pub fn pretty_title(p: &Path) -> String {
-    p.file_name()
+    let s = p.to_string_lossy();
+    let trimmed = s.trim_end_matches(['\\', '/']);
+    // UNC パス (\\server\share\... or //server/share/...)
+    let is_unc = trimmed.starts_with("\\\\") || trimmed.starts_with("//");
+    // ドライブ文字 (C:, D:, ...) を抽出
+    let drive: Option<char> = {
+        let bytes = trimmed.as_bytes();
+        if bytes.len() >= 2 && bytes[1] == b':' && (bytes[0] as char).is_ascii_alphabetic() {
+            Some((bytes[0] as char).to_ascii_uppercase())
+        } else {
+            None
+        }
+    };
+    let name = p
+        .file_name()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| trimmed.to_string());
+    if is_unc {
+        // ネットワーク印 (グローブ絵文字)
+        format!("🌐 {}", name)
+    } else if let Some(d) = drive {
+        // ドライブルート ("C:" 等) は重複を避けて "C:\" 表示
+        if name.len() <= 2 && name.starts_with(d) {
+            format!("{}:\\", d)
+        } else {
+            format!("{}: {}", d, name)
+        }
+    } else {
+        name
+    }
 }
 
 /// 同名ファイルがあれば " (2)", " (3)"... を付与してユニークな宛先を返す。

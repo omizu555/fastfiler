@@ -12,7 +12,7 @@ use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::style::CursorStyle;
 use floem::views::{
     button, container, dyn_container, h_stack, img, label, scroll, text, text_input, v_stack,
-    virtual_stack, Decorators, VirtualDirection, VirtualItemSize,
+    virtual_stack, ClipExt, Decorators, VirtualDirection, VirtualItemSize,
 };
 
 use fastfiler_domain::file_ops as fops;
@@ -143,6 +143,43 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         prev.unwrap_or(0).wrapping_add(1)
     });
 
+    // cur_path 変化を監視: ナビゲーション発生時に drag 関連状態を必ず掃除する。
+    // ダブルクリックで子フォルダに入った場合などは、対応する PointerUp が
+    // 元の view 破棄により発火しないので、drag_candidate / dragging が残留する
+    // ことがある (戻った後にドラッグ状態が継続する症状の原因)。
+    {
+        let app_for_nav_clear = app.clone();
+        let drag_candidate_for_nav = drag_candidate;
+        let pane_id_for_nav = pane.id;
+        let cur_path_sig = pane.cur_path;
+        floem::reactive::create_effect(move |prev: Option<PathBuf>| {
+            let cur = cur_path_sig.get();
+            if let Some(ref p) = prev {
+                if p != &cur {
+                    if drag_candidate_for_nav.get_untracked().is_some() {
+                        crate::flog!(
+                            "[drag] cleared by navigation pane={} (drag_candidate)",
+                            pane_id_for_nav
+                        );
+                        drag_candidate_for_nav.set(None);
+                    }
+                    // このペインを発生源とする dragging のみクリア (他ペインの D&D は維持)
+                    let should_clear = app_for_nav_clear
+                        .dragging
+                        .with_untracked(|d| d.as_ref().is_some_and(|ds| ds.source_pane == pane_id_for_nav));
+                    if should_clear {
+                        crate::flog!(
+                            "[drag] cleared by navigation pane={} (dragging)",
+                            pane_id_for_nav
+                        );
+                        app_for_nav_clear.dragging.set(None);
+                    }
+                }
+            }
+            cur
+        });
+    }
+
     // Everything 検索 effect (search/mod.rs に分離)
     crate::search::attach_everything_effect(&pane, &app);
 
@@ -171,9 +208,15 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let search_query_for_btn = pane.search_query;
     let search_results_for_btn = pane.search_results;
     let hide_toolbar_sig = app.settings.hide_pane_toolbar;
-    let toolbar = h_stack((
-        button("↑").action(move || pane_for_up.up()),
-        button("⟳").action(move || pane_for_reload.reload()),
+    let left_toolbar = h_stack((button("↑").action(move || pane_for_up.up()),)).style(move |s| {
+        let s = s.gap(6).padding(6).items_center();
+        if hide_toolbar_sig.get() {
+            s.height(0).padding(0).hide()
+        } else {
+            s
+        }
+    });
+    let right_toolbar = h_stack((
         button("🔍").action(move || {
             let cur = search_open_for_btn.get_untracked();
             if cur {
@@ -184,12 +227,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 search_open_for_btn.set(true);
             }
         }),
-        button("⇔分割").action(move || app_for_split_h.split_active(false)),
-        button("⇕分割").action(move || app_for_split_v.split_active(true)),
+        button("⟳").action(move || pane_for_reload.reload()),
+        button("⇔").action(move || app_for_split_h.split_active(false)),
+        button("⇕").action(move || app_for_split_v.split_active(true)),
         button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
     ))
     .style(move |s| {
-        let s = s.gap(6).padding(6).items_center();
+        let s = s.gap(6).padding(6).items_center().flex_shrink(0.0);
         if hide_toolbar_sig.get() {
             s.height(0).padding(0).hide()
         } else {
@@ -480,6 +524,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let app_for_row_pointer_up = app_for_rows.clone();
             let app_for_row_pointer_down_clear = app_for_rows.clone();
             let pane_for_click_log = pane_for_rows.clone();
+            let pane_for_drag_clear_id = pane_for_rows.id;
             let _ = &app_for_drag;
 
             // アイコン: icon_set 設定で表示形式を切替 (theme_rev で再構築されるので
@@ -722,13 +767,19 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .on_event_cont(EventListener::PointerUp, move |_| {
                 // 安全網: クリック判定にならず、かつペイン側 PointerUp にも届かない
-                // 経路があり得るので、行レベルでも必ず drag 関連状態を解除する。
-                // (同一ペイン内で離した時に drag 状態が残る現象への対策)
+                // 経路があり得るので、行レベルでも drag 候補は必ず解除する。
                 if drag_candidate_for_row_up.get_untracked().is_some() {
                     drag_candidate_for_row_up.set(None);
                 }
-                if app_for_row_pointer_up.dragging.get_untracked().is_some() {
-                    crate::flog!("[drag] cleared by row PointerUp safety net");
+                // dragging は「同一ペイン内で離した = ドロップ対象でない」場合のみクリアする。
+                // 他ペイン由来のドロップは伝播先のペイン PointerUp で処理させる必要があるため、
+                // ここでクリアすると行が密に並んでいる領域でドロップが成立しなくなる。
+                let should_clear = app_for_row_pointer_up.dragging.with_untracked(|d| {
+                    d.as_ref()
+                        .is_some_and(|ds| ds.source_pane == pane_for_drag_clear_id)
+                });
+                if should_clear {
+                    crate::flog!("[drag] cleared by row PointerUp safety net (same-pane)");
                     app_for_row_pointer_up.dragging.set(None);
                 }
             })
@@ -991,7 +1042,18 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let col_resize_for_drag_end = col_resize_drag;
     let drag_candidate_for_move = drag_candidate;
     let drag_candidate_for_up = drag_candidate;
-    let top_bar = h_stack((toolbar, breadcrumb)).style(|s| {
+    let top_bar = h_stack((
+        left_toolbar,
+        breadcrumb.clip().style(|s| {
+            s.flex_grow(1.0)
+                .flex_basis(0)
+                .min_width(0)
+                .height(28)
+                .items_center()
+        }),
+        right_toolbar,
+    ))
+    .style(|s| {
         s.width_full()
             .items_center()
             .border_bottom(1)
@@ -1120,6 +1182,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                                 current_window: win_cur,
                                 active: true,
                             }));
+                            // dragging を生成したら候補は役目を終える。
+                            // 残しておくとドロップ完了後にマウスを動かしただけで
+                            // 再度 dragging が立ち上がってしまう (ゴースト drag)。
+                            drag_candidate_for_move.set(None);
                         }
                     }
                     return;
