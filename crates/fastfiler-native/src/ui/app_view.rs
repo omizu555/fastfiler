@@ -7,7 +7,7 @@ use floem::views::{container, dyn_container, label, v_stack, Decorators};
 
 use crate::fs_model::initial_path;
 use crate::settings::{settings_view, AppSettings};
-use crate::state::{AppState, SplitDir, SplitNode, SplitterTarget};
+use crate::state::{AppState, PaneSplitterDrag, SplitDir, SplitNode, SplitterTarget};
 use crate::theme;
 use crate::ui::footer::footer_bar;
 use crate::ui::pane::pane_view;
@@ -27,38 +27,123 @@ fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
         SplitNode::Leaf(p) => container(pane_view(p, app))
             .style(|s| s.size_full().min_width(0).min_height(0))
             .into_any(),
-        SplitNode::Split { dir, children } => {
+        SplitNode::Split {
+            dir,
+            children,
+            ratios,
+        } => {
             let count = children.len();
-            let views: Vec<floem::AnyView> = children
-                .into_iter()
-                .enumerate()
-                .map(|(i, child)| {
-                    let app = app.clone();
-                    let child_view = render_split_node(child, app);
-                    container(child_view)
+            // Split コンテナのピクセルサイズ (該当軸) を追跡
+            let container_size: floem::reactive::RwSignal<f32> =
+                floem::reactive::Scope::new().create_rw_signal(0.0_f32);
+            let mut items: Vec<floem::AnyView> = Vec::with_capacity(count.saturating_mul(2));
+            for (i, child) in children.into_iter().enumerate() {
+                // 子の前にスプリッタ (i > 0)
+                if i > 0 && count > 1 {
+                    let bar_dir = dir;
+                    let ratios_for_bar = ratios;
+                    let app_for_bar = app.clone();
+                    let idx_a = i - 1;
+                    let bar = floem::views::empty()
                         .style(move |s| {
-                            let s = s.flex_grow(1.0).flex_basis(0).min_width(0).min_height(0);
-                            if i > 0 && count > 1 {
-                                match dir {
-                                    SplitDir::Horizontal => {
-                                        s.border_left(1).border_color(theme::border_default())
-                                    }
-                                    SplitDir::Vertical => {
-                                        s.border_top(1).border_color(theme::border_default())
-                                    }
-                                }
-                            } else {
-                                s
+                            let s = s
+                                .background(theme::border_default())
+                                .hover(|s| s.background(theme::accent_select()));
+                            match bar_dir {
+                                SplitDir::Horizontal => s
+                                    .width(5.0)
+                                    .height_full()
+                                    .cursor(floem::style::CursorStyle::ColResize),
+                                SplitDir::Vertical => s
+                                    .height(5.0)
+                                    .width_full()
+                                    .cursor(floem::style::CursorStyle::RowResize),
                             }
                         })
-                        .into_any()
-                })
-                .collect();
-            let stack = floem::views::stack_from_iter(views).style(move |s| match dir {
+                        .on_event_stop(EventListener::PointerDown, move |e| {
+                            if let Event::PointerDown(p) = e {
+                                if !p.button.is_primary() {
+                                    return;
+                                }
+                                app_for_bar.pane_splitter_drag.set(Some(PaneSplitterDrag {
+                                    dir: bar_dir,
+                                    ratios: ratios_for_bar,
+                                    idx_a,
+                                }));
+                            }
+                        });
+                    items.push(bar.into_any());
+                }
+                let app_for_child = app.clone();
+                let child_view = render_split_node(child, app_for_child);
+                let child_idx = i;
+                let ratios_for_child = ratios;
+                items.push(
+                    container(child_view)
+                        .style(move |s| {
+                            // ratio が極端に小さいと描画崩れするので最低値を確保
+                            let r = ratios_for_child
+                                .with(|v| v.get(child_idx).copied().unwrap_or(1.0))
+                                .max(0.01);
+                            s.flex_grow(r).flex_basis(0).min_width(0).min_height(0)
+                        })
+                        .into_any(),
+                );
+            }
+            let stack = floem::views::stack_from_iter(items).style(move |s| match dir {
                 SplitDir::Horizontal => s.flex_row().size_full(),
                 SplitDir::Vertical => s.flex_col().size_full(),
             });
-            container(stack).style(|s| s.size_full()).into_any()
+            let ratios_for_move = ratios;
+            let app_for_move = app.clone();
+            container(stack)
+                .style(|s| s.size_full())
+                .on_resize(move |rect| {
+                    let v = match dir {
+                        SplitDir::Horizontal => rect.width() as f32,
+                        SplitDir::Vertical => rect.height() as f32,
+                    };
+                    if (container_size.get_untracked() - v).abs() > 0.5 {
+                        container_size.set(v);
+                    }
+                })
+                .on_event_cont(EventListener::PointerMove, move |e| {
+                    if let Event::PointerMove(p) = e {
+                        let Some(pd) = app_for_move.pane_splitter_drag.get_untracked() else {
+                            return;
+                        };
+                        // この Split コンテナ自身のドラッグでなければ無視
+                        if pd.ratios != ratios_for_move || pd.dir != dir {
+                            return;
+                        }
+                        let total = container_size.get_untracked();
+                        if total < 1.0 {
+                            return;
+                        }
+                        // p.pos はこの Split コンテナのローカル座標
+                        let cur_px = match dir {
+                            SplitDir::Horizontal => p.pos.x as f32,
+                            SplitDir::Vertical => p.pos.y as f32,
+                        };
+                        ratios_for_move.update(|v| {
+                            if pd.idx_a + 1 >= v.len() {
+                                return;
+                            }
+                            // [idx_a] と [idx_a+1] の合計を保ったまま境界位置を更新
+                            let prev_boundary_ratio: f32 = v[..pd.idx_a].iter().sum();
+                            let prev_boundary_px = prev_boundary_ratio * total;
+                            let pair_sum = v[pd.idx_a] + v[pd.idx_a + 1];
+                            let min_r = (0.05_f32).min(pair_sum * 0.5);
+                            let max_a = pair_sum - min_r;
+                            let new_a = ((cur_px - prev_boundary_px) / total)
+                                .clamp(min_r, max_a);
+                            let new_b = pair_sum - new_a;
+                            v[pd.idx_a] = new_a;
+                            v[pd.idx_a + 1] = new_b;
+                        });
+                    }
+                })
+                .into_any()
         }
     }
 }
@@ -318,6 +403,22 @@ pub fn app_view() -> impl IntoView {
             move |_| {
                 if app_for_split.splitter_drag.get_untracked().is_some() {
                     app_for_split.splitter_drag.set(None);
+                }
+                if app_for_split.pane_splitter_drag.get_untracked().is_some() {
+                    app_for_split.pane_splitter_drag.set(None);
+                    // ratios 変更を永続化 (ドラッグ中は重いので終了時に 1 回だけ保存)
+                    let tabs_v = app_for_split.tabs.get_untracked();
+                    let layouts: Vec<String> = tabs_v
+                        .iter()
+                        .map(|t| {
+                            let saved = t.root.with_untracked(|r| r.to_saved());
+                            serde_json::to_string(&saved).unwrap_or_default()
+                        })
+                        .collect();
+                    app_for_split.settings.tab_layouts.set(layouts);
+                    if let Err(e) = app_for_split.settings.save() {
+                        eprintln!("[settings] pane splitter save error: {}", e);
+                    }
                 }
             }
         })

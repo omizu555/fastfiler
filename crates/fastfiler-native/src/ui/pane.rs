@@ -156,6 +156,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let pane_for_keys = pane.clone();
     let pane_for_click = pane.clone();
     let pane_for_ctxmenu = pane.clone();
+    let pane_for_blank_ctxmenu = pane.clone();
     let pane_for_sort_name = pane.clone();
     let pane_for_sort_size = pane.clone();
     let pane_for_sort_mtime = pane.clone();
@@ -659,6 +660,20 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
                 if let Event::PointerDown(p) = e {
+                    // 右クリック (secondary) → エクスプローラ準拠で「未選択ならその行だけ選択」。
+                    // context_menu builder のタイミング依存を避け、メニュー表示前に確実に選択を整える。
+                    if p.button.is_secondary() {
+                        let in_sel = pane_for_drag
+                            .selected
+                            .with_untracked(|s| s.contains(&bg_idx));
+                        if !in_sel {
+                            let mut s = im::OrdSet::new();
+                            s.insert(bg_idx);
+                            pane_for_drag.selected.set(s);
+                            pane_for_drag.anchor.set(Some(bg_idx));
+                        }
+                        return;
+                    }
                     if !p.button.is_primary() {
                         return;
                     }
@@ -761,10 +776,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let p_rename = pane_ctx.clone();
                     let p_delete = pane_ctx.clone();
                     let p_props = pane_ctx.clone();
-                    // 右クリックされた行が未選択なら単独選択にする
-                    if !p_open.selected.with(|s| s.contains(&bg_idx)) {
-                        p_open.click_row(bg_idx, false, false);
-                    }
+                    // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
+                    let _ = bg_idx; // 警告抑制 (以降のクロージャでは使用)
                     Menu::new("")
                         .entry(MenuItem::new("開く").action({
                             let p = p_open.clone();
@@ -1279,6 +1292,55 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 if let Some(n) = next {
                     pane_for_keys.click_row(n, false, shift);
                 }
+            }
+        })
+        .context_menu({
+            // ペイン余白 (行のないところ) で開く context menu。
+            // 行 context_menu は子側で先に消費されるので、ここに来るのは余白のみ。
+            let p_open_here = pane_for_blank_ctxmenu.clone();
+            let p_reveal_here = pane_for_blank_ctxmenu.clone();
+            let p_newfolder = pane_for_blank_ctxmenu.clone();
+            let p_newfile = pane_for_blank_ctxmenu.clone();
+            let p_paste = pane_for_blank_ctxmenu.clone();
+            let p_reload = pane_for_blank_ctxmenu.clone();
+            move || {
+                Menu::new("")
+                    .entry(MenuItem::new("エクスプローラで開く").action({
+                        let p = p_open_here.clone();
+                        move || {
+                            let cur = p.cur_path.get_untracked();
+                            let _ = fastfiler_domain::shell::open_with_shell(
+                                cur.to_string_lossy().into_owned(),
+                            );
+                        }
+                    }))
+                    .entry(MenuItem::new("エクスプローラでこの場所を表示").action({
+                        let p = p_reveal_here.clone();
+                        move || {
+                            let cur = p.cur_path.get_untracked();
+                            let _ = fastfiler_domain::shell::reveal_in_explorer(
+                                cur.to_string_lossy().into_owned(),
+                            );
+                        }
+                    }))
+                    .separator()
+                    .entry(MenuItem::new("新規フォルダ").action({
+                        let p = p_newfolder.clone();
+                        move || p.open_new_folder_modal()
+                    }))
+                    .entry(MenuItem::new("新規ファイル").action({
+                        let p = p_newfile.clone();
+                        move || p.open_new_file_modal()
+                    }))
+                    .entry(MenuItem::new("貼り付け").action({
+                        let p = p_paste.clone();
+                        move || p.clipboard_paste()
+                    }))
+                    .separator()
+                    .entry(MenuItem::new("更新").action({
+                        let p = p_reload.clone();
+                        move || p.reload()
+                    }))
             }
         })
 }

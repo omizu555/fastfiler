@@ -301,6 +301,15 @@ pub enum SplitDir {
     Vertical,
 }
 
+/// ペイン分割内スプリッタのドラッグ状態
+#[derive(Clone)]
+pub struct PaneSplitterDrag {
+    pub dir: SplitDir,
+    pub ratios: RwSignal<Vec<f32>>,
+    /// 隣接 2 ペインのインデックス (左/上 が idx_a、右/下 が idx_a + 1)
+    pub idx_a: usize,
+}
+
 /// BSP ペイン木。Leaf が個別ペイン、Split が分割ノード。
 #[derive(Clone)]
 pub enum SplitNode {
@@ -308,7 +317,35 @@ pub enum SplitNode {
     Split {
         dir: SplitDir,
         children: Vec<SplitNode>,
+        /// 各子の表示比率 (合計 1.0 を維持)。リアクティブに更新可能。
+        ratios: RwSignal<Vec<f32>>,
     },
+}
+
+/// children 数に応じた均等 ratios を生成 (untethered スコープで生成して自動 dispose 回避)
+fn make_equal_ratios(n: usize) -> RwSignal<Vec<f32>> {
+    let v = if n == 0 {
+        Vec::new()
+    } else {
+        let r = 1.0 / n as f32;
+        vec![r; n]
+    };
+    floem::reactive::Scope::new().create_rw_signal(v)
+}
+
+/// ratios を合計 1.0 に正規化
+fn normalize_ratios(v: &mut Vec<f32>) {
+    let sum: f32 = v.iter().sum();
+    if sum > 0.0001 {
+        for r in v.iter_mut() {
+            *r /= sum;
+        }
+    } else if !v.is_empty() {
+        let r = 1.0 / v.len() as f32;
+        for x in v.iter_mut() {
+            *x = r;
+        }
+    }
 }
 
 fn def_name_col_width() -> f32 {
@@ -340,6 +377,8 @@ pub enum SavedSplit {
     Split {
         dir: String,
         children: Vec<SavedSplit>,
+        #[serde(default)]
+        ratios: Vec<f32>,
     },
 }
 
@@ -352,12 +391,17 @@ impl SplitNode {
                 size_col_width: p.size_col_width.get_untracked(),
                 mtime_col_width: p.mtime_col_width.get_untracked(),
             },
-            SplitNode::Split { dir, children } => SavedSplit::Split {
+            SplitNode::Split {
+                dir,
+                children,
+                ratios,
+            } => SavedSplit::Split {
                 dir: match dir {
                     SplitDir::Horizontal => "h".to_string(),
                     SplitDir::Vertical => "v".to_string(),
                 },
                 children: children.iter().map(|c| c.to_saved()).collect(),
+                ratios: ratios.get_untracked(),
             },
         }
     }
@@ -381,7 +425,11 @@ impl SplitNode {
                     *mtime_col_width,
                 ))
             }
-            SavedSplit::Split { dir, children } => {
+            SavedSplit::Split {
+                dir,
+                children,
+                ratios,
+            } => {
                 let dir = if dir == "v" {
                     SplitDir::Vertical
                 } else {
@@ -394,9 +442,17 @@ impl SplitNode {
                 if kids.is_empty() {
                     SplitNode::Leaf(PaneState::new(PathBuf::from("C:\\"), show_hidden))
                 } else {
+                    // ratios の長さが children と一致しない/空なら均等配分。
+                    let mut r = if ratios.len() == kids.len() && !ratios.is_empty() {
+                        ratios.clone()
+                    } else {
+                        vec![1.0 / kids.len() as f32; kids.len()]
+                    };
+                    normalize_ratios(&mut r);
                     SplitNode::Split {
                         dir,
                         children: kids,
+                        ratios: floem::reactive::Scope::new().create_rw_signal(r),
                     }
                 }
             }
@@ -432,6 +488,7 @@ impl SplitNode {
         if let SplitNode::Split {
             dir: my_dir,
             children,
+            ratios,
         } = self
         {
             if *my_dir == dir {
@@ -439,6 +496,15 @@ impl SplitNode {
                     if let SplitNode::Leaf(p) = &children[i] {
                         if p.id == pane_id {
                             children.insert(i + 1, SplitNode::Leaf(new_pane));
+                            // i 番目の ratio を半分に分け、新規子に半分を与える
+                            ratios.update(|v| {
+                                let half = v.get(i).copied().unwrap_or(0.0) * 0.5;
+                                if let Some(r) = v.get_mut(i) {
+                                    *r = half;
+                                }
+                                v.insert(i + 1, half);
+                                normalize_ratios(v);
+                            });
                             return true;
                         }
                     }
@@ -459,6 +525,7 @@ impl SplitNode {
                 *self = SplitNode::Split {
                     dir,
                     children: vec![SplitNode::Leaf(original), SplitNode::Leaf(new_pane)],
+                    ratios: make_equal_ratios(2),
                 };
                 return true;
             }
@@ -469,13 +536,22 @@ impl SplitNode {
     /// 指定 pane を木から削除。子が 1 つになった Split は平坦化。
     /// 戻り値: 削除成功なら true。root が消滅する場合 (= leaf が pane_id しか無い) は false を返さず削除側で判定。
     pub fn remove_leaf(&mut self, pane_id: u64) -> bool {
-        if let SplitNode::Split { children, .. } = self {
+        if let SplitNode::Split {
+            children, ratios, ..
+        } = self
+        {
             // 直下の Leaf を検査
             if let Some(idx) = children
                 .iter()
                 .position(|c| matches!(c, SplitNode::Leaf(p) if p.id == pane_id))
             {
                 children.remove(idx);
+                ratios.update(|v| {
+                    if idx < v.len() {
+                        v.remove(idx);
+                    }
+                    normalize_ratios(v);
+                });
                 self.collapse_if_single();
                 return true;
             }
@@ -605,6 +681,8 @@ pub struct AppState {
     pub dragging: RwSignal<Option<DragState>>,
     /// スプリッタドラッグ中のターゲット (タブペイン / ツリーペイン 右端)
     pub splitter_drag: RwSignal<Option<SplitterTarget>>,
+    /// ペイン分割内スプリッタのドラッグ状態
+    pub pane_splitter_drag: RwSignal<Option<PaneSplitterDrag>>,
     /// FS 変化通知 (ツリーペイン等が track して再ロードするためのグローバルティック)
     pub tree_tick: RwSignal<u64>,
     /// テーマ/プリセット/アクセント変更時にインクリメントするリビジョン。
@@ -656,6 +734,7 @@ impl AppState {
             pane_rects: RwSignal::new(im::HashMap::new()),
             dragging: RwSignal::new(None),
             splitter_drag: RwSignal::new(None),
+            pane_splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
             theme_rev: RwSignal::new(0),
         }
