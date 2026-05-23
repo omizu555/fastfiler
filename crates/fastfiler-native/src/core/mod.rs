@@ -11,3 +11,4 @@ pub mod actions;
 pub mod fs_model;
 pub mod jobs;
 pub mod state;
+pub mod tree_model;

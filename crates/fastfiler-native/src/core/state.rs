@@ -701,6 +701,14 @@ pub struct AppState {
     pub panel_dock_tabs_prev: RwSignal<String>,
     /// プログレスダイアログ用のジョブ管理 (#5)
     pub jobs: crate::core::jobs::JobsState,
+    /// ワークスペースツリーの roots (起動時に list_drives() で初期化、UNC 追加等で拡張)
+    pub tree_roots: RwSignal<im::Vector<crate::core::tree_model::TreeNode>>,
+    /// ツリーペインがキーボードフォーカスを保持しているか (FocusGained/Lost で更新)
+    pub tree_focused: RwSignal<bool>,
+    /// ツリーペイン上でのキーフォーカス位置 (None なら未確定)
+    pub tree_focused_path: RwSignal<Option<PathBuf>>,
+    /// 値が変わるたびにツリーペイン container が request_focus する (Ctrl+Shift+E 等)
+    pub tree_focus_req: RwSignal<u64>,
 }
 
 impl AppState {
@@ -762,7 +770,17 @@ impl AppState {
             panel_dock_tree_prev: RwSignal::new(String::from("left")),
             panel_dock_tabs_prev: RwSignal::new(String::from("left")),
             jobs: crate::core::jobs::JobsState::new(),
+            tree_roots: RwSignal::new(im::Vector::new()),
+            tree_focused: RwSignal::new(false),
+            tree_focused_path: RwSignal::new(None),
+            tree_focus_req: RwSignal::new(0),
         }
+    }
+
+    /// ツリーペインへフォーカスを送るためのカウンタをインクリメントする。
+    /// `tree_pane` の `request_focus` がこの signal を track している。
+    pub fn request_tree_focus(&self) {
+        self.tree_focus_req.update(|v| *v = v.wrapping_add(1));
     }
 
     pub fn active_tab(&self) -> Option<Tab> {

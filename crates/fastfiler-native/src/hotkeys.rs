@@ -248,7 +248,26 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         "undo" => app.undo(),
         // ─────────── パネル表示切替 ───────────
         "toggle-tree" => {
-            toggle_dock(app.settings.panel_dock_tree, app.panel_dock_tree_prev);
+            // 3 状態サイクル: 非表示→表示+focus / 表示+focus→非表示 / 表示+非focus→focus
+            let dock = app.settings.panel_dock_tree;
+            let prev = app.panel_dock_tree_prev;
+            let cur = dock.get_untracked();
+            if cur == "hidden" {
+                let restore = prev.get_untracked();
+                let restore = if restore.is_empty() || restore == "hidden" {
+                    String::from("left")
+                } else {
+                    restore
+                };
+                dock.set(restore);
+                app.request_tree_focus();
+            } else if app.tree_focused.get_untracked() {
+                prev.set(cur);
+                dock.set(String::from("hidden"));
+                app.tree_focused.set(false);
+            } else {
+                app.request_tree_focus();
+            }
         }
         "toggle-tabs" => {
             toggle_dock(app.settings.panel_dock_tabs, app.panel_dock_tabs_prev);
