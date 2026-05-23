@@ -69,6 +69,8 @@ pub struct DragState {
     pub start_window: Option<Point>,
     pub current_window: Point,
     pub active: bool,
+    /// 右ボタンドラッグ。drop 時に context menu を出す。
+    pub right_button: bool,
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -727,6 +729,10 @@ pub struct AppState {
     /// IDropTarget は COM オブジェクトで Send/Sync ではないが、UI スレッドからのみ
     /// 触る前提で `DropTargetCell` で Send 化している。
     pub drop_target_reg: Arc<Mutex<DropTargetCell>>,
+    /// 右ボタン D&D 中の状態 (ADR 0010 / 0011)。
+    /// `None` = 右ドラッグなし。`Some` = pane.rs PointerMove で閾値超え。
+    /// Win32 サブクラスが `WM_RBUTTONUP` 時に読んで、メニュー表示後 `None` に戻す。
+    pub right_drag: RwSignal<Option<RightDragState>>,
 }
 
 /// 外部 D&D ホバー状態 (背景ハイライト用)。
@@ -735,6 +741,19 @@ pub struct ExternalDropHover {
     pub pane_id: u64,
     /// `"copy"` / `"move"` / `"none"` のいずれか。将来カーソル切り替え等に使う。
     pub effect: &'static str,
+}
+
+/// 右ボタン D&D 中の状態 (ADR 0010 / 0011)。
+///
+/// PointerMove で閾値超えに `Some` となり、Win32 サブクラスの
+/// `WM_RBUTTONUP` ハンドラがこれを読んでドロップメニューを表示する。
+/// メニュー表示直前に `None` へクリアされる。
+#[derive(Clone, Debug)]
+pub struct RightDragState {
+    pub source_pane: u64,
+    pub paths: Vec<PathBuf>,
+    /// 現在ホバー中のドロップ先ペイン ID (`None` ならどのペイン上にもいない)
+    pub hover_pane: Option<u64>,
 }
 
 /// `DropTargetRegistration` を AppState 内に保持するためのラッパ。
@@ -813,6 +832,7 @@ impl AppState {
             tree_focus_req: RwSignal::new(0),
             external_drop_hover: RwSignal::new(None),
             drop_target_reg: Arc::new(Mutex::new(DropTargetCell::default())),
+            right_drag: RwSignal::new(None),
         }
     }
 

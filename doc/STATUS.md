@@ -38,7 +38,7 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] ペイン内 D&D (修飾キー / ボリュームで Move/Copy 自動判別、Ctrl=Copy / Shift=Move)
 - [x] フォルダへドロップ (同階層)
 - [x] エクスプローラ ⇄ FastFiler 双方向 D&D — 送信側 (FastFiler → エクスプローラ) は OLE `IDataObject` で実装済。受信側 (`IDropTarget`) も実装済 (`#D Phase 2`、ペイン単位ハイライト・修飾キーは内部 D&D と統一)
-- [ ] 右ボタン D&D メニュー (ここに移動 / ここにコピー / キャンセル)
+- [x] 右ボタン D&D メニュー (ここに移動 / ここにコピー / キャンセル) — 内部 D&D + 外部受信に対応 ([ADR 0010](./adr/0010-right-button-drag-and-drop-scope.md) / [ADR 0011](./adr/0011-right-button-drop-detection-via-win32-subclass.md))
 - [x] 新規ファイルテンプレート (内蔵 13 種 + ユーザー定義)
 - [x] `.iso / .img / .vhd / .vhdx` のマウント (`ShellExecuteW` の `mount` 動詞)
 - [x] **ユーザーコマンド** (`%APPDATA%\FastFiler\commands\commands.json`)

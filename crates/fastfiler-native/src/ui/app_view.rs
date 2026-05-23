@@ -556,6 +556,7 @@ pub fn app_view() -> impl IntoView {
             #[cfg(windows)]
             {
                 ensure_drop_target_registered(&app_for_dnd_reg);
+                ensure_right_drag_hook_installed(&app_for_dnd_reg);
             }
             #[cfg(not(windows))]
             {
@@ -754,6 +755,30 @@ fn ensure_drop_target_registered(app: &AppState) {
             let Some(target_pane) = app_for_drop.find_pane(target_id) else {
                 return DROPEFFECT_NONE_U32;
             };
+            // MK_RBUTTON = 0x0002。右ボタン D&D で受信した場合はメニューを出す
+            // (内部 D&D の右ボタン経路と同じ UX, ADR 0010)。
+            let is_right_button = (key & 0x0002) != 0;
+            if is_right_button {
+                crate::flog!(
+                    "[ole-dnd-recv] drop right-button paths={} target={}",
+                    paths.len(),
+                    target_id
+                );
+                crate::ui::drop_exec::show_right_drop_menu(
+                    app_for_drop.clone(),
+                    target_pane,
+                    None,
+                    paths.to_vec(),
+                    win_pt,
+                );
+                // 効果は呼び出し元 (Windows) に「成功」と返す。実コピー/移動は
+                // メニュー選択時に行われる。allowed が COPY のみなら COPY を返す。
+                return if (allowed & DROPEFFECT_MOVE_U32) != 0 {
+                    DROPEFFECT_MOVE_U32
+                } else {
+                    DROPEFFECT_COPY_U32
+                };
+            }
             let ctrl = (key & 0x0008) != 0; // MK_CONTROL
             let shift = (key & 0x0004) != 0; // MK_SHIFT
             perform_external_drop(
@@ -777,6 +802,17 @@ fn ensure_drop_target_registered(app: &AppState) {
             crate::flog!("[ole-dnd-recv] RegisterDragDrop 失敗: {}", e);
         }
     }
+}
+
+/// 右ボタン D&D の `WM_RBUTTONUP` フックを登録する (ADR 0011)。
+/// `WindowGotFocus` の度に呼ばれるが、内部で二重登録ガードしている。
+#[cfg(windows)]
+fn ensure_right_drag_hook_installed(app: &AppState) {
+    let Some(hwnd) = resolve_app_hwnd() else {
+        crate::flog!("[right-drag-hook] HWND 未解決 (次の WindowGotFocus でリトライ)");
+        return;
+    };
+    crate::win32::right_drag_hook::install(hwnd, app.clone());
 }
 
 #[cfg(windows)]

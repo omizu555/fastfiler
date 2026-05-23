@@ -15,11 +15,9 @@ use floem::views::{
     virtual_stack, ClipExt, Decorators, VirtualDirection, VirtualItemSize,
 };
 
-use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::icons as ficons;
-use fastfiler_domain::undo::{MoveItem, UndoOp};
 
-use crate::fs_model::{unique_dest, FileRow, SortKey};
+use crate::fs_model::{FileRow, SortKey};
 use crate::state::{AppState, DragState, ModalKind, PaneState};
 use crate::theme;
 
@@ -114,10 +112,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     // 個別の use-site (ctxmenu / blank ctxmenu / modal) ごとに事前に clone を取り分けておく。
     let col_resize_drag = floem::reactive::Scope::new()
         .create_rw_signal(None::<(ColumnResizeTarget, f64, f32, f32, f32)>);
-    // ドラッグ候補 (PointerDown 時の文脈): (source_pane_id, paths, start_pos_in_pane).
+    // ドラッグ候補 (PointerDown 時の文脈): (source_pane_id, paths, start_pos_in_pane, right_button).
     // PointerMove で閾値を超えるまでは dragging に乗せず、誤発火を防ぐ。
     let drag_candidate =
-        floem::reactive::Scope::new().create_rw_signal(None::<(u64, Vec<PathBuf>, Point)>);
+        floem::reactive::Scope::new().create_rw_signal(None::<(u64, Vec<PathBuf>, Point, bool)>);
     let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
     let sink = pane.sink.clone();
     let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
@@ -745,9 +743,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
                 if let Event::PointerDown(p) = e {
+                    let is_secondary = p.button.is_secondary();
                     // 右クリック (secondary) → エクスプローラ準拠で「未選択ならその行だけ選択」。
                     // context_menu builder のタイミング依存を避け、メニュー表示前に確実に選択を整える。
-                    if p.button.is_secondary() {
+                    if is_secondary {
                         let in_sel = pane_for_drag
                             .selected
                             .with_untracked(|s| s.contains(&bg_idx));
@@ -757,6 +756,30 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             pane_for_drag.selected.set(s);
                             pane_for_drag.anchor.set(Some(bg_idx));
                         }
+                        // 右ボタン D&D 候補として登録する。閾値を超えなければ
+                        // PointerUp 時に通常の context_menu が出る。
+                        let cur = pane_for_drag.cur_path.get_untracked();
+                        let row_path = cur.join(&row_name_for_drag);
+                        // 選択状態を更新後に in_sel を再評価する (上で選択を入れ替えた可能性)。
+                        let now_in_sel = pane_for_drag
+                            .selected
+                            .with_untracked(|s| s.contains(&bg_idx));
+                        let paths: Vec<PathBuf> = if now_in_sel {
+                            let sel = pane_for_drag.selected.get_untracked();
+                            let rs = pane_for_drag.rows.get_untracked();
+                            sel.iter()
+                                .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
+                                .collect()
+                        } else {
+                            vec![row_path]
+                        };
+                        crate::flog!(
+                            "[drag] candidate(right) pane={} row={} paths={}",
+                            pane_for_drag.id,
+                            bg_idx,
+                            paths.len()
+                        );
+                        drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos, true)));
                         return;
                     }
                     if !p.button.is_primary() {
@@ -802,7 +825,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         paths.len()
                     );
                     // ここでは dragging を作らない。閾値を超えた PointerMove で初めて作る。
-                    drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos)));
+                    drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos, false)));
                 }
             })
             .on_event_cont(EventListener::PointerUp, move |_| {
@@ -1234,7 +1257,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let dragging = app_for_move.dragging.get_untracked();
                 if dragging.is_none() {
                     // dragging 未生成: 候補があり閾値超えなら、ここで初めて生成する。
-                    if let Some((source_pane, paths, start_pos)) =
+                    if let Some((source_pane, paths, start_pos, right_button)) =
                         drag_candidate_for_move.get_untracked()
                     {
                         let dx = (p.pos.x - start_pos.x) as f32;
@@ -1250,17 +1273,30 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             let win_cur =
                                 Point::new(pane_origin.x + p.pos.x, pane_origin.y + p.pos.y);
                             crate::flog!(
-                                "[drag] start (threshold passed) source_pane={} paths={}",
+                                "[drag] start (threshold passed) source_pane={} paths={} right={}",
                                 source_pane,
-                                paths.len()
+                                paths.len(),
+                                right_button
                             );
                             app_for_move.dragging.set(Some(DragState {
                                 source_pane,
-                                paths,
+                                paths: paths.clone(),
                                 start_window: Some(win_start),
                                 current_window: win_cur,
                                 active: true,
+                                right_button,
                             }));
+                            // 右ボタン D&D の場合は AppState.right_drag も set。
+                            // Win32 サブクラスの WM_RBUTTONUP ハンドラがこれを読む (ADR 0011)。
+                            if right_button {
+                                app_for_move.right_drag.set(Some(
+                                    crate::core::state::RightDragState {
+                                        source_pane,
+                                        paths,
+                                        hover_pane: Some(pane_id),
+                                    },
+                                ));
+                            }
                             // dragging を生成したら候補は役目を終える。
                             // 残しておくとドロップ完了後にマウスを動かしただけで
                             // 再度 dragging が立ち上がってしまう (ゴースト drag)。
@@ -1289,6 +1325,13 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         }
                     }
                 });
+                // 右ボタン D&D 中なら、現在カーソルが乗っているペインを記録する。
+                // Win32 サブクラスがメニュー表示時に target pane として読む (ADR 0011)。
+                app_for_move.right_drag.update(|rd| {
+                    if let Some(state) = rd {
+                        state.hover_pane = Some(pane_id);
+                    }
+                });
             }
         })
         .on_event_cont(EventListener::PointerUp, move |e| {
@@ -1299,12 +1342,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 }
                 // クリックの押し戻し時にも候補は確実にクリア（ドラッグ未成立含む）。
                 drag_candidate_for_up.set(None);
-                // 左ボタン以外 (戻る/進む/中ボタン等) では drop 処理しない。
-                // dragging 状態は安全のためクリアする。
+                // 左ボタン以外: floem 0.2 は secondary PointerUp を listener に配信しないため、
+                // ここに secondary が届くケースは limit されている。右ボタン D&D drop の検出は
+                // Win32 サブクラス (`WM_RBUTTONUP`) 側で行う (ADR 0011)。安全策で cancel のみ。
                 if !p.button.is_primary() {
                     if app_for_up.dragging.get_untracked().is_some() {
-                        crate::flog!("[drop] PointerUp non-primary button, cancel drag");
+                        crate::flog!("[drop] PointerUp non-primary (rare), clear drag");
                         app_for_up.dragging.set(None);
+                        app_for_up.right_drag.set(None);
                     }
                     return;
                 }
@@ -1320,6 +1365,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 );
                 if !ds.active {
                     crate::flog!("[drop] skip (active={})", ds.active);
+                    return;
+                }
+                // 右ボタンモードで primary up が来るのは想定外。安全側でメニュー出さず無視。
+                if ds.right_button {
+                    crate::flog!("[drop] primary-up with right_button drag, ignore");
                     return;
                 }
                 let pane_origin = app_for_up
@@ -1369,132 +1419,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let shift = p.modifiers.shift();
                 let (is_move, reason) =
                     crate::ui::drag_common::compute_effect(&ds.paths, &dest_dir, ctrl, shift);
-                let op_label = if is_move { "移動" } else { "コピー" };
-                crate::flog!(
-                    "[drop] dest_dir={} op={} reason={} files={}",
-                    dest_dir.display(),
-                    if is_move { "move" } else { "copy" },
+                crate::ui::drop_exec::execute_drop(
+                    &app_for_up,
+                    &tp,
+                    Some(ds.source_pane),
+                    &ds.paths,
+                    is_move,
                     reason,
-                    ds.paths.len()
                 );
-
-                // 衝突回避済みの (src, dst) を組み立てる。Move 時は同一ディレクトリは skip。
-                let mut items: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(ds.paths.len());
-                let mut skipped_same_dir = 0u32;
-                for src in &ds.paths {
-                    if is_move {
-                        if let Some(parent) = src.parent() {
-                            if parent == dest_dir.as_path() {
-                                skipped_same_dir += 1;
-                                crate::flog!(
-                                    "[drop] skip move src={} (same dir as dest)",
-                                    src.display()
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                    let Some(name) = src.file_name().map(|s| s.to_string_lossy().into_owned())
-                    else {
-                        continue;
-                    };
-                    let dst = unique_dest(&dest_dir, &name);
-                    items.push((src.clone(), dst));
-                }
-                if items.is_empty() {
-                    if skipped_same_dir > 0 {
-                        tp.status_msg.set(format!(
-                            "D&D {} スキップ ({} 件は同一フォルダ)",
-                            op_label, skipped_same_dir
-                        ));
-                    }
-                    return;
-                }
-
-                // 大量時 (件数 ≥ 100 or 合計 ≥ 50MB) は JobsState 経由 (Undo 不可)
-                let (total_files, total_bytes) = crate::core::jobs::scan_total_for_threshold(
-                    items.iter().map(|(f, _)| f.as_path()),
-                );
-                let big = total_files >= crate::core::jobs::THRESHOLD_FILES
-                    || total_bytes >= crate::core::jobs::THRESHOLD_BYTES;
-                if big {
-                    tp.status_msg.set(format!(
-                        "D&D {} 開始 ({} 件、進捗表示中 / Undo 不可)",
-                        op_label,
-                        items.len()
-                    ));
-                    if is_move {
-                        app_for_up.jobs.spawn_move(items, |_ok| {});
-                    } else {
-                        app_for_up.jobs.spawn_copy(items, |_ok| {});
-                    }
-                    // reload は watcher 任せ (worker thread から signal を触らない)
-                    return;
-                }
-
-                // 閾値未満は同期パス (Move は UndoOp::Move へ push)
-                let _g_drop = crate::core::perf::scope(
-                    if is_move {
-                        crate::core::perf::MetricKind::Move
-                    } else {
-                        crate::core::perf::MetricKind::Copy
-                    },
-                    format!("drop sync files={} reason={}", items.len(), reason),
-                );
-                let mut ok = 0u32;
-                let mut err = 0u32;
-                let mut moved: Vec<MoveItem> = Vec::new();
-                for (from, dst) in &items {
-                    crate::flog!(
-                        "[drop] {} src={} dst={}",
-                        if is_move { "move" } else { "copy" },
-                        from.display(),
-                        dst.display()
-                    );
-                    let res = if is_move {
-                        fops::move_path(
-                            from.to_string_lossy().into_owned(),
-                            dst.to_string_lossy().into_owned(),
-                        )
-                    } else {
-                        fops::copy_path(
-                            from.to_string_lossy().into_owned(),
-                            dst.to_string_lossy().into_owned(),
-                        )
-                    };
-                    match res {
-                        Ok(()) => {
-                            ok += 1;
-                            if is_move {
-                                moved.push(MoveItem {
-                                    from: from.clone(),
-                                    to: dst.clone(),
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            crate::flog!("[drop] op error: {}", e);
-                            err += 1;
-                        }
-                    }
-                }
-                if !moved.is_empty() {
-                    app_for_up
-                        .undo_manager
-                        .lock()
-                        .push(UndoOp::Move { items: moved });
-                }
-                let suffix = if skipped_same_dir > 0 {
-                    format!(" / スキップ={}", skipped_same_dir)
-                } else {
-                    String::new()
-                };
-                tp.status_msg
-                    .set(format!("D&D {} OK={} / NG={}{}", op_label, ok, err, suffix));
-                tp.reload();
-                if let Some(sp) = app_for_up.find_pane(ds.source_pane) {
-                    sp.reload();
-                }
             }
         })
         .on_event_stop(EventListener::PointerDown, move |e| {

@@ -21,6 +21,9 @@ pub mod settings;
 pub mod theme;
 pub mod ui;
 
+#[cfg(windows)]
+pub mod win32;
+
 // 既存コードが使う `crate::state` / `crate::actions` / `crate::fs_model`
 // を維持するための後方互換エイリアス。
 pub use core::{actions, fs_model, state};
