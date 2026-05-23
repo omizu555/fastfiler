@@ -76,7 +76,7 @@ cargo build -p fastfiler-native --release
 
 ```
 fastfiler-v0.1.0-win-x64/
-├── fastfiler-native.exe        ← target\release\fastfiler-native.exe
+├── fastfiler-native.exe        ← target\release\fastfiler-native.exe (アイコン埋込済)
 ├── README.md
 ├── LICENSE                     ← (リポジトリに追加されたら)
 └── doc/
@@ -84,6 +84,18 @@ fastfiler-v0.1.0-win-x64/
     ├── STATUS.md
     └── adr/                    ← ADR 群 (任意)
 ```
+
+### exe アイコンの差し替え
+
+exe アイコンは `crates\fastfiler-native\assets\icon.ico` を `build.rs` から
+`embed-resource` クレート経由で埋め込んでいる。差し替えたい場合:
+
+1. 元画像 (正方形 PNG / 512px 以上推奨) を `crates\fastfiler-native\assets\icon.png` に置く
+2. `pwsh scripts\make_icon.ps1` を実行 — マルチサイズ ICO (16/32/48/64/128/256) を再生成
+3. `cargo build -p fastfiler-native --release` で埋め込み確認
+
+build.rs は Windows ターゲットでのみ `embed_resource::compile` を呼ぶので、
+他プラットフォームのビルドには影響しない。
 
 ZIP 化例:
 
