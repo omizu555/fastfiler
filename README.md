@@ -28,7 +28,7 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
 | [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作 / ホットキー) |
 | [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 |
-| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順 / インストーラ作成 |
+| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順 (ZIP 配布) |
 | [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |
 
 ## ディレクトリ構成

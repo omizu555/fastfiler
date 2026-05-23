@@ -111,79 +111,24 @@ Compress-Archive -Path $out -DestinationPath "$out.zip"
 
 ---
 
-## 5. インストーラ生成 (任意)
-
-単一 exe 配布で十分なら不要だが、スタートメニュー登録・アンインストール対応・
-バージョン管理を組み込みたい場合は以下のいずれか。
-
-### 5.1 Inno Setup (推奨 — `.exe` インストーラ)
-
-ウィザード式の `.exe` インストーラ。スクリプト 1 ファイルで管理でき、
-カスタマイズも容易。雛形を `installer\fastfiler.iss` に同梱済。
-
-**前提**: [Inno Setup 6](https://jrsoftware.org/isinfo.php) をインストールし、
-`iscc.exe` (既定 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`) を PATH に通すか
-フルパスで呼び出せるようにする。
-
-**手順**:
-
-```powershell
-# 1. リリースビルド (exe にアイコン埋込済)
-cargo build -p fastfiler-native --release
-
-# 2. インストーラビルド (Inno Setup の iscc を呼び出す)
-iscc installer\fastfiler.iss
-
-# 出力: installer\out\FastFilerSetup-0.1.0.exe
-```
-
-`installer\fastfiler.iss` の主な設定:
-- `AppVersion` — リリース版上げ時はここを書き換え
-- `PrivilegesRequired=lowest` — 管理者権限不要・ユーザー領域インストール可
-- `SetupIconFile` — インストーラ自体のアイコンも `assets\icon.ico` を流用
-- スタートメニュー / デスクトップショートカット (任意) を作成
-- 設定 / ログ (`%APPDATA%\FastFiler\`) はアンインストール時に **残す**
-  (再インストール時の継承を優先)
-
-### 5.2 cargo-wix (`.msi` 派向け)
-
-MSI 形式が必要 (グループポリシー配布等) ならこちら。
-
-**前提**: [WiX Toolset 3.x](https://wixtoolset.org/) をインストールして
-`candle.exe` / `light.exe` を PATH に通す。`cargo install cargo-wix`。
-
-**手順**:
-
-```powershell
-# 初回のみ: wxs ファイル雛形を生成 (crates\fastfiler-native\wix\main.wxs)
-cargo wix init -p fastfiler-native
-
-# MSI ビルド
-cargo wix -p fastfiler-native --nocapture
-# 出力: target\wix\fastfiler-native-0.1.0-x86_64.msi
-```
-
-雛形生成後にアイコン / ライセンスファイル / バナー画像等を `wix\main.wxs` で
-追加調整可。詳細は [cargo-wix ドキュメント](https://volks73.github.io/cargo-wix/cargo_wix/) を参照。
-
----
-
-## 6. GitHub Release への公開 (任意)
+## 5. GitHub Release への公開 (任意)
 
 ```powershell
 gh release create v0.1.0 `
   --title "FastFiler v0.1.0" `
   --notes-file doc\RELEASE_NOTES_v0.1.0.md `
-  fastfiler-v0.1.0-win-x64.zip `
-  installer\out\FastFilerSetup-0.1.0.exe
+  fastfiler-v0.1.0-win-x64.zip
 ```
 
 リリースノートは `STATUS.md` §1 (実装済) を要約してまとめる。
 旧 TARUI 版との対応・移行ガイドが必要なら本ファイルに節を増やす。
 
+> インストーラ (`.exe` / `.msi`) は配布形態として採用していない。
+> 単一 exe + ZIP で配るシンプル運用に統一する方針 (v0.1.0 時点)。
+
 ---
 
-## 7. リリース後
+## 6. リリース後
 
 ### バージョン番号の更新
 
