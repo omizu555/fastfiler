@@ -63,6 +63,8 @@ pub struct AppSettings {
     pub open_tabs: RwSignal<Vec<String>>,
     /// 各タブの BSP レイアウト JSON 文字列 (open_tabs と同順)。空なら open_tabs から復元 (単一ペイン)。
     pub tab_layouts: RwSignal<Vec<String>>,
+    /// 各タブのロック状態 (open_tabs と同順)。長さが合わない場合は false 扱い。
+    pub tab_locked: RwSignal<Vec<bool>>,
 }
 
 impl AppSettings {
@@ -138,6 +140,7 @@ impl AppSettings {
             window_maximized: RwSignal::new(p.window_maximized),
             open_tabs: RwSignal::new(p.open_tabs.clone()),
             tab_layouts: RwSignal::new(p.tab_layouts.clone()),
+            tab_locked: RwSignal::new(p.tab_locked.clone()),
         }
     }
 

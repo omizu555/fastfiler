@@ -601,6 +601,8 @@ pub struct Tab {
     pub root: RwSignal<SplitNode>,
     /// 現在フォーカスされているペイン id (split_active や close_pane の起点)
     pub active_pane: RwSignal<u64>,
+    /// ロック中 (true) は Ctrl+W / × ボタンで閉じない (中クリックでトグル)
+    pub locked: RwSignal<bool>,
 }
 
 impl Tab {
@@ -613,6 +615,7 @@ impl Tab {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             root: s.create_rw_signal(SplitNode::Leaf(p)),
             active_pane: s.create_rw_signal(pid),
+            locked: s.create_rw_signal(false),
         }
     }
 
@@ -627,6 +630,7 @@ impl Tab {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             root: s.create_rw_signal(node),
             active_pane: s.create_rw_signal(pid),
+            locked: s.create_rw_signal(false),
         }
     }
 
@@ -723,6 +727,15 @@ impl AppState {
         if tabs_vec.is_empty() {
             tabs_vec.push_back(Tab::new(start, settings.show_hidden));
         }
+        // 復元した順序で locked を再適用 (長さが合わなくても安全側 false)
+        {
+            let saved_locked = settings.tab_locked.get_untracked();
+            for (i, tab) in tabs_vec.iter().enumerate() {
+                if let Some(&l) = saved_locked.get(i) {
+                    tab.locked.set(l);
+                }
+            }
+        }
         let id = tabs_vec.front().map(|t| t.id).unwrap_or(0);
 
         let initial_cols = settings
@@ -782,8 +795,17 @@ impl AppState {
         });
     }
 
-    /// from_id のタブを to_id の位置に並び替える。同じなら何もしない。
+    /// ロック中のタブは Ctrl+W / × からの close を無視する (中クリックで解除)。
     pub fn close_tab(&self, id: u64) {
+        let locked = self.tabs.with_untracked(|v| {
+            v.iter()
+                .find(|t| t.id == id)
+                .map(|t| t.locked.get_untracked())
+        });
+        if locked == Some(true) {
+            crate::flog!("[tab] close ignored: tab {} is locked", id);
+            return;
+        }
         let prev_active = self.active.get_untracked();
         self.tabs.update(|t| {
             if let Some(idx) = t.iter().position(|x| x.id == id) {

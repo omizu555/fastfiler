@@ -2,10 +2,12 @@
 
 use std::path::PathBuf;
 
+use floem::event::{Event, EventListener};
+use floem::peniko::Color;
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
 use floem::style::{CursorStyle, FlexWrap};
-use floem::views::{container, dyn_container, h_stack, label, scroll, v_stack, Decorators};
+use floem::views::{container, dyn_container, empty, h_stack, label, scroll, v_stack, Decorators};
 
 use crate::fs_model::{initial_path, list_drives};
 use crate::state::{AppState, Tab};
@@ -14,6 +16,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let id = tab.id;
     let root_sig = tab.root;
     let active = app.active;
+    let locked = tab.locked;
 
     let title_label = label(move || {
         // first leaf の title を反応的に取得
@@ -32,18 +35,40 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     })
     .style(|s| s.flex_grow(1.0).min_width(0).padding_horiz(8));
 
-    let close_btn = label(|| String::from("×"))
-        .style(|s| {
-            s.padding_horiz(8)
-                .color(theme::text_label())
-                .cursor(CursorStyle::Pointer)
-        })
-        .on_click_stop({
-            let app = app.clone();
-            move |_| app.close_tab(id)
-        });
+    let close_btn = label(move || {
+        if locked.get() {
+            String::from("🔒")
+        } else {
+            String::from("×")
+        }
+    })
+    .style(|s| {
+        s.padding_horiz(8)
+            .color(theme::text_label())
+            .cursor(CursorStyle::Pointer)
+    })
+    .on_click_stop({
+        let app = app.clone();
+        move |_| {
+            // ロック中はクリックで解除のみ。close は行わない。
+            if locked.get_untracked() {
+                locked.set(false);
+                return;
+            }
+            app.close_tab(id);
+        }
+    });
 
-    h_stack((title_label, close_btn))
+    // 上端の黄色ライン (ロック中だけ表示)
+    let lock_bar = empty().style(move |s| {
+        let v = locked.get();
+        let h = if v { 3.0 } else { 0.0 };
+        s.width_full()
+            .height(h)
+            .background(Color::rgb8(0xFF, 0xC8, 0x00))
+    });
+
+    let row = h_stack((title_label, close_btn))
         .style(move |s| {
             let is_active = active.get() == id;
             let bg = if is_active {
@@ -59,7 +84,18 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
                 .border_color(theme::border_default())
                 .cursor(CursorStyle::Pointer)
         })
-        .on_click_stop(move |_| active.set(id))
+        .on_click_stop(move |_| active.set(id));
+
+    v_stack((lock_bar, row))
+        .style(|s| s.width_full())
+        .on_event_stop(EventListener::PointerDown, move |e| {
+            // 中クリック (auxiliary) でロック状態をトグル
+            if let Event::PointerDown(p) = e {
+                if p.button.is_auxiliary() {
+                    locked.update(|v| *v = !*v);
+                }
+            }
+        })
 }
 
 /// 列数セレクタ (1 / 2 / 3 / 4)

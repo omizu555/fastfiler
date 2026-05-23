@@ -190,39 +190,43 @@ pub fn app_view() -> impl IntoView {
             cur
         });
     }
-    // タブ一覧 / 各タブの primary パス / BSP 構造変化時に open_tabs と tab_layouts を更新 + 保存
+    // タブ一覧 / 各タブの primary パス / BSP 構造 / locked 変化時に永続化
     {
         let app_for_tabs = app.clone();
-        floem::reactive::create_effect(move |prev: Option<(Vec<String>, Vec<String>)>| {
-            let tabs_v = app_for_tabs.tabs.get();
-            let paths: Vec<String> = tabs_v
-                .iter()
-                .map(|t| t.primary().cur_path.get().to_string_lossy().into_owned())
-                .collect();
-            let layouts: Vec<String> = tabs_v
-                .iter()
-                .map(|t| {
-                    // すべての leaf の cur_path を track して、副ペインの navigate でも保存が走るように
-                    for pane in t.all_panes() {
-                        let _ = pane.cur_path.get();
-                    }
-                    let saved = t.root.with(|r| r.to_saved());
-                    serde_json::to_string(&saved).unwrap_or_default()
-                })
-                .collect();
-            let cur = (paths, layouts);
-            let changed = prev.as_ref().map_or(true, |p| p != &cur);
-            if changed {
-                app_for_tabs.settings.open_tabs.set(cur.0.clone());
-                app_for_tabs.settings.tab_layouts.set(cur.1.clone());
-                if prev.is_some() {
-                    if let Err(e) = app_for_tabs.settings.save() {
-                        eprintln!("[settings] tabs auto-save error: {}", e);
+        floem::reactive::create_effect(
+            move |prev: Option<(Vec<String>, Vec<String>, Vec<bool>)>| {
+                let tabs_v = app_for_tabs.tabs.get();
+                let paths: Vec<String> = tabs_v
+                    .iter()
+                    .map(|t| t.primary().cur_path.get().to_string_lossy().into_owned())
+                    .collect();
+                let layouts: Vec<String> = tabs_v
+                    .iter()
+                    .map(|t| {
+                        // すべての leaf の cur_path を track して、副ペインの navigate でも保存が走るように
+                        for pane in t.all_panes() {
+                            let _ = pane.cur_path.get();
+                        }
+                        let saved = t.root.with(|r| r.to_saved());
+                        serde_json::to_string(&saved).unwrap_or_default()
+                    })
+                    .collect();
+                let locked: Vec<bool> = tabs_v.iter().map(|t| t.locked.get()).collect();
+                let cur = (paths, layouts, locked);
+                let changed = prev.as_ref().map_or(true, |p| p != &cur);
+                if changed {
+                    app_for_tabs.settings.open_tabs.set(cur.0.clone());
+                    app_for_tabs.settings.tab_layouts.set(cur.1.clone());
+                    app_for_tabs.settings.tab_locked.set(cur.2.clone());
+                    if prev.is_some() {
+                        if let Err(e) = app_for_tabs.settings.save() {
+                            eprintln!("[settings] tabs auto-save error: {}", e);
+                        }
                     }
                 }
-            }
-            cur
-        });
+                cur
+            },
+        );
     }
 
     // テーマ/プリセット/アクセント変更時に theme_rev をインクリメントして全 UI を再構築する。

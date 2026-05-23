@@ -92,6 +92,10 @@ pub struct PersistedSettings {
     pub open_tabs: Vec<String>,
     #[serde(default)]
     pub tab_layouts: Vec<String>,
+    /// open_tabs / tab_layouts と同順のロック状態 (true = 閉じない)。
+    /// 長さが合わなくても安全側 (false 扱い) で復元する。
+    #[serde(default)]
+    pub tab_locked: Vec<bool>,
 }
 
 pub(super) fn def_true() -> bool {
@@ -179,6 +183,7 @@ impl Default for PersistedSettings {
             window_maximized: false,
             open_tabs: Vec::new(),
             tab_layouts: Vec::new(),
+            tab_locked: Vec::new(),
         }
     }
 }
@@ -234,6 +239,7 @@ impl PersistedSettings {
             window_maximized: a.window_maximized.get(),
             open_tabs: a.open_tabs.get(),
             tab_layouts: a.tab_layouts.get(),
+            tab_locked: a.tab_locked.get(),
         }
     }
 
