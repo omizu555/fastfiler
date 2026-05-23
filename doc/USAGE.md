@@ -174,7 +174,7 @@
 | 方向 | 状態 | 概要 |
 |---|---|---|
 | FastFiler → エクスプローラ | ✅ 実装済 (送信側) | ファイル/フォルダをドラッグして window 外に出すと OLE D&D に切り替わり、エクスプローラや他アプリへ Copy/Move でドロップ可。`Ctrl` で Copy、無修飾で Move (Move は既定で永続削除、Explorer 互換)。 |
-| エクスプローラ → FastFiler | 🚧 未実装 | 受信側 (`IDropTarget`) は今後対応予定。 |
+| エクスプローラ → FastFiler | ✅ 実装済 (受信側) | エクスプローラ等から FastFiler のペインへドロップして取り込み可。ペイン上にホバーすると背景がハイライトされます。修飾キーは内部 D&D と完全統一 (`Ctrl=Copy` / `Shift=Move` / 無修飾=同ボリュームなら Move / 異ボリュームは安全側 Copy)。閾値超え (≥100 件 or ≥50MB) は進捗ダイアログ経由 (Undo 不可)、それ未満は同期実行 (Move のみ Undo 対応)。 |
 
 挙動メモ:
 
@@ -196,7 +196,7 @@ D&D 中にツリーやフォルダ行の上で **0.7 秒ホバー** すると自
 
 #### OLE D&D Effect 細粒度制御
 
-内部 D&D は上表のとおり `Ctrl` / `Shift` / ボリューム判定で Move / Copy を切り替えます。外部 D&D 送信 (FastFiler → エクスプローラ) は `Ctrl` で Copy、それ以外は Move を推奨ヒントとしてターゲットに渡します。
+内部 D&D は上表のとおり `Ctrl` / `Shift` / ボリューム判定で Move / Copy を切り替えます。外部 D&D 送信 (FastFiler → エクスプローラ) は `Ctrl` で Copy、それ以外は Move を推奨ヒントとしてターゲットに渡します。外部 D&D 受信 (エクスプローラ → FastFiler) は内部 D&D とまったく同じ判定 (`Ctrl=Copy` / `Shift=Move` / 無修飾はボリューム判定) で Effect が決まります。
 
 ### 4.4 右ボタン D&D メニュー 🚧
 

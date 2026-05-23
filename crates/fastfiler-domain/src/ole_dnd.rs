@@ -23,7 +23,8 @@ use std::sync::{Arc, Mutex};
 
 use windows::core::implement;
 use windows::Win32::Foundation::{
-    BOOL, DV_E_FORMATETC, DV_E_TYMED, E_NOTIMPL, HANDLE, OLE_E_ADVISENOTSUPPORTED, S_OK,
+    BOOL, DV_E_FORMATETC, DV_E_TYMED, E_NOTIMPL, HANDLE, HWND, OLE_E_ADVISENOTSUPPORTED, POINTL,
+    S_OK,
 };
 use windows::Win32::System::Com::{
     IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA, DATADIR_GET,
@@ -32,11 +33,13 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::DataExchange::RegisterClipboardFormatA;
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
 use windows::Win32::System::Ole::{
-    DoDragDrop, IDropSource, IDropSource_Impl, OleInitialize, OleUninitialize, CF_HDROP,
-    DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_NONE,
+    DoDragDrop, IDropSource, IDropSource_Impl, IDropTarget, IDropTarget_Impl, OleInitialize,
+    OleUninitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
+    DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_NONE,
 };
 use windows::Win32::System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS};
 use windows::Win32::UI::Shell::{SHCreateStdEnumFmtEtc, DROPFILES};
+use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 /// 推奨ドロップ効果 (起動側のヒント)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +139,105 @@ unsafe fn read_hglobal_dword(stgm: &STGMEDIUM) -> Option<u32> {
     std::ptr::copy_nonoverlapping(p, bytes.as_mut_ptr(), 4);
     let _ = GlobalUnlock(h);
     Some(u32::from_le_bytes(bytes))
+}
+
+// ================================================================
+// 受信側: IDataObject から CF_HDROP のパス一覧を取り出す
+// ================================================================
+
+/// `STGMEDIUM` を確実に解放するための RAII ガード。
+/// `extract_hdrop_paths` 内で `GetData` の戻り値を包んで使う。
+struct StgMediumGuard(STGMEDIUM);
+
+impl Drop for StgMediumGuard {
+    fn drop(&mut self) {
+        unsafe { ReleaseStgMedium(&mut self.0) };
+    }
+}
+
+/// `IDataObject` から CF_HDROP 形式でドロップされたパス一覧を取り出す。
+///
+/// 取得した `STGMEDIUM` は RAII で `ReleaseStgMedium` する。
+/// 形式が CF_HDROP でない場合 (例: シェル内部のシェルアイテム形式のみ) は
+/// `Err(AppError::Win32("CF_HDROP not available"))` を返す。
+pub fn extract_hdrop_paths(data: &IDataObject) -> AppResult<Vec<PathBuf>> {
+    unsafe {
+        let fe = FORMATETC {
+            cfFormat: CF_HDROP.0,
+            ptd: std::ptr::null_mut(),
+            dwAspect: DVASPECT_CONTENT.0,
+            lindex: -1,
+            tymed: TYMED_HGLOBAL.0 as u32,
+        };
+        let stgm = data
+            .GetData(&fe)
+            .map_err(|e| AppError::Win32(format!("GetData CF_HDROP: {e}")))?;
+        let guard = StgMediumGuard(stgm);
+        let stgm = &guard.0;
+        if stgm.tymed != TYMED_HGLOBAL.0 as u32 {
+            return Err(AppError::Win32(format!(
+                "CF_HDROP tymed={} (expected HGLOBAL)",
+                stgm.tymed
+            )));
+        }
+        let h = windows::Win32::Foundation::HGLOBAL(stgm.u.hGlobal.0);
+        let p = GlobalLock(h) as *const u8;
+        if p.is_null() {
+            return Err(AppError::Win32("GlobalLock failed".into()));
+        }
+        let df = p as *const DROPFILES;
+        let offset = (*df).pFiles as usize;
+        let is_wide = (*df).fWide.as_bool();
+        let result = if is_wide {
+            parse_paths_w(p.add(offset) as *const u16)
+        } else {
+            parse_paths_a(p.add(offset))
+        };
+        let _ = GlobalUnlock(h);
+        Ok(result)
+    }
+}
+
+/// double NUL 終端の UTF-16 文字列群をパース。
+unsafe fn parse_paths_w(start: *const u16) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut i: isize = 0;
+    loop {
+        if *start.offset(i) == 0 {
+            break;
+        }
+        let mut end = i;
+        while *start.offset(end) != 0 {
+            end += 1;
+        }
+        let len = (end - i) as usize;
+        let slice = std::slice::from_raw_parts(start.offset(i), len);
+        let s = String::from_utf16_lossy(slice);
+        paths.push(PathBuf::from(s));
+        i = end + 1;
+    }
+    paths
+}
+
+/// double NUL 終端の ANSI 文字列群をパース (古い実装向け fallback)。
+unsafe fn parse_paths_a(start: *const u8) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut i: isize = 0;
+    loop {
+        if *start.offset(i) == 0 {
+            break;
+        }
+        let mut end = i;
+        while *start.offset(end) != 0 {
+            end += 1;
+        }
+        let len = (end - i) as usize;
+        let slice = std::slice::from_raw_parts(start.offset(i), len);
+        let s = String::from_utf8_lossy(slice).into_owned();
+        paths.push(PathBuf::from(s));
+        i = end + 1;
+    }
+    paths
 }
 
 // ================================================================
@@ -468,4 +570,225 @@ pub fn shutdown_ole() {
 
 pub fn is_ole_available() -> bool {
     OLE_AVAILABLE.load(Ordering::Acquire)
+}
+
+// ================================================================
+// 受信側: IDropTarget 実装 (Phase 2-recv)
+// ================================================================
+
+/// 各 drag メソッドが返す「希望 effect」を計算するクロージャ。
+pub type DropEffectFn = Box<dyn Fn(&[PathBuf], POINTL, u32, u32) -> u32 + Send + Sync>;
+/// `DragLeave` 用 (引数なし)。
+pub type DropLeaveFn = Box<dyn Fn() + Send + Sync>;
+
+/// IDropTarget の各メソッドから呼ばれるコールバック群。
+///
+/// すべてのコールバックは UI スレッド (OleInitialize したスレッド) で呼ばれる前提。
+/// `*pdwEffect` は呼び出し元 (OS) から渡される **許可される効果のマスク** で、
+/// コールバックは「希望する効果」を返し、COM 層側で `desired & allowed_mask`
+/// を取って書き戻す。
+pub struct DropTargetCallbacks {
+    /// `IDropTarget::DragEnter` — paths は IDataObject から抽出済 (CF_HDROP)、
+    /// pt はスクリーン座標。戻り値は希望 effect (DROPEFFECT_COPY / MOVE / NONE)。
+    pub on_enter: DropEffectFn,
+    /// `IDropTarget::DragOver` — paths は前回 enter 時のキャッシュ。
+    pub on_over: DropEffectFn,
+    /// `IDropTarget::DragLeave` — ハイライト解除のみ。
+    pub on_leave: DropLeaveFn,
+    /// `IDropTarget::Drop` — paths は前回 enter のキャッシュまたは再抽出。
+    /// コールバック内で fops 実行・reload・status_msg 更新を行う。
+    pub on_drop: DropEffectFn,
+}
+
+#[implement(IDropTarget)]
+struct CDropTarget {
+    callbacks: Arc<DropTargetCallbacks>,
+    cached_paths: Mutex<Vec<PathBuf>>,
+    registered_thread: u32,
+}
+
+impl CDropTarget {
+    fn new(callbacks: Arc<DropTargetCallbacks>) -> Self {
+        let tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+        Self {
+            callbacks,
+            cached_paths: Mutex::new(Vec::new()),
+            registered_thread: tid,
+        }
+    }
+
+    fn assert_thread(&self) {
+        let cur = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+        debug_assert_eq!(
+            cur, self.registered_thread,
+            "IDropTarget called from non-UI thread"
+        );
+    }
+}
+
+impl IDropTarget_Impl for CDropTarget_Impl {
+    fn DragEnter(
+        &self,
+        pdataobj: Option<&IDataObject>,
+        grfkeystate: MODIFIERKEYS_FLAGS,
+        pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows::core::Result<()> {
+        self.assert_thread();
+        let allowed = unsafe { (*pdweffect).0 };
+        let pt = *pt;
+        let key = grfkeystate.0;
+        let data = match pdataobj {
+            Some(d) => d,
+            None => {
+                unsafe { *pdweffect = DROPEFFECT_NONE };
+                return Ok(());
+            }
+        };
+        // CF_HDROP がない場合は受け付けない (シェルアイテム形式のみ等)
+        let paths = match extract_hdrop_paths(data) {
+            Ok(p) if !p.is_empty() => p,
+            _ => {
+                unsafe { *pdweffect = DROPEFFECT_NONE };
+                return Ok(());
+            }
+        };
+        {
+            let mut cache = self.cached_paths.lock().unwrap();
+            *cache = paths.clone();
+        }
+        let callbacks = Arc::clone(&self.callbacks);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (callbacks.on_enter)(&paths, pt, key, allowed)
+        }));
+        let desired = result.unwrap_or(DROPEFFECT_NONE.0);
+        unsafe { *pdweffect = DROPEFFECT(desired & allowed) };
+        Ok(())
+    }
+
+    fn DragOver(
+        &self,
+        grfkeystate: MODIFIERKEYS_FLAGS,
+        pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows::core::Result<()> {
+        self.assert_thread();
+        let allowed = unsafe { (*pdweffect).0 };
+        let pt = *pt;
+        let key = grfkeystate.0;
+        let paths = { self.cached_paths.lock().unwrap().clone() };
+        if paths.is_empty() {
+            unsafe { *pdweffect = DROPEFFECT_NONE };
+            return Ok(());
+        }
+        let callbacks = Arc::clone(&self.callbacks);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (callbacks.on_over)(&paths, pt, key, allowed)
+        }));
+        let desired = result.unwrap_or(DROPEFFECT_NONE.0);
+        unsafe { *pdweffect = DROPEFFECT(desired & allowed) };
+        Ok(())
+    }
+
+    fn DragLeave(&self) -> windows::core::Result<()> {
+        self.assert_thread();
+        {
+            self.cached_paths.lock().unwrap().clear();
+        }
+        let callbacks = Arc::clone(&self.callbacks);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (callbacks.on_leave)()));
+        Ok(())
+    }
+
+    fn Drop(
+        &self,
+        pdataobj: Option<&IDataObject>,
+        grfkeystate: MODIFIERKEYS_FLAGS,
+        pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows::core::Result<()> {
+        self.assert_thread();
+        let allowed = unsafe { (*pdweffect).0 };
+        let pt = *pt;
+        let key = grfkeystate.0;
+        // Drop 時は cached_paths が空でも IDataObject から再抽出する
+        // (一部の Source は Drop で初めて確定したパスを送る場合がある)
+        let paths = {
+            let cached = self.cached_paths.lock().unwrap().clone();
+            if !cached.is_empty() {
+                cached
+            } else if let Some(d) = pdataobj {
+                extract_hdrop_paths(d).unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        };
+        if paths.is_empty() {
+            unsafe { *pdweffect = DROPEFFECT_NONE };
+            self.cached_paths.lock().unwrap().clear();
+            return Ok(());
+        }
+        let callbacks = Arc::clone(&self.callbacks);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (callbacks.on_drop)(&paths, pt, key, allowed)
+        }));
+        let desired = result.unwrap_or(DROPEFFECT_NONE.0);
+        unsafe { *pdweffect = DROPEFFECT(desired & allowed) };
+        self.cached_paths.lock().unwrap().clear();
+        Ok(())
+    }
+}
+
+/// `RegisterDragDrop` した IDropTarget を RAII で解放するハンドル。
+///
+/// Drop 時に `IsWindow(hwnd)` を確認して `RevokeDragDrop` を呼ぶ。
+/// winit が WM_DESTROY 側で再度 RevokeDragDrop しても、二重 Revoke は
+/// `DRAGDROP_E_NOTREGISTERED` で無視される (実害なし)。
+pub struct DropTargetRegistration {
+    hwnd: HWND,
+    /// keep-alive。Drop 時に解放される。
+    _target: IDropTarget,
+}
+
+impl DropTargetRegistration {
+    pub fn hwnd(&self) -> HWND {
+        self.hwnd
+    }
+}
+
+impl Drop for DropTargetRegistration {
+    fn drop(&mut self) {
+        unsafe {
+            if IsWindow(self.hwnd).as_bool() {
+                let hr = RevokeDragDrop(self.hwnd);
+                if let Err(e) = hr {
+                    eprintln!("[ole_dnd] RevokeDragDrop failed (ignored): {:?}", e);
+                }
+            }
+        }
+    }
+}
+
+/// 自前 IDropTarget を `hwnd` に登録する。
+///
+/// winit (floem-winit) が既に登録した IDropTarget は `RevokeDragDrop` で外す。
+/// 戻り値の `DropTargetRegistration` を破棄すると登録も解除される (RAII)。
+///
+/// 呼び出しは **OleInitialize 済の UI スレッド** から行うこと。
+pub fn register_drop_target(
+    hwnd: HWND,
+    callbacks: DropTargetCallbacks,
+) -> AppResult<DropTargetRegistration> {
+    unsafe {
+        // 既存登録 (winit) を外す。未登録の場合は DRAGDROP_E_NOTREGISTERED が返るが無視。
+        let _ = RevokeDragDrop(hwnd);
+        let target_impl = CDropTarget::new(Arc::new(callbacks));
+        let target: IDropTarget = target_impl.into();
+        RegisterDragDrop(hwnd, &target)
+            .map_err(|e| AppError::Win32(format!("RegisterDragDrop: {e}")))?;
+        Ok(DropTargetRegistration {
+            hwnd,
+            _target: target,
+        })
+    }
 }

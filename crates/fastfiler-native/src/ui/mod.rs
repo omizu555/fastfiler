@@ -1,4 +1,5 @@
 pub mod app_view;
+pub mod drag_common;
 pub mod footer;
 pub mod pane;
 pub mod progress;

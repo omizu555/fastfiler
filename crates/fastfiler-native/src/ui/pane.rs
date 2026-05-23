@@ -17,7 +17,6 @@ use floem::views::{
 
 use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::icons as ficons;
-use fastfiler_domain::path_util::volume_key;
 use fastfiler_domain::undo::{MoveItem, UndoOp};
 
 use crate::fs_model::{unique_dest, FileRow, SortKey};
@@ -1143,6 +1142,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 .map(|t| t.active_pane.get() == pane_id)
                 .unwrap_or(false);
             let drag_state = app_for_drag_style.dragging.get();
+            let ext_hover = app_for_drag_style
+                .external_drop_hover
+                .get()
+                .map(|h| h.pane_id == pane_id)
+                .unwrap_or(false);
             let (is_drag_source, is_drag_target) = if let Some(ds) = drag_state {
                 if !ds.active {
                     (false, false)
@@ -1159,12 +1163,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 (false, false)
             };
             let s = s.size_full().flex_col().border(2);
-            if is_drag_target {
+            if is_drag_target || ext_hover {
                 s.border_color(theme::border_focus())
                     .background(theme::accent_select())
-            } else if is_drag_source {
-                s.border_color(theme::border_focus())
-            } else if is_active {
+            } else if is_drag_source || is_active {
                 s.border_color(theme::border_focus())
             } else {
                 s.border_color(theme::border_default())
@@ -1362,27 +1364,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 };
                 let dest_dir = tp.cur_path.get_untracked();
 
-                // ── op 決定 (Phase 1: 内部 D&D 修飾キー切替) ──
-                // Q5: Ctrl=Copy / Shift=Move (Ctrl+Shift は Ctrl 優先 → Copy 安全側)
-                // Q4: 修飾なしは Windows 慣習に従い「全 source が dest と同ボリュームなら Move、それ以外 Copy」
+                // ── op 決定 (drag_common::compute_effect で内部/外部 D&D 統一) ──
                 let ctrl = p.modifiers.control();
                 let shift = p.modifiers.shift();
-                let dest_vk = volume_key(&dest_dir);
-                let all_same_volume =
-                    dest_vk.is_some() && ds.paths.iter().all(|s| volume_key(s) == dest_vk);
-                let (is_move, reason) = if ctrl {
-                    (false, "ctrl")
-                } else if shift {
-                    (true, "shift")
-                } else if all_same_volume {
-                    (true, "same-volume")
-                } else if dest_vk.is_none() || ds.paths.iter().any(|s| volume_key(s).is_none()) {
-                    (false, "unknown-volume")
-                } else if ds.paths.iter().all(|s| volume_key(s) != dest_vk) {
-                    (false, "cross-volume")
-                } else {
-                    (false, "mixed-volume")
-                };
+                let (is_move, reason) =
+                    crate::ui::drag_common::compute_effect(&ds.paths, &dest_dir, ctrl, shift);
                 let op_label = if is_move { "移動" } else { "コピー" };
                 crate::flog!(
                     "[drop] dest_dir={} op={} reason={} files={}",

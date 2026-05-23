@@ -550,6 +550,19 @@ pub fn app_view() -> impl IntoView {
             }
         }
     })
+    .on_event_cont(EventListener::WindowGotFocus, {
+        let app_for_dnd_reg = app.clone();
+        move |_e| {
+            #[cfg(windows)]
+            {
+                ensure_drop_target_registered(&app_for_dnd_reg);
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = &app_for_dnd_reg;
+            }
+        }
+    })
     .on_event(EventListener::KeyDown, {
         let app = app.clone();
         move |e| {
@@ -675,4 +688,386 @@ fn delete_sources(paths: &[std::path::PathBuf]) -> (u32, u32) {
         }
     }
     (ok, ng)
+}
+
+// ────────────────────────────────────────────────────────────────
+// OLE D&D (受信側) — IDropTarget 登録 + callbacks
+// ────────────────────────────────────────────────────────────────
+
+#[cfg(windows)]
+fn ensure_drop_target_registered(app: &AppState) {
+    use fastfiler_domain::ole_dnd::{is_ole_available, register_drop_target, DropTargetCallbacks};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // 重複登録ガード (WindowGotFocus は何度も飛ぶ)
+    static REGISTERED: AtomicBool = AtomicBool::new(false);
+    if REGISTERED.load(Ordering::Acquire) {
+        return;
+    }
+
+    if !is_ole_available() {
+        crate::flog!("[ole-dnd-recv] skip: OleInitialize 未成功");
+        return;
+    }
+
+    let Some(hwnd) = resolve_app_hwnd() else {
+        crate::flog!("[ole-dnd-recv] HWND 未解決 (次の WindowGotFocus でリトライ)");
+        return;
+    };
+    let hwnd_addr = hwnd.0 as usize;
+
+    let app_for_enter = app.clone();
+    let app_for_over = app.clone();
+    let app_for_leave = app.clone();
+    let app_for_drop = app.clone();
+
+    let callbacks = DropTargetCallbacks {
+        on_enter: Box::new(move |paths, pt, key, allowed| {
+            let hwnd = windows::Win32::Foundation::HWND(hwnd_addr as *mut _);
+            handle_drag_over(&app_for_enter, hwnd, paths, pt, key, allowed)
+        }),
+        on_over: Box::new(move |paths, pt, key, allowed| {
+            let hwnd = windows::Win32::Foundation::HWND(hwnd_addr as *mut _);
+            handle_drag_over(&app_for_over, hwnd, paths, pt, key, allowed)
+        }),
+        on_leave: Box::new(move || {
+            if app_for_leave.external_drop_hover.get_untracked().is_some() {
+                app_for_leave.external_drop_hover.set(None);
+            }
+        }),
+        on_drop: Box::new(move |paths, pt, key, allowed| {
+            let hwnd = windows::Win32::Foundation::HWND(hwnd_addr as *mut _);
+            let effect = handle_drag_over(&app_for_drop, hwnd, paths, pt, key, allowed);
+            if app_for_drop.external_drop_hover.get_untracked().is_some() {
+                app_for_drop.external_drop_hover.set(None);
+            }
+            if effect == DROPEFFECT_NONE_U32 {
+                return effect;
+            }
+            let win_pt = match screen_to_window(hwnd, pt) {
+                Some(p) => p,
+                None => return DROPEFFECT_NONE_U32,
+            };
+            let Some(target_id) = hit_test_pane(&app_for_drop, win_pt) else {
+                return DROPEFFECT_NONE_U32;
+            };
+            let Some(target_pane) = app_for_drop.find_pane(target_id) else {
+                return DROPEFFECT_NONE_U32;
+            };
+            let ctrl = (key & 0x0008) != 0; // MK_CONTROL
+            let shift = (key & 0x0004) != 0; // MK_SHIFT
+            perform_external_drop(
+                &app_for_drop,
+                &target_pane,
+                paths.to_vec(),
+                ctrl,
+                shift,
+                allowed,
+            )
+        }),
+    };
+
+    match register_drop_target(hwnd, callbacks) {
+        Ok(reg) => {
+            *app.drop_target_reg.lock() = crate::state::DropTargetCell(Some(reg));
+            REGISTERED.store(true, Ordering::Release);
+            crate::flog!("[ole-dnd-recv] IDropTarget 登録成功 hwnd={:?}", hwnd.0);
+        }
+        Err(e) => {
+            crate::flog!("[ole-dnd-recv] RegisterDragDrop 失敗: {}", e);
+        }
+    }
+}
+
+#[cfg(windows)]
+const DROPEFFECT_NONE_U32: u32 = 0;
+#[cfg(windows)]
+const DROPEFFECT_COPY_U32: u32 = 1;
+#[cfg(windows)]
+const DROPEFFECT_MOVE_U32: u32 = 2;
+
+/// DragEnter/DragOver 共通: ペイン hit-test + ハイライト更新 + effect 計算。
+#[cfg(windows)]
+fn handle_drag_over(
+    app: &AppState,
+    hwnd: windows::Win32::Foundation::HWND,
+    paths: &[std::path::PathBuf],
+    pt: windows::Win32::Foundation::POINTL,
+    _key_state: u32,
+    allowed: u32,
+) -> u32 {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_SHIFT};
+
+    let Some(win_pt) = screen_to_window(hwnd, pt) else {
+        if app.external_drop_hover.get_untracked().is_some() {
+            app.external_drop_hover.set(None);
+        }
+        return DROPEFFECT_NONE_U32;
+    };
+    let Some(target_id) = hit_test_pane(app, win_pt) else {
+        if app.external_drop_hover.get_untracked().is_some() {
+            app.external_drop_hover.set(None);
+        }
+        return DROPEFFECT_NONE_U32;
+    };
+    let Some(target_pane) = app.find_pane(target_id) else {
+        return DROPEFFECT_NONE_U32;
+    };
+    let dest_dir = target_pane.cur_path.get_untracked();
+
+    // 修飾キーは grfKeyState (MK_CONTROL=0x0008, MK_SHIFT=0x0004) でも来るが、
+    // 内部 D&D との一貫性のため GetAsyncKeyState を使う。
+    let (ctrl, shift) = unsafe {
+        let c = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+        let s = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+        (c, s)
+    };
+    let (is_move, _reason) = crate::ui::drag_common::compute_effect(paths, &dest_dir, ctrl, shift);
+    let desired = if is_move {
+        DROPEFFECT_MOVE_U32
+    } else {
+        DROPEFFECT_COPY_U32
+    };
+    let effect = desired & allowed;
+    let effect_label = if (effect & DROPEFFECT_MOVE_U32) != 0 {
+        "move"
+    } else if (effect & DROPEFFECT_COPY_U32) != 0 {
+        "copy"
+    } else {
+        "none"
+    };
+    let new_hover = if effect == DROPEFFECT_NONE_U32 {
+        None
+    } else {
+        Some(crate::state::ExternalDropHover {
+            pane_id: target_id,
+            effect: effect_label,
+        })
+    };
+    if app.external_drop_hover.get_untracked() != new_hover {
+        app.external_drop_hover.set(new_hover);
+    }
+    effect
+}
+
+#[cfg(windows)]
+fn screen_to_window(
+    hwnd: windows::Win32::Foundation::HWND,
+    pt: windows::Win32::Foundation::POINTL,
+) -> Option<floem::kurbo::Point> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+    let mut p = POINT { x: pt.x, y: pt.y };
+    let ok = unsafe { ScreenToClient(hwnd, &mut p) };
+    if !ok.as_bool() {
+        return None;
+    }
+    Some(floem::kurbo::Point::new(p.x as f64, p.y as f64))
+}
+
+#[cfg(windows)]
+fn hit_test_pane(app: &AppState, win_pt: floem::kurbo::Point) -> Option<u64> {
+    let allowed: std::collections::HashSet<u64> = app
+        .active_tab()
+        .map(|t| t.all_panes().iter().map(|p| p.id).collect())
+        .unwrap_or_default();
+    app.pane_rects.with_untracked(|m| {
+        m.iter()
+            .filter(|(id, _)| allowed.contains(id))
+            .find_map(|(id, r)| if r.contains(win_pt) { Some(*id) } else { None })
+    })
+}
+
+/// Drop 確定時の fops 実行。内部 D&D の drop ロジックと同じ閾値判定で
+/// 大量は jobs 経由、それ以外は同期 + Undo push。
+#[cfg(windows)]
+fn perform_external_drop(
+    app: &AppState,
+    target_pane: &crate::state::PaneState,
+    paths: Vec<std::path::PathBuf>,
+    ctrl: bool,
+    shift: bool,
+    allowed: u32,
+) -> u32 {
+    use fastfiler_domain::file_ops as fops;
+    use fastfiler_domain::undo::{MoveItem, UndoOp};
+    use std::path::PathBuf;
+
+    let dest_dir = target_pane.cur_path.get_untracked();
+    let (is_move_pref, reason) =
+        crate::ui::drag_common::compute_effect(&paths, &dest_dir, ctrl, shift);
+    // allowed mask で move/copy の最終決定
+    let is_move = if is_move_pref {
+        if (allowed & DROPEFFECT_MOVE_U32) != 0 {
+            true
+        } else if (allowed & DROPEFFECT_COPY_U32) != 0 {
+            false
+        } else {
+            return DROPEFFECT_NONE_U32;
+        }
+    } else if (allowed & DROPEFFECT_COPY_U32) != 0 {
+        false
+    } else if (allowed & DROPEFFECT_MOVE_U32) != 0 {
+        true
+    } else {
+        return DROPEFFECT_NONE_U32;
+    };
+    let op_label = if is_move { "移動" } else { "コピー" };
+    crate::flog!(
+        "[ole-dnd-recv] drop dest={} op={} reason={} files={}",
+        dest_dir.display(),
+        if is_move { "move" } else { "copy" },
+        reason,
+        paths.len()
+    );
+
+    let mut items: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(paths.len());
+    let mut skipped_same_dir = 0u32;
+    for src in &paths {
+        if is_move {
+            if let Some(parent) = src.parent() {
+                if parent == dest_dir.as_path() {
+                    skipped_same_dir += 1;
+                    continue;
+                }
+            }
+        }
+        let Some(name) = src.file_name().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let dst = crate::fs_model::unique_dest(&dest_dir, &name);
+        items.push((src.clone(), dst));
+    }
+    if items.is_empty() {
+        if skipped_same_dir > 0 {
+            target_pane.status_msg.set(format!(
+                "外部 D&D {} スキップ ({} 件は同一フォルダ)",
+                op_label, skipped_same_dir
+            ));
+        }
+        return DROPEFFECT_NONE_U32;
+    }
+
+    let (total_files, total_bytes) =
+        crate::core::jobs::scan_total_for_threshold(items.iter().map(|(f, _)| f.as_path()));
+    let big = total_files >= crate::core::jobs::THRESHOLD_FILES
+        || total_bytes >= crate::core::jobs::THRESHOLD_BYTES;
+    if big {
+        target_pane.status_msg.set(format!(
+            "外部 D&D {} 開始 ({} 件、進捗表示中 / Undo 不可)",
+            op_label,
+            items.len()
+        ));
+        if is_move {
+            app.jobs.spawn_move(items, |_ok| {});
+        } else {
+            app.jobs.spawn_copy(items, |_ok| {});
+        }
+        return if is_move {
+            DROPEFFECT_MOVE_U32
+        } else {
+            DROPEFFECT_COPY_U32
+        };
+    }
+
+    let mut ok = 0u32;
+    let mut err = 0u32;
+    let mut moved: Vec<MoveItem> = Vec::new();
+    for (from, dst) in &items {
+        let res = if is_move {
+            fops::move_path(
+                from.to_string_lossy().into_owned(),
+                dst.to_string_lossy().into_owned(),
+            )
+        } else {
+            fops::copy_path(
+                from.to_string_lossy().into_owned(),
+                dst.to_string_lossy().into_owned(),
+            )
+        };
+        match res {
+            Ok(()) => {
+                ok += 1;
+                if is_move {
+                    moved.push(MoveItem {
+                        from: from.clone(),
+                        to: dst.clone(),
+                    });
+                }
+            }
+            Err(e) => {
+                crate::flog!("[ole-dnd-recv] op error: {}", e);
+                err += 1;
+            }
+        }
+    }
+    if !moved.is_empty() {
+        app.undo_manager.lock().push(UndoOp::Move { items: moved });
+    }
+    let suffix = if skipped_same_dir > 0 {
+        format!(" / スキップ={}", skipped_same_dir)
+    } else {
+        String::new()
+    };
+    target_pane.status_msg.set(format!(
+        "外部 D&D {} OK={} / NG={}{}",
+        op_label, ok, err, suffix
+    ));
+    target_pane.reload();
+    if is_move {
+        DROPEFFECT_MOVE_U32
+    } else {
+        DROPEFFECT_COPY_U32
+    }
+}
+
+/// アプリのトップレベル HWND を取得する。
+///
+/// `WindowGotFocus` のタイミングで呼ばれるので `GetForegroundWindow()` が
+/// 自プロセスのウィンドウを返す可能性が高い。安全策として thread/process 一致と
+/// GA_ROOT/IsWindowVisible を確認する。fallback で EnumThreadWindows で探す。
+#[cfg(windows)]
+fn resolve_app_hwnd() -> Option<windows::Win32::Foundation::HWND> {
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumThreadWindows, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId,
+        IsWindowVisible, GA_ROOT,
+    };
+
+    let cur_pid = unsafe { GetCurrentProcessId() };
+    let cur_tid = unsafe { GetCurrentThreadId() };
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if !fg.0.is_null() {
+            let mut pid: u32 = 0;
+            let _tid = GetWindowThreadProcessId(fg, Some(&mut pid));
+            if pid == cur_pid {
+                let root = GetAncestor(fg, GA_ROOT);
+                if !root.0.is_null() && IsWindowVisible(root).as_bool() {
+                    return Some(root);
+                }
+            }
+        }
+    }
+
+    // fallback: 現在の thread が持つ可視 top-level window
+    struct Found(Option<HWND>);
+    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let found = &mut *(lparam.0 as *mut Found);
+            if IsWindowVisible(hwnd).as_bool() {
+                found.0 = Some(hwnd);
+                return false.into();
+            }
+        }
+        true.into()
+    }
+    let mut found = Found(None);
+    let lparam = LPARAM(&mut found as *mut Found as isize);
+    unsafe {
+        let _ = EnumThreadWindows(cur_tid, Some(cb), lparam);
+    }
+    found.0
 }

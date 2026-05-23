@@ -718,7 +718,35 @@ pub struct AppState {
     pub tree_focused_path: RwSignal<Option<PathBuf>>,
     /// 値が変わるたびにツリーペイン container が request_focus する (Ctrl+Shift+E 等)
     pub tree_focus_req: RwSignal<u64>,
+    /// 外部 D&D 受信中のホバー状態 (#D Phase 2 受信)。
+    /// `Some(ExternalDropHover { pane_id, effect_str })` のときペインを薄くハイライト。
+    pub external_drop_hover: RwSignal<Option<ExternalDropHover>>,
+    /// 自前 IDropTarget の登録ハンドル (#D Phase 2 受信)。
+    /// `WindowGotFocus` 初回で `Some(...)` を入れる。AppState (および window) が
+    /// drop されると RAII で `RevokeDragDrop` が呼ばれる。
+    /// IDropTarget は COM オブジェクトで Send/Sync ではないが、UI スレッドからのみ
+    /// 触る前提で `DropTargetCell` で Send 化している。
+    pub drop_target_reg: Arc<Mutex<DropTargetCell>>,
 }
+
+/// 外部 D&D ホバー状態 (背景ハイライト用)。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalDropHover {
+    pub pane_id: u64,
+    /// `"copy"` / `"move"` / `"none"` のいずれか。将来カーソル切り替え等に使う。
+    pub effect: &'static str,
+}
+
+/// `DropTargetRegistration` を AppState 内に保持するためのラッパ。
+///
+/// 中身は **UI スレッドからしか触らない** ことを呼び出し側で保証する
+/// (外部 D&D の登録/解除は WindowGotFocus と AppState drop のみ)。
+#[derive(Default)]
+pub struct DropTargetCell(pub Option<fastfiler_domain::ole_dnd::DropTargetRegistration>);
+
+// SAFETY: AppState は floem の reactive system 上で複数スコープから clone されるため
+// Send 境界を満たす必要がある。実体の COM ptr は UI スレッドからのみアクセスされる。
+unsafe impl Send for DropTargetCell {}
 
 impl AppState {
     pub fn new(start: PathBuf) -> Self {
@@ -783,6 +811,8 @@ impl AppState {
             tree_focused: RwSignal::new(false),
             tree_focused_path: RwSignal::new(None),
             tree_focus_req: RwSignal::new(0),
+            external_drop_hover: RwSignal::new(None),
+            drop_target_reg: Arc::new(Mutex::new(DropTargetCell::default())),
         }
     }
 
