@@ -91,7 +91,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> AppResult<()> {
 pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
     #[cfg(windows)]
     {
-        return trash_impl::delete_to_trash(paths);
+        trash_impl::delete_to_trash(paths)
     }
     #[cfg(not(windows))]
     {

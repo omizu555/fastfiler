@@ -131,5 +131,5 @@ pub fn ping(port: u16) -> bool {
         .timeout_connect(Duration::from_millis(400))
         .timeout(Duration::from_secs(2))
         .build();
-    matches!(agent.get(&url).call(), Ok(_))
+    agent.get(&url).call().is_ok()
 }

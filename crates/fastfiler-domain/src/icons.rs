@@ -156,7 +156,7 @@ mod sys {
             }
             bmi.bmiHeader.biPlanes = 1;
             bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB.0 as u32;
+            bmi.bmiHeader.biCompression = BI_RGB.0;
             bmi.bmiHeader.biHeight = -(h as i32);
             let stride = (w * 4) as usize;
             let mut color_buf = vec![0u8; stride * h as usize];
@@ -185,7 +185,7 @@ mod sys {
                 mbmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
                 mbmi.bmiHeader.biPlanes = 1;
                 mbmi.bmiHeader.biBitCount = 32;
-                mbmi.bmiHeader.biCompression = BI_RGB.0 as u32;
+                mbmi.bmiHeader.biCompression = BI_RGB.0;
                 mbmi.bmiHeader.biWidth = w as i32;
                 mbmi.bmiHeader.biHeight = -(h as i32);
                 let mut mask_buf = vec![0u8; stride * h as usize];
