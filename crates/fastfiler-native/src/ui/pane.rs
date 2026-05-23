@@ -50,14 +50,17 @@ fn ext_emoji(name: &str, is_dir: bool) -> String {
     s.to_string()
 }
 
-fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
+fn elide_for_width(input: &str, col_width: f32, padding_px: f32, font_px: f32) -> String {
     let sanitized = input.replace(['\r', '\n', '\t'], " ");
     let usable = (col_width - padding_px * 2.0).max(0.0);
-    if usable < 12.0 {
+    if usable < font_px {
         return String::new();
     }
-    // フォント差異で折り返しが起きにくいよう、幅見積もりは保守的に取る。
-    let ellipsis_px = 12.0f32;
+    // 半角/全角の見積もり幅をフォントサイズに比例させる。
+    // 数値は floem 0.2 の system font を実測してフィッティング (fs=13 で半角 ≒ 7px, 全角 ≒ 13-14px)。
+    let ascii_px = font_px * 0.55;
+    let wide_px = font_px * 1.05;
+    let ellipsis_px = font_px * 0.6;
     let budget_px = (usable - ellipsis_px).max(0.0);
     if budget_px <= 0.0 {
         return String::new();
@@ -67,7 +70,7 @@ fn elide_for_width(input: &str, col_width: f32, padding_px: f32) -> String {
     let mut out = String::new();
     let mut truncated = false;
     for ch in sanitized.chars() {
-        let ch_px = if ch.is_ascii() { 9.0 } else { 18.0 };
+        let ch_px = if ch.is_ascii() { ascii_px } else { wide_px };
         if used + ch_px > budget_px {
             truncated = true;
             break;
@@ -105,6 +108,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let name_col_width_sig = pane.name_col_width;
     let size_col_width_sig = pane.size_col_width;
     let mtime_col_width_sig = pane.mtime_col_width;
+    let ui_font_size_sig = app.settings.ui_font_size;
     // Undo マネージャはアプリ全体で 1 本 (ADR 0006/0008)。
     // UI からは clipboard_paste / delete_selected / confirm_modal の各クロージャに渡す必要がある。
     // 個別の use-site (ctxmenu / blank ctxmenu / modal) ごとに事前に clone を取り分けておく。
@@ -419,6 +423,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let name_w_sig_for_size = name_col_width_sig;
     let size_w_sig_for_size = size_col_width_sig;
     let mtime_w_sig_for_size = mtime_col_width_sig;
+    let col_resize_for_name_style = col_resize_drag;
+    let col_resize_for_size_style = col_resize_drag;
     let header = h_stack((
         text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
         label(move || format!("Name{}", arrow(SortKey::Name)))
@@ -431,14 +437,23 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .on_click_stop(move |_| pane_for_sort_name.click_sort(SortKey::Name)),
         container(label(|| String::new()))
-            .style(|s| {
-                s.width(5.0)
+            .style(move |s| {
+                let active = matches!(
+                    col_resize_for_name_style.get(),
+                    Some((ColumnResizeTarget::Name, ..))
+                );
+                let bg = if active {
+                    theme::border_focus()
+                } else {
+                    theme::border_default()
+                };
+                s.width(7.0)
                     .height_full()
                     .cursor(CursorStyle::ColResize)
-                    .background(theme::border_default())
+                    .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(_p) = e {
+                if let Event::PointerDown(p) = e {
                     if let Some(t) = app_for_resize_name.active_tab() {
                         if t.active_pane.get_untracked() != pane_id_for_resize {
                             t.active_pane.set(pane_id_for_resize);
@@ -447,7 +462,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let n = name_w_sig_for_name.get_untracked().clamp(24.0, 1200.0);
                     let s = size_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
                     let m = mtime_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
-                    let start_x = 60.0 + n as f64 + 2.5;
+                    // start_x はクリック位置をそのまま使う (列幅計算からの再構築は誤差が乗りやすい)
+                    let start_x = p.pos.x;
                     col_resize_for_name.set(Some((ColumnResizeTarget::Name, start_x, n, s, m)));
                 }
             }),
@@ -461,14 +477,23 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .on_click_stop(move |_| pane_for_sort_size.click_sort(SortKey::Size)),
         container(label(|| String::new()))
-            .style(|s| {
-                s.width(5.0)
+            .style(move |s| {
+                let active = matches!(
+                    col_resize_for_size_style.get(),
+                    Some((ColumnResizeTarget::Size, ..))
+                );
+                let bg = if active {
+                    theme::border_focus()
+                } else {
+                    theme::border_default()
+                };
+                s.width(7.0)
                     .height_full()
                     .cursor(CursorStyle::ColResize)
-                    .background(theme::border_default())
+                    .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(_p) = e {
+                if let Event::PointerDown(p) = e {
                     if let Some(t) = app_for_resize_size.active_tab() {
                         if t.active_pane.get_untracked() != pane_id_for_resize {
                             t.active_pane.set(pane_id_for_resize);
@@ -477,7 +502,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let n = name_w_sig_for_size.get_untracked().clamp(24.0, 1200.0);
                     let s = size_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
                     let m = mtime_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
-                    let start_x = 60.0 + n as f64 + 5.0 + s as f64 + 2.5;
+                    let start_x = p.pos.x;
                     col_resize_for_size.set(Some((ColumnResizeTarget::Size, start_x, n, s, m)));
                 }
             }),
@@ -642,6 +667,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             &name_raw,
                             name_col_width_sig.get().clamp(24.0, 1200.0),
                             6.0,
+                            ui_font_size_sig
+                                .get()
+                                .parse::<f32>()
+                                .unwrap_or(13.0)
+                                .clamp(8.0, 32.0),
                         )
                     })
                     .style(move |s| {
@@ -663,10 +693,19 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .padding_horiz(6)
                         .items_center()
                 }),
-                container(label(|| String::new())).style(|s| s.width(5.0).height(22)),
+                container(label(|| String::new())).style(|s| s.width(7.0).height(22)),
                 container(
                     label(move || {
-                        elide_for_width(&size_raw, size_col_width_sig.get().clamp(24.0, 600.0), 6.0)
+                        elide_for_width(
+                            &size_raw,
+                            size_col_width_sig.get().clamp(24.0, 600.0),
+                            6.0,
+                            ui_font_size_sig
+                                .get()
+                                .parse::<f32>()
+                                .unwrap_or(13.0)
+                                .clamp(8.0, 32.0),
+                        )
                     })
                     .style(|s| {
                         s.color(theme::text_dim())
@@ -680,13 +719,18 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .padding_horiz(6)
                         .items_center()
                 }),
-                container(label(|| String::new())).style(|s| s.width(5.0).height(22)),
+                container(label(|| String::new())).style(|s| s.width(7.0).height(22)),
                 container(
                     label(move || {
                         elide_for_width(
                             &mtime_raw,
                             mtime_col_width_sig.get().clamp(24.0, 600.0),
                             6.0,
+                            ui_font_size_sig
+                                .get()
+                                .parse::<f32>()
+                                .unwrap_or(13.0)
+                                .clamp(8.0, 32.0),
                         )
                     })
                     .style(|s| {
@@ -1207,7 +1251,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 {
                     let dx = (p.pos.x - start_x) as f32;
                     let pane_w = pane_width_for_drag.get_untracked();
-                    let sep_total = 10.0f32;
+                    let sep_total = 14.0f32;
                     let base = 60.0f32 + sep_total;
                     match target {
                         ColumnResizeTarget::Name => {
