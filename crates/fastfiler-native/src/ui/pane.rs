@@ -555,6 +555,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let app_for_drag = app_for_rows.clone();
             let pane_for_drag_style = pane_for_rows.clone();
             let app_for_drag_style = app_for_rows.clone();
+            let app_for_spring_enter = app_for_rows.clone();
+            let app_for_spring_leave = app_for_rows.clone();
+            let pane_for_spring_enter = pane_for_rows.clone();
+            let pane_for_spring_leave = pane_for_rows.clone();
+            let row_name_for_spring_enter = row.name.clone();
+            let row_name_for_spring_leave = row.name.clone();
             let drag_candidate_for_row = drag_candidate;
             let drag_candidate_for_click = drag_candidate;
             let drag_candidate_for_row_up = drag_candidate;
@@ -878,6 +884,42 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         target.to_string_lossy().into_owned(),
                     );
                 }
+            })
+            .on_event_cont(EventListener::PointerEnter, move |_| {
+                // Spring-loaded folder: D&D 中のみ arm。is_dir 以外はファイル → spring 不要。
+                if !is_dir {
+                    return;
+                }
+                if app_for_spring_enter.dragging.get_untracked().is_none() {
+                    return;
+                }
+                let target = pane_for_spring_enter
+                    .cur_path
+                    .get_untracked()
+                    .join(&row_name_for_spring_enter);
+                // 自分のペインのカレント (= 既に開いている) は cd しても意味ないので無視。
+                if target == pane_for_spring_enter.cur_path.get_untracked() {
+                    return;
+                }
+                crate::ui::spring::arm_pane(
+                    &app_for_spring_enter,
+                    pane_for_spring_enter.id,
+                    target,
+                );
+            })
+            .on_event_cont(EventListener::PointerLeave, move |_| {
+                if !is_dir {
+                    return;
+                }
+                let target = pane_for_spring_leave
+                    .cur_path
+                    .get_untracked()
+                    .join(&row_name_for_spring_leave);
+                crate::ui::spring::disarm_if_pane(
+                    &app_for_spring_leave,
+                    pane_for_spring_leave.id,
+                    &target,
+                );
             })
             .context_menu({
                 let pane_ctx = pane_for_ctxmenu.clone();
@@ -1350,12 +1392,15 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         crate::flog!("[drop] PointerUp non-primary (rare), clear drag");
                         app_for_up.dragging.set(None);
                         app_for_up.right_drag.set(None);
+                        crate::ui::spring::disarm(&app_for_up);
                     }
                     return;
                 }
                 let drag_opt = app_for_up.dragging.get_untracked();
                 let Some(ds) = drag_opt else { return };
                 app_for_up.dragging.set(None);
+                // Spring-loaded folder の保留 hover も解除 (drop 確定なので一律 None)。
+                crate::ui::spring::disarm(&app_for_up);
                 crate::flog!(
                     "[drop] PointerUp pane={} ds.active={} ds.source_pane={} ds.paths={}",
                     pane_id,

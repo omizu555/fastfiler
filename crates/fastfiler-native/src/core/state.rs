@@ -733,6 +733,13 @@ pub struct AppState {
     /// `None` = 右ドラッグなし。`Some` = pane.rs PointerMove で閾値超え。
     /// Win32 サブクラスが `WM_RBUTTONUP` 時に読んで、メニュー表示後 `None` に戻す。
     pub right_drag: RwSignal<Option<RightDragState>>,
+    /// Spring-loaded folder の hover 状態。
+    /// D&D 中、フォルダ row や ツリーノード上で 0.7s 静止すると
+    /// 自動で navigate (ペイン) / expand (ツリー) する。
+    pub spring_hover: RwSignal<Option<SpringHover>>,
+    /// spring_hover 用の単調増加 epoch。
+    /// 別スレッドのタイマーが発火時に最新 epoch と一致するかで stale を判別する。
+    pub spring_epoch: RwSignal<u64>,
 }
 
 /// 外部 D&D ホバー状態 (背景ハイライト用)。
@@ -754,6 +761,27 @@ pub struct RightDragState {
     pub paths: Vec<PathBuf>,
     /// 現在ホバー中のドロップ先ペイン ID (`None` ならどのペイン上にもいない)
     pub hover_pane: Option<u64>,
+}
+
+/// Spring-loaded folder hover state.
+///
+/// D&D 中にフォルダ row や ツリーノード上で 0.7s カーソルが静止すると
+/// 自動で対象を開く / 展開する。タイマーは別スレッドで sleep し
+/// `floem::ext_event::create_ext_action` 経由で UI スレッドに戻ってくる。
+/// stale なタイマーは `epoch` で判別。
+#[derive(Clone, Debug)]
+pub struct SpringHover {
+    pub epoch: u64,
+    pub target: PathBuf,
+    pub kind: SpringKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpringKind {
+    /// ペイン内 folder row hover → navigate
+    Pane(u64),
+    /// ツリーノード hover → expand
+    Tree,
 }
 
 /// `DropTargetRegistration` を AppState 内に保持するためのラッパ。
@@ -833,6 +861,8 @@ impl AppState {
             external_drop_hover: RwSignal::new(None),
             drop_target_reg: Arc::new(Mutex::new(DropTargetCell::default())),
             right_drag: RwSignal::new(None),
+            spring_hover: RwSignal::new(None),
+            spring_epoch: RwSignal::new(0),
         }
     }
 

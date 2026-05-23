@@ -85,6 +85,8 @@ fn try_show_right_drop_menu(app: &AppState, lparam: LPARAM) -> bool {
     if app.dragging.get_untracked().is_some() {
         app.dragging.set(None);
     }
+    // Spring-loaded hover も解除。
+    crate::ui::spring::disarm(app);
 
     let Some(target_id) = state.hover_pane else {
         crate::flog!("[right-drag-hook] WM_RBUTTONUP: hover_pane なし、キャンセル");

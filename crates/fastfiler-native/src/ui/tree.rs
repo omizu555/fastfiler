@@ -17,6 +17,24 @@ use crate::core::tree_model::{
 use crate::state::AppState;
 use crate::theme;
 
+/// Spring-loaded folder からの呼出: 対象パスのツリーノードを展開する (cd はしない)。
+/// 既に展開済みなら何もしない。
+pub fn spring_expand(app: &AppState, target: &std::path::Path) {
+    let roots = app.tree_roots.get_untracked();
+    if let Some(node) = find_node(&roots, target) {
+        if !node.expanded.get_untracked() {
+            node.load_children();
+            node.expanded.set(true);
+            // 関連 effect を起動するため tree_tick も bump (任意)。
+            app.tree_tick.update(|t| *t = t.wrapping_add(1));
+        }
+    } else {
+        // ルートからの経路が未展開なら expand_to_path で道中を全部開く。
+        expand_to_path(&roots, target);
+        app.tree_tick.update(|t| *t = t.wrapping_add(1));
+    }
+}
+
 pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyView {
     let expanded = node.expanded;
     let children = node.children;
@@ -76,6 +94,10 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     let indent = (depth as f32) * 14.0 + 4.0;
     let app_for_menu = app.clone();
     let path_for_menu = node.path.clone();
+    let app_for_spring_enter = app.clone();
+    let app_for_spring_leave = app.clone();
+    let path_for_spring_enter = node.path.clone();
+    let path_for_spring_leave = node.path.clone();
     let row = h_stack((arrow, name_lbl))
         .style(move |s| {
             // 自分のパスがフォーカス中なら淡いアクセント背景。tree_focused=false の時は薄く。
@@ -104,6 +126,19 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
                 .tree_focused_path
                 .set(Some(path_for_click.clone()));
             app_for_row_click.request_tree_focus();
+        })
+        .on_event_cont(EventListener::PointerEnter, move |_| {
+            // Spring-loaded tree: D&D 中のみ、UncServer 等の仮想 root を除外。
+            if matches!(kind, TreeNodeKind::UncServer) {
+                return;
+            }
+            if app_for_spring_enter.dragging.get_untracked().is_none() {
+                return;
+            }
+            crate::ui::spring::arm_tree(&app_for_spring_enter, path_for_spring_enter.clone());
+        })
+        .on_event_cont(EventListener::PointerLeave, move |_| {
+            crate::ui::spring::disarm_if_tree(&app_for_spring_leave, &path_for_spring_leave);
         })
         .context_menu(move || {
             build_tree_node_menu(app_for_menu.clone(), kind, path_for_menu.clone())

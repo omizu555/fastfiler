@@ -617,6 +617,7 @@ fn trigger_external_drag(app: &AppState, ds: crate::state::DragState) {
 
     // DoDragDrop は modal なので戻り次第クリア。
     app.dragging.set(None);
+    crate::ui::spring::disarm(app);
 
     match &outcome {
         Ok(DragOutcome::None) => {

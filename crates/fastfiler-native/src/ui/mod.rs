@@ -5,5 +5,6 @@ pub mod footer;
 pub mod pane;
 pub mod progress;
 pub mod splitter;
+pub mod spring;
 pub mod tabs;
 pub mod tree;
