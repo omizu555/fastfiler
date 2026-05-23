@@ -360,6 +360,11 @@ impl JobsState {
             }
         }
     }
+
+    /// 手動でジョブを list から消す (エラー / キャンセル時に閉じるボタンで呼ぶ)。
+    pub fn dismiss(&self, id: u64) {
+        self.list.update(|v| v.retain(|j| j.id != id));
+    }
 }
 
 /// `items` の from 側を再帰スキャンしてファイル数と合計バイト数を返す。
@@ -368,6 +373,19 @@ fn scan_total(items: &[(PathBuf, PathBuf)]) -> (u64, u64) {
     let mut tb = 0u64;
     for (from, _) in items {
         scan_one(from, &mut tf, &mut tb);
+    }
+    (tf, tb)
+}
+
+/// 任意のパスイテレータから合計件数・バイト数を再帰スキャンする。
+/// `clipboard_paste` / `delete_selected` 等が閾値判定に使う。
+pub fn scan_total_for_threshold<'a>(
+    paths: impl IntoIterator<Item = &'a std::path::Path>,
+) -> (u64, u64) {
+    let mut tf = 0u64;
+    let mut tb = 0u64;
+    for p in paths {
+        scan_one(p, &mut tf, &mut tb);
     }
     (tf, tb)
 }

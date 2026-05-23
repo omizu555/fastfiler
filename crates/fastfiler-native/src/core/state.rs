@@ -699,6 +699,8 @@ pub struct AppState {
     /// `hidden` に切替える直前の `panel_dock_*` 値を覚え、再表示時に復元する。
     pub panel_dock_tree_prev: RwSignal<String>,
     pub panel_dock_tabs_prev: RwSignal<String>,
+    /// プログレスダイアログ用のジョブ管理 (#5)
+    pub jobs: crate::core::jobs::JobsState,
 }
 
 impl AppState {
@@ -759,6 +761,7 @@ impl AppState {
             undo_manager: Arc::new(Mutex::new(fastfiler_domain::undo::UndoManager::new())),
             panel_dock_tree_prev: RwSignal::new(String::from("left")),
             panel_dock_tabs_prev: RwSignal::new(String::from("left")),
+            jobs: crate::core::jobs::JobsState::new(),
         }
     }
 

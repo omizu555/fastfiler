@@ -197,6 +197,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let undo_mgr_modal = app.undo_manager.clone();
     let undo_mgr_ctxmenu = app.undo_manager.clone();
     let undo_mgr_blank = app.undo_manager.clone();
+    let jobs_ctxmenu = app.jobs.clone();
+    let jobs_blank = app.jobs.clone();
     let pane_for_keys = pane.clone();
     let pane_for_click = pane.clone();
     let pane_for_ctxmenu = pane.clone();
@@ -826,6 +828,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             .context_menu({
                 let pane_ctx = pane_for_ctxmenu.clone();
                 let undo_ctx = undo_mgr_ctxmenu.clone();
+                let jobs_ctx = jobs_ctxmenu.clone();
                 move || {
                     let p_open = pane_ctx.clone();
                     let p_reveal = pane_ctx.clone();
@@ -837,6 +840,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let p_props = pane_ctx.clone();
                     let p_tree = pane_ctx.clone();
                     let undo_mgr = undo_ctx.clone();
+                    let jobs = jobs_ctx.clone();
                     // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
                     let _ = bg_idx; // 警告抑制 (以降のクロージャでは使用)
                     Menu::new("")
@@ -881,7 +885,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         )
                         .entry(MenuItem::new("貼り付け").action({
                             let um = undo_mgr.clone();
-                            move || p_paste.clipboard_paste(&um)
+                            let j = jobs.clone();
+                            move || p_paste.clipboard_paste(&um, &j)
                         }))
                         .separator()
                         .entry(
@@ -890,7 +895,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         )
                         .entry(MenuItem::new("削除").action({
                             let um = undo_mgr.clone();
-                            move || p_delete.delete_selected(&um)
+                            let j = jobs.clone();
+                            move || p_delete.delete_selected(&um, &j)
                         }))
                         .separator()
                         .separator()
@@ -1409,6 +1415,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let p_paste = pane_for_blank_ctxmenu.clone();
             let p_reload = pane_for_blank_ctxmenu.clone();
             let undo_blank = undo_mgr_blank.clone();
+            let jobs_b = jobs_blank.clone();
             move || {
                 Menu::new("")
                     .entry(MenuItem::new("エクスプローラで開く").action({
@@ -1441,7 +1448,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .entry(MenuItem::new("貼り付け").action({
                         let p = p_paste.clone();
                         let um = undo_blank.clone();
-                        move || p.clipboard_paste(&um)
+                        let j = jobs_b.clone();
+                        move || p.clipboard_paste(&um, &j)
                     }))
                     .separator()
                     .entry(MenuItem::new("更新").action({

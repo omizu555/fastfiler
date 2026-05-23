@@ -129,7 +129,11 @@ impl PaneState {
     ///
     /// ADR 0008 S4: Undo 対応のため 1 件ずつ trash 処理して成否を取得し、
     /// 成功分だけを `TrashedItem` 化して `undo_manager` に push する。
-    pub fn delete_selected(&self, undo_manager: &Arc<Mutex<UndoManager>>) {
+    pub fn delete_selected(
+        &self,
+        undo_manager: &Arc<Mutex<UndoManager>>,
+        jobs: &crate::core::jobs::JobsState,
+    ) {
         let paths: Vec<PathBuf> = self.selected_paths();
         if paths.is_empty() {
             crate::flog!("[delete] no selection, skip");
@@ -138,6 +142,42 @@ impl PaneState {
         let n = paths.len();
         crate::flog!("[delete] -> trash: {} files", n);
 
+        // 件数 ≥ 100 なら worker でループ + indeterminate プログレス表示 (Undo 不可)。
+        // 進捗計測 (バイト数) は trash crate からは取れないため件数のみ。
+        if let Some(job_id) = jobs.open_indeterminate("削除 (ゴミ箱送り)", n as u64) {
+            let jobs_for_worker = jobs.clone();
+            std::thread::spawn(move || {
+                let mut done = 0u64;
+                let mut last_err: Option<String> = None;
+                for p in &paths {
+                    let path_str = p.to_string_lossy().into_owned();
+                    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        fops::delete_to_trash(vec![path_str])
+                    }));
+                    match res {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => last_err = Some(e.to_string()),
+                        Err(_) => last_err = Some(String::from("panic")),
+                    }
+                    done += 1;
+                    jobs_for_worker.bump_indeterminate(
+                        job_id,
+                        done,
+                        &p.file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                    );
+                }
+                jobs_for_worker.finish_indeterminate(job_id, last_err);
+            });
+            self.selected.set(im::OrdSet::new());
+            self.anchor.set(None);
+            self.status_msg
+                .set(format!("ごみ箱送りを開始 ({} 件、進捗表示中)", n));
+            return;
+        }
+
+        // 100 件未満は従来の同期パス (Undo 対応あり)
         let mut ok_items: Vec<TrashedItem> = Vec::with_capacity(n);
         let mut ng = 0usize;
         for p in &paths {
@@ -370,7 +410,11 @@ impl PaneState {
     /// クリップボードから貼り付け (Copy / Move を自動判別)
     ///
     /// move 経由で成功した項目は 1 ユーザーアクション = 1 UndoOp::Move として push する (ADR 0008 D3)。
-    pub fn clipboard_paste(&self, undo_manager: &Arc<Mutex<UndoManager>>) {
+    pub fn clipboard_paste(
+        &self,
+        undo_manager: &Arc<Mutex<UndoManager>>,
+        jobs: &crate::core::jobs::JobsState,
+    ) {
         let cb = match wcb::clipboard_read_paths() {
             Ok(Some(c)) => c,
             Ok(None) => {
@@ -392,34 +436,64 @@ impl PaneState {
             is_move,
             cb.paths.len()
         );
-        let mut ok = 0usize;
-        let mut err = 0usize;
-        let mut moved: Vec<MoveItem> = Vec::new();
+
+        // 衝突回避済みの (src, dst) を事前に組み立てる
+        let mut items: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(cb.paths.len());
         for src in &cb.paths {
             let from = PathBuf::from(src);
-            let name = from.file_name().map(|s| s.to_string_lossy().into_owned());
-            let Some(name) = name else {
-                err += 1;
+            let Some(name) = from.file_name().map(|s| s.to_string_lossy().into_owned()) else {
                 continue;
             };
             let dst = unique_dest(&dst_dir, &name);
+            items.push((from, dst));
+        }
+        if items.is_empty() {
+            return;
+        }
+
+        // 件数 ≥ 100 または 合計 ≥ 50MB なら JobsState 経由 (進捗ダイアログ表示、Undo 不可)
+        let (total_files, total_bytes) =
+            crate::core::jobs::scan_total_for_threshold(items.iter().map(|(f, _)| f.as_path()));
+        let big = total_files >= crate::core::jobs::THRESHOLD_FILES
+            || total_bytes >= crate::core::jobs::THRESHOLD_BYTES;
+        if big {
+            let label = if is_move { "移動" } else { "コピー" };
+            self.status_msg
+                .set(format!("{} 開始 ({} 件、進捗表示中)", label, items.len()));
+            if is_move {
+                jobs.spawn_move(items, |_ok| {});
+            } else {
+                jobs.spawn_copy(items, |_ok| {});
+            }
+            return;
+        }
+
+        // 閾値未満は従来の同期パス (Undo 対応あり)
+        let mut ok = 0usize;
+        let mut err = 0usize;
+        let mut moved: Vec<MoveItem> = Vec::new();
+        for (from, dst) in &items {
             crate::flog!(
                 "[paste] {} src={} dst={}",
                 if is_move { "move" } else { "copy" },
-                src,
+                from.display(),
                 dst.display()
             );
             let res = if is_move {
-                fops::move_path(src.clone(), dst.to_string_lossy().into_owned())
+                fops::move_path(
+                    from.to_string_lossy().into_owned(),
+                    dst.to_string_lossy().into_owned(),
+                )
             } else {
-                fops::copy_path(src.clone(), dst.to_string_lossy().into_owned())
+                fops::copy_path(
+                    from.to_string_lossy().into_owned(),
+                    dst.to_string_lossy().into_owned(),
+                )
             };
             match res {
                 Ok(()) => {
                     ok += 1;
                     if is_move {
-                        // ADR 0008 D4: 同名衝突回避でリネームされる可能性があるため
-                        // Undo は「実際の配置先」を記録する。
                         moved.push(MoveItem {
                             from: from.clone(),
                             to: dst.clone(),

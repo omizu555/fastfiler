@@ -163,7 +163,7 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         }
         "delete" => {
             if let Some(p) = pane {
-                p.delete_selected(&app.undo_manager);
+                p.delete_selected(&app.undo_manager, &app.jobs);
             }
         }
         "delete-permanent" => {
@@ -188,7 +188,7 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         }
         "paste" => {
             if let Some(p) = pane {
-                p.clipboard_paste(&app.undo_manager);
+                p.clipboard_paste(&app.undo_manager, &app.jobs);
             }
         }
         "select-all" => {

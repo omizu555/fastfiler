@@ -151,6 +151,9 @@ pub fn app_view() -> impl IntoView {
     let app = AppState::new(initial_path());
     let settings_open = app.settings_open;
 
+    // ジョブ進捗 (コピー / 移動 / 削除) の inbox polling を起動
+    app.jobs.start_polling();
+
     // 設定値変化時の自動保存 (タブ列数 / タブペイン幅 / ツリーペイン幅 / open_tabs)
     {
         let settings_for_save = app.settings.clone();
@@ -349,117 +352,121 @@ pub fn app_view() -> impl IntoView {
 
     let ui_font_size_sig = app.settings.ui_font_size;
     let ui_font_sig = app.settings.ui_font;
-    container(switcher)
-        .style(move |s| {
-            let fs = ui_font_size_sig
-                .get()
-                .parse::<f32>()
-                .unwrap_or(13.0)
-                .clamp(8.0, 32.0);
-            let family = ui_font_sig.get();
-            let s = s
-                .size_full()
-                .background(theme::bg_root())
-                .color(theme::text_normal())
-                .font_size(fs);
-            if family.trim().is_empty() {
-                s
-            } else {
-                s.font_family(family)
-            }
-        })
-        .on_event_cont(EventListener::PointerMove, {
-            let app_for_split = app.clone();
-            move |e| {
-                if let Event::PointerMove(p) = e {
-                    let target = app_for_split.splitter_drag.get_untracked();
-                    if let Some(target) = target {
-                        let x = p.pos.x as f32;
-                        match target {
-                            SplitterTarget::Tabs => {
-                                let w = x.clamp(120.0, 600.0);
-                                app_for_split.settings.tabs_width.set(format!("{:.0}", w));
-                            }
-                            SplitterTarget::Tree => {
-                                let tabs_w = app_for_split
-                                    .settings
-                                    .tabs_width
-                                    .get_untracked()
-                                    .parse::<f32>()
-                                    .unwrap_or(220.0);
-                                // 4px 程度のスプリッタ自身の幅も考慮 (≒5)
-                                let w = (x - tabs_w - 5.0).clamp(120.0, 600.0);
-                                app_for_split.settings.tree_width.set(format!("{:.0}", w));
-                            }
+    let jobs_for_overlay = app.jobs.clone();
+    floem::views::stack((
+        switcher,
+        crate::ui::progress::progress_dialogs(jobs_for_overlay),
+    ))
+    .style(move |s| {
+        let fs = ui_font_size_sig
+            .get()
+            .parse::<f32>()
+            .unwrap_or(13.0)
+            .clamp(8.0, 32.0);
+        let family = ui_font_sig.get();
+        let s = s
+            .size_full()
+            .background(theme::bg_root())
+            .color(theme::text_normal())
+            .font_size(fs);
+        if family.trim().is_empty() {
+            s
+        } else {
+            s.font_family(family)
+        }
+    })
+    .on_event_cont(EventListener::PointerMove, {
+        let app_for_split = app.clone();
+        move |e| {
+            if let Event::PointerMove(p) = e {
+                let target = app_for_split.splitter_drag.get_untracked();
+                if let Some(target) = target {
+                    let x = p.pos.x as f32;
+                    match target {
+                        SplitterTarget::Tabs => {
+                            let w = x.clamp(120.0, 600.0);
+                            app_for_split.settings.tabs_width.set(format!("{:.0}", w));
+                        }
+                        SplitterTarget::Tree => {
+                            let tabs_w = app_for_split
+                                .settings
+                                .tabs_width
+                                .get_untracked()
+                                .parse::<f32>()
+                                .unwrap_or(220.0);
+                            // 4px 程度のスプリッタ自身の幅も考慮 (≒5)
+                            let w = (x - tabs_w - 5.0).clamp(120.0, 600.0);
+                            app_for_split.settings.tree_width.set(format!("{:.0}", w));
                         }
                     }
                 }
             }
-        })
-        .on_event_cont(EventListener::PointerUp, {
-            let app_for_split = app.clone();
-            move |_| {
-                if app_for_split.splitter_drag.get_untracked().is_some() {
-                    app_for_split.splitter_drag.set(None);
+        }
+    })
+    .on_event_cont(EventListener::PointerUp, {
+        let app_for_split = app.clone();
+        move |_| {
+            if app_for_split.splitter_drag.get_untracked().is_some() {
+                app_for_split.splitter_drag.set(None);
+            }
+            if app_for_split.pane_splitter_drag.get_untracked().is_some() {
+                app_for_split.pane_splitter_drag.set(None);
+                // ratios 変更を永続化 (ドラッグ中は重いので終了時に 1 回だけ保存)
+                let tabs_v = app_for_split.tabs.get_untracked();
+                let layouts: Vec<String> = tabs_v
+                    .iter()
+                    .map(|t| {
+                        let saved = t.root.with_untracked(|r| r.to_saved());
+                        serde_json::to_string(&saved).unwrap_or_default()
+                    })
+                    .collect();
+                app_for_split.settings.tab_layouts.set(layouts);
+                if let Err(e) = app_for_split.settings.save() {
+                    eprintln!("[settings] pane splitter save error: {}", e);
                 }
-                if app_for_split.pane_splitter_drag.get_untracked().is_some() {
-                    app_for_split.pane_splitter_drag.set(None);
-                    // ratios 変更を永続化 (ドラッグ中は重いので終了時に 1 回だけ保存)
-                    let tabs_v = app_for_split.tabs.get_untracked();
-                    let layouts: Vec<String> = tabs_v
-                        .iter()
-                        .map(|t| {
-                            let saved = t.root.with_untracked(|r| r.to_saved());
-                            serde_json::to_string(&saved).unwrap_or_default()
-                        })
-                        .collect();
-                    app_for_split.settings.tab_layouts.set(layouts);
-                    if let Err(e) = app_for_split.settings.save() {
-                        eprintln!("[settings] pane splitter save error: {}", e);
+            }
+        }
+    })
+    .on_event_stop(EventListener::WindowResized, {
+        let settings = app.settings.clone();
+        move |e| {
+            if let Event::WindowResized(sz) = e {
+                settings.window_w.set(Some(sz.width.max(0.0) as u32));
+                settings.window_h.set(Some(sz.height.max(0.0) as u32));
+                persist_window_state(&settings);
+            }
+        }
+    })
+    .on_event_stop(EventListener::WindowMoved, {
+        let settings = app.settings.clone();
+        move |e| {
+            if let Event::WindowMoved(p) = e {
+                settings.window_x.set(Some(p.x as i32));
+                settings.window_y.set(Some(p.y as i32));
+                persist_window_state(&settings);
+            }
+        }
+    })
+    .on_event_stop(EventListener::WindowMaximizeChanged, {
+        let settings = app.settings.clone();
+        move |e| {
+            if let Event::WindowMaximizeChanged(m) = e {
+                settings.window_maximized.set(*m);
+                persist_window_state(&settings);
+            }
+        }
+    })
+    .on_event(EventListener::KeyDown, {
+        let app = app.clone();
+        move |e| {
+            if let Event::KeyDown(ke) = e {
+                if let Some(action) = crate::hotkeys::resolve_action(&app, ke) {
+                    if crate::hotkeys::dispatch_action(&app, &action) {
+                        return EventPropagation::Stop;
                     }
                 }
             }
-        })
-        .on_event_stop(EventListener::WindowResized, {
-            let settings = app.settings.clone();
-            move |e| {
-                if let Event::WindowResized(sz) = e {
-                    settings.window_w.set(Some(sz.width.max(0.0) as u32));
-                    settings.window_h.set(Some(sz.height.max(0.0) as u32));
-                    persist_window_state(&settings);
-                }
-            }
-        })
-        .on_event_stop(EventListener::WindowMoved, {
-            let settings = app.settings.clone();
-            move |e| {
-                if let Event::WindowMoved(p) = e {
-                    settings.window_x.set(Some(p.x as i32));
-                    settings.window_y.set(Some(p.y as i32));
-                    persist_window_state(&settings);
-                }
-            }
-        })
-        .on_event_stop(EventListener::WindowMaximizeChanged, {
-            let settings = app.settings.clone();
-            move |e| {
-                if let Event::WindowMaximizeChanged(m) = e {
-                    settings.window_maximized.set(*m);
-                    persist_window_state(&settings);
-                }
-            }
-        })
-        .on_event(EventListener::KeyDown, {
-            let app = app.clone();
-            move |e| {
-                if let Event::KeyDown(ke) = e {
-                    if let Some(action) = crate::hotkeys::resolve_action(&app, ke) {
-                        if crate::hotkeys::dispatch_action(&app, &action) {
-                            return EventPropagation::Stop;
-                        }
-                    }
-                }
-                EventPropagation::Continue
-            }
-        })
+            EventPropagation::Continue
+        }
+    })
 }
