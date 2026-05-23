@@ -28,6 +28,7 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
 | [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作 / ホットキー) |
 | [doc/BUILD.md](./doc/BUILD.md) | ビルド & インストール |
+| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順とチェックリスト |
 | [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |
 
 ## ディレクトリ構成
@@ -52,3 +53,11 @@ cargo build -p fastfiler-native --release
 ```
 
 詳細は [doc/BUILD.md](./doc/BUILD.md) を参照。
+配布用のリリースビルド手順は [doc/RELEASE.md](./doc/RELEASE.md) を参照。
+
+## バージョン
+
+現在 **v0.1.0** (リリース候補)。
+旧 TARUI (Tauri 2 + Solid.js) 版の中核機能を floem 単独構成で再現したマイルストーン。
+実装範囲は [doc/STATUS.md](./doc/STATUS.md) を、配布手順は
+[doc/RELEASE.md](./doc/RELEASE.md) を参照。
