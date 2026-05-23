@@ -691,6 +691,10 @@ pub struct AppState {
     pub theme_rev: RwSignal<u32>,
     /// Undo 履歴 (ADR 0006/0008)。アプリ全体で 1 本、N=20、起動間で保持しない。
     pub undo_manager: Arc<Mutex<fastfiler_domain::undo::UndoManager>>,
+    /// `toggle-tree` / `toggle-tabs` の復帰先記憶 (in-memory、起動間で保持しない)。
+    /// `hidden` に切替える直前の `panel_dock_*` 値を覚え、再表示時に復元する。
+    pub panel_dock_tree_prev: RwSignal<String>,
+    pub panel_dock_tabs_prev: RwSignal<String>,
 }
 
 impl AppState {
@@ -740,6 +744,8 @@ impl AppState {
             tree_tick: RwSignal::new(0),
             theme_rev: RwSignal::new(0),
             undo_manager: Arc::new(Mutex::new(fastfiler_domain::undo::UndoManager::new())),
+            panel_dock_tree_prev: RwSignal::new(String::from("left")),
+            panel_dock_tabs_prev: RwSignal::new(String::from("left")),
         }
     }
 

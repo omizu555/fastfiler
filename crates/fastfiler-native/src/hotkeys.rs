@@ -246,13 +246,33 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         // ─────────── 設定 ───────────
         "open-settings" => app.settings_open.set(true),
         "undo" => app.undo(),
-        // ─────────── 未実装 (status_msg にだけ流す) ───────────
-        "toggle-tabs" | "toggle-tree" => {
-            if let Some(p) = pane {
-                p.status_msg.set(format!("(action '{}' 未実装)", action));
-            }
+        // ─────────── パネル表示切替 ───────────
+        "toggle-tree" => {
+            toggle_dock(app.settings.panel_dock_tree, app.panel_dock_tree_prev);
+        }
+        "toggle-tabs" => {
+            toggle_dock(app.settings.panel_dock_tabs, app.panel_dock_tabs_prev);
         }
         _ => return false,
     }
     true
+}
+
+/// パネルドック位置を `hidden` ↔ 直前位置 でトグルする。
+/// 表示位置 → `hidden` のときは現在値を `prev` に退避、
+/// `hidden` → 表示 のときは `prev` の値に復元する (空なら `"left"` をフォールバック)。
+fn toggle_dock(dock: RwSignal<String>, prev: RwSignal<String>) {
+    let cur = dock.get_untracked();
+    if cur == "hidden" {
+        let restore = prev.get_untracked();
+        let restore = if restore.is_empty() || restore == "hidden" {
+            String::from("left")
+        } else {
+            restore
+        };
+        dock.set(restore);
+    } else {
+        prev.set(cur);
+        dock.set(String::from("hidden"));
+    }
 }

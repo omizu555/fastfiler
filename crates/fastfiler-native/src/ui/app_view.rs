@@ -150,7 +150,6 @@ fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
 pub fn app_view() -> impl IntoView {
     let app = AppState::new(initial_path());
     let settings_open = app.settings_open;
-    let active = app.active;
 
     // 設定値変化時の自動保存 (タブ列数 / タブペイン幅 / ツリーペイン幅 / open_tabs)
     {
@@ -225,7 +224,6 @@ pub fn app_view() -> impl IntoView {
             cur
         });
     }
-    let tabs = app.tabs;
 
     // テーマ/プリセット/アクセント変更時に theme_rev をインクリメントして全 UI を再構築する。
     // theme.rs の関数はクロージャ評価のたびに最新値を返すので、再構築すれば即時反映される。
@@ -266,36 +264,10 @@ pub fn app_view() -> impl IntoView {
                 settings_view(app.settings.clone(), settings_open).into_any()
             } else {
                 let app = app.clone();
-                let app_for_panes = app.clone();
-                let active_panes = dyn_container(
-                    move || {
-                        let id = active.get();
-                        let tabs_v = tabs.get();
-                        let active_tab = tabs_v
-                            .iter()
-                            .find(|t| t.id == id)
-                            .cloned()
-                            .or_else(|| tabs_v.iter().next().cloned());
-                        active_tab.map(|t| t.root.get())
-                    },
-                    move |root: Option<SplitNode>| {
-                        let app = app_for_panes.clone();
-                        match root {
-                            None => label(|| String::from("(no tab)"))
-                                .style(|s| s.size_full().padding(20))
-                                .into_any(),
-                            Some(node) => render_split_node(node, app).into_any(),
-                        }
-                    },
-                )
-                .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
                 let app_for_layout = app.clone();
-                let active_panes_view = active_panes.into_any();
                 let layout_sig = app.settings.workspace_layout;
                 let dock_tabs_sig = app.settings.panel_dock_tabs;
                 let dock_tree_sig = app.settings.panel_dock_tree;
-                let active_panes_holder =
-                    std::rc::Rc::new(std::cell::RefCell::new(Some(active_panes_view)));
                 let main_row = dyn_container(
                     move || {
                         let layout = layout_sig.get();
@@ -310,6 +282,35 @@ pub fn app_view() -> impl IntoView {
                         let tabs_right = dock_tabs == "right" || layout == "tabsRight";
                         let tree_right = dock_tree == "right";
 
+                        // 中央 active_panes はレイアウト再構築の都度新規生成する。
+                        // AnyView は再 mount できないため holder で 1 回限り取り出す方式は破綻する
+                        // (toggle-tree / タブ切替で `(no center)` 化 + その後 panic を招いた)。
+                        let active = app.active;
+                        let tabs = app.tabs;
+                        let app_for_panes = app.clone();
+                        let active_panes = dyn_container(
+                            move || {
+                                let id = active.get();
+                                let tabs_v = tabs.get();
+                                let active_tab = tabs_v
+                                    .iter()
+                                    .find(|t| t.id == id)
+                                    .cloned()
+                                    .or_else(|| tabs_v.iter().next().cloned());
+                                active_tab.map(|t| t.root.get())
+                            },
+                            move |root: Option<SplitNode>| {
+                                let app = app_for_panes.clone();
+                                match root {
+                                    None => label(|| String::from("(no tab)"))
+                                        .style(|s| s.size_full().padding(20))
+                                        .into_any(),
+                                    Some(node) => render_split_node(node, app).into_any(),
+                                }
+                            },
+                        )
+                        .style(|s| s.flex_grow(1.0).min_height(0).min_width(0).flex_col());
+
                         let mut items: Vec<floem::AnyView> = Vec::new();
                         if !tabs_hidden && !tabs_right {
                             items.push(tabs_panel(app.clone()).into_any());
@@ -319,13 +320,7 @@ pub fn app_view() -> impl IntoView {
                             items.push(tree_pane(app.clone()).into_any());
                             items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
                         }
-                        // 中央 active_panes (ホルダから取り出し、再構築の都度新規生成)
-                        let center = active_panes_holder.borrow_mut().take().unwrap_or_else(|| {
-                            label(|| String::from("(no center)"))
-                                .style(|s| s.size_full())
-                                .into_any()
-                        });
-                        items.push(center);
+                        items.push(active_panes.into_any());
                         if !tree_hidden && tree_right {
                             items.push(splitter(app.clone(), SplitterTarget::Tree).into_any());
                             items.push(tree_pane(app.clone()).into_any());
