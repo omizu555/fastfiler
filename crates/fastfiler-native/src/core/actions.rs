@@ -294,6 +294,27 @@ impl PaneState {
         self.modal_kind.set(ModalKind::NewFile);
     }
 
+    /// テンプレートファイルから新規ファイルを現在のフォルダに作成する。
+    /// 同名がある場合は ` (2)`, ` (3)` ... を自動付与。
+    pub fn create_from_template(&self, template_path: String) {
+        let cur = self.cur_path.get_untracked();
+        match fastfiler_domain::templates::create_file_from_template(
+            template_path,
+            cur.to_string_lossy().into_owned(),
+            None,
+        ) {
+            Ok(p) => {
+                let name = std::path::Path::new(&p)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.clone());
+                self.status_msg.set(format!("作成: {}", name));
+                self.reload();
+            }
+            Err(e) => self.status_msg.set(format!("テンプレ作成失敗: {}", e)),
+        }
+    }
+
     pub fn open_rename_modal(&self) {
         let Some(idx) = self.single_selected() else {
             self.status_msg

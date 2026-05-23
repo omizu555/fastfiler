@@ -1487,10 +1487,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         let p = p_newfolder.clone();
                         move || p.open_new_folder_modal()
                     }))
-                    .entry(MenuItem::new("新規ファイル").action({
-                        let p = p_newfile.clone();
-                        move || p.open_new_file_modal()
-                    }))
+                    .entry(build_new_file_submenu(p_newfile.clone()))
                     .entry(MenuItem::new("貼り付け").action({
                         let p = p_paste.clone();
                         let um = undo_blank.clone();
@@ -1504,4 +1501,32 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     }))
             }
         })
+}
+
+/// 「新規ファイル」サブメニュー: ユーザー定義テンプレ一覧 + 空ファイル + テンプレフォルダを開く
+fn build_new_file_submenu(pane: PaneState) -> Menu {
+    let mut menu = Menu::new("新規ファイル");
+
+    let templates = fastfiler_domain::templates::list_templates().unwrap_or_default();
+    if templates.is_empty() {
+        menu = menu.entry(MenuItem::new("(テンプレートがありません)").enabled(false));
+    } else {
+        for tpl in templates {
+            let p = pane.clone();
+            let path = tpl.path.clone();
+            let label = tpl.name.clone();
+            menu = menu
+                .entry(MenuItem::new(label).action(move || p.create_from_template(path.clone())));
+        }
+    }
+    menu = menu.separator();
+    let p_empty = pane.clone();
+    menu = menu
+        .entry(MenuItem::new("空ファイルを作成…").action(move || p_empty.open_new_file_modal()));
+    menu = menu.entry(MenuItem::new("テンプレートフォルダを開く").action(|| {
+        if let Ok(dir) = fastfiler_domain::templates::templates_dir() {
+            let _ = fastfiler_domain::shell::open_with_shell(dir);
+        }
+    }));
+    menu
 }
