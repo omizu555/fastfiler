@@ -60,6 +60,10 @@ impl TreeNode {
         if matches!(self.kind, TreeNodeKind::UncServer) {
             return;
         }
+        let _g = crate::core::perf::scope(
+            crate::core::perf::MetricKind::TreeLoad,
+            self.path.to_string_lossy().into_owned(),
+        );
         let s = self.path.to_string_lossy().into_owned();
         if let Ok(dirs) = ffs::list_dirs(s, Some(false)) {
             let existing: std::collections::HashMap<PathBuf, TreeNode> = self

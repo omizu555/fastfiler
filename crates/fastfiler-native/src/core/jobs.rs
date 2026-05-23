@@ -297,6 +297,13 @@ impl JobsState {
             .collect();
 
         std::thread::spawn(move || {
+            let mkind = if kind == "move" {
+                crate::core::perf::MetricKind::Move
+            } else {
+                crate::core::perf::MetricKind::Copy
+            };
+            let detail = format!("worker files={} bytes={}", total_files, total_bytes);
+            let _g = crate::core::perf::scope(mkind, detail);
             let sink = InboxSink {
                 inbox: inbox.clone(),
             };

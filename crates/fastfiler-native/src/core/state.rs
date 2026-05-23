@@ -185,6 +185,10 @@ impl PaneState {
                 .set(format!("not a directory: {}", target.display()));
             return;
         }
+        let _g_nav = crate::core::perf::scope(
+            crate::core::perf::MetricKind::Navigate,
+            target.to_string_lossy().into_owned(),
+        );
         let t = Instant::now();
         match read_folder(&target, self.show_hidden.get_untracked()) {
             Ok(mut v) => {
@@ -195,6 +199,11 @@ impl PaneState {
                 );
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 let len = v.len();
+                crate::core::perf::record_manual(
+                    crate::core::perf::MetricKind::ListDir,
+                    format!("{} rows={}", target.display(), len),
+                    ms,
+                );
                 let prev_path = self.cur_path.get_untracked();
                 let same_path = prev_path == target;
                 if push_history && !same_path {
@@ -794,6 +803,10 @@ impl AppState {
     }
 
     pub fn add_tab(&self, start: PathBuf) {
+        let _g = crate::core::perf::scope(
+            crate::core::perf::MetricKind::TabSwitch,
+            format!("add_tab {}", start.display()),
+        );
         let tab = Tab::new(start, self.settings.show_hidden);
         let id = tab.id;
         self.tabs.update(|t| t.push_back(tab));
@@ -863,6 +876,10 @@ impl AppState {
     /// vertical=false → ⇔分割 (Horizontal: 選択ペインが左右に分かれる)
     /// vertical=true  → ⇕分割 (Vertical:   選択ペインが上下に分かれる)
     pub fn split_active(&self, vertical: bool) {
+        let _g = crate::core::perf::scope(
+            crate::core::perf::MetricKind::PaneSplit,
+            if vertical { "vertical" } else { "horizontal" },
+        );
         if let Some(tab) = self.active_tab() {
             if tab.pane_count() >= 4 {
                 crate::flog!("[split] denied (>=4 panes)");

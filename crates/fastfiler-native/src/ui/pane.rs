@@ -187,6 +187,36 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     // Everything 検索 effect (search/mod.rs に分離)
     crate::search::attach_everything_effect(&pane, &app);
 
+    // フィルタ計測 effect: search_query が変化したときに rows をフィルタする
+    // コストを計測する。filtered_rows closure 内で計測すると毎描画ごとに
+    // 二重計測されるのでここに独立 effect を置く。
+    {
+        let p_filter = pane.clone();
+        floem::reactive::create_effect(move |prev: Option<String>| {
+            let q = p_filter.search_query.get();
+            if prev.as_ref() == Some(&q) {
+                return q;
+            }
+            if prev.is_none() {
+                return q;
+            }
+            let lq = q.to_lowercase();
+            let rs = p_filter.rows.get_untracked();
+            let t = std::time::Instant::now();
+            let matched = rs
+                .iter()
+                .filter(|r| lq.is_empty() || r.name.to_lowercase().contains(&lq))
+                .count();
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            crate::core::perf::record_manual(
+                crate::core::perf::MetricKind::Filter,
+                format!("q='{}' rows={} matched={}", q, rs.len(), matched),
+                ms,
+            );
+            q
+        });
+    }
+
     let pane_for_up = pane.clone();
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
@@ -1330,6 +1360,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 };
                 let dest_dir = tp.cur_path.get_untracked();
                 crate::flog!("[drop] dest_dir={} mode={}", dest_dir.display(), "COPY");
+                let _g_drop = crate::core::perf::scope(
+                    crate::core::perf::MetricKind::Copy,
+                    format!("drop files={}", ds.paths.len()),
+                );
                 let mut ok = 0u32;
                 let mut err = 0u32;
                 for src in &ds.paths {

@@ -147,6 +147,10 @@ impl PaneState {
         if let Some(job_id) = jobs.open_indeterminate("削除 (ゴミ箱送り)", n as u64) {
             let jobs_for_worker = jobs.clone();
             std::thread::spawn(move || {
+                let _g = crate::core::perf::scope(
+                    crate::core::perf::MetricKind::Delete,
+                    format!("worker files={}", n),
+                );
                 let mut done = 0u64;
                 let mut last_err: Option<String> = None;
                 for p in &paths {
@@ -178,6 +182,10 @@ impl PaneState {
         }
 
         // 100 件未満は従来の同期パス (Undo 対応あり)
+        let _g_del = crate::core::perf::scope(
+            crate::core::perf::MetricKind::Delete,
+            format!("sync files={}", n),
+        );
         let mut ok_items: Vec<TrashedItem> = Vec::with_capacity(n);
         let mut ng = 0usize;
         for p in &paths {
@@ -372,6 +380,8 @@ impl PaneState {
 
     /// ソート列をクリック (同じ列なら方向トグル / 別列なら昇順)
     pub fn click_sort(&self, key: SortKey) {
+        let _g =
+            crate::core::perf::scope(crate::core::perf::MetricKind::Sort, format!("{:?}", key));
         if self.sort_key.get_untracked() == key {
             self.sort_desc.update(|d| *d = !*d);
         } else {
@@ -469,6 +479,14 @@ impl PaneState {
         }
 
         // 閾値未満は従来の同期パス (Undo 対応あり)
+        let _g_paste = crate::core::perf::scope(
+            if is_move {
+                crate::core::perf::MetricKind::Move
+            } else {
+                crate::core::perf::MetricKind::Copy
+            },
+            format!("sync files={}", items.len()),
+        );
         let mut ok = 0usize;
         let mut err = 0usize;
         let mut moved: Vec<MoveItem> = Vec::new();

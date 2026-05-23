@@ -224,6 +224,7 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
             app.close_tab(id);
         }
         "next-tab" | "prev-tab" => {
+            let _g = crate::core::perf::scope(crate::core::perf::MetricKind::TabSwitch, action);
             let dir = if action == "next-tab" { 1isize } else { -1 };
             let tabs = app.tabs.get_untracked();
             if !tabs.is_empty() {
