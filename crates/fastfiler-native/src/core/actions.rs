@@ -183,6 +183,58 @@ impl PaneState {
         self.reload();
     }
 
+    /// 選択中の行のうちフォルダのみのフルパスを返す
+    pub fn selected_dir_paths(&self) -> Vec<PathBuf> {
+        let rows = self.rows.get_untracked();
+        let cur = self.cur_path.get_untracked();
+        self.selected
+            .get_untracked()
+            .iter()
+            .filter_map(|i| rows.get(*i))
+            .filter(|r| r.is_dir)
+            .map(|r| cur.join(&r.name))
+            .collect()
+    }
+
+    /// 選択中フォルダの構造を ASCII (ボックス罫線) ツリーとして
+    /// クリップボードへコピーする。フォルダが 1 件も選ばれていなければ何もしない。
+    /// 複数フォルダを選んでいる場合は、各ツリーを空行で区切って連結する。
+    pub fn copy_selected_tree(&self) {
+        let dirs = self.selected_dir_paths();
+        if dirs.is_empty() {
+            self.status_msg
+                .set(String::from("ツリー: フォルダを選択してください"));
+            return;
+        }
+        let show_hidden = self.show_hidden.get_untracked();
+        let hide_pred: Box<dyn Fn(&std::path::Path) -> bool> = if show_hidden {
+            Box::new(|_p: &std::path::Path| false)
+        } else {
+            Box::new(fastfiler_domain::ascii_tree::is_hidden_default)
+        };
+        let mut buf = String::new();
+        for (i, d) in dirs.iter().enumerate() {
+            if i > 0 {
+                buf.push('\n');
+            }
+            buf.push_str(&fastfiler_domain::ascii_tree::render_ascii_tree(
+                d,
+                hide_pred.as_ref(),
+            ));
+        }
+        crate::flog!(
+            "[ascii-tree] copy {} folder(s), {} bytes",
+            dirs.len(),
+            buf.len()
+        );
+        match fastfiler_domain::win_clipboard::clipboard_write_text(&buf) {
+            Ok(_) => self
+                .status_msg
+                .set(format!("ツリーをコピーしました ({} 件)", dirs.len())),
+            Err(e) => self.status_msg.set(format!("ツリーのコピー失敗: {e}")),
+        }
+    }
+
     pub fn open_new_folder_modal(&self) {
         self.modal_input.set(String::from("New Folder"));
         self.modal_kind.set(ModalKind::NewFolder);

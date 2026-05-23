@@ -7,12 +7,14 @@
 //!  - `shell` / `shell_assoc` / `win_clipboard` / `icons`: Windows シェル統合
 //!  - `templates` / `user_commands`: 新規ファイルテンプレートとユーザーコマンド
 //!  - `undo`: in-memory Undo スタック (ADR 0006/0008)
+//!  - `ascii_tree`: 選択フォルダの構造を ASCII (ボックス罫線) 文字列化
 //!
 //! 不採用モジュール (削除済):
 //!  - プラグイン機構: ADR 0003
 //!  - 内蔵ターミナル: ADR 0004
 //!  - サムネイル / プレビュー: ADR 0005
 
+pub mod ascii_tree;
 pub mod error;
 pub mod events;
 pub mod everything;

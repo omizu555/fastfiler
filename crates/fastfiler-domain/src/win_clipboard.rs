@@ -214,3 +214,65 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
     let _ = CloseClipboard();
     result
 }
+
+// =================================================================
+// クリップボードへプレーンテキスト (CF_UNICODETEXT) を書き込む
+// =================================================================
+
+/// 任意の文字列を Unicode テキストとしてクリップボードへ書き込む。
+///
+/// 改行は CRLF に正規化する (メモ帳・Excel など Windows 系アプリで自然に
+/// 貼り付けられるようにするため)。
+pub fn clipboard_write_text(text: &str) -> AppResult<()> {
+    #[cfg(not(windows))]
+    {
+        let _ = text;
+        return Err(AppError::Win32("Windows でのみ利用可能".into()));
+    }
+    #[cfg(windows)]
+    unsafe {
+        write_text_win(text)
+    }
+}
+
+#[cfg(windows)]
+unsafe fn write_text_win(text: &str) -> AppResult<()> {
+    use windows::Win32::Foundation::{HANDLE, HWND};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+    // 改行を CRLF に正規化
+    let normalized = text.replace("\r\n", "\n").replace('\n', "\r\n");
+    let mut wide: Vec<u16> = normalized.encode_utf16().collect();
+    wide.push(0); // NUL 終端
+
+    let total = wide.len() * 2;
+    let h =
+        GlobalAlloc(GHND, total).map_err(|e| AppError::Win32(format!("GlobalAlloc(text): {e}")))?;
+    if h.is_invalid() {
+        return Err(AppError::Win32("GlobalAlloc(text) returned invalid".into()));
+    }
+    {
+        let p = GlobalLock(h) as *mut u16;
+        if p.is_null() {
+            return Err(AppError::Win32("GlobalLock(text) failed".into()));
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
+        let _ = GlobalUnlock(h);
+    }
+
+    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
+        return Err(AppError::Win32("OpenClipboard 失敗".into()));
+    }
+    let res = (|| -> AppResult<()> {
+        EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
+        SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(h.0))
+            .map_err(|e| AppError::Win32(format!("SetClipboardData(TEXT): {e}")))?;
+        Ok(())
+    })();
+    let _ = CloseClipboard();
+    res
+}

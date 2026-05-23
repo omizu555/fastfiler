@@ -835,6 +835,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let p_rename = pane_ctx.clone();
                     let p_delete = pane_ctx.clone();
                     let p_props = pane_ctx.clone();
+                    let p_tree = pane_ctx.clone();
                     let undo_mgr = undo_ctx.clone();
                     // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
                     let _ = bg_idx; // 警告抑制 (以降のクロージャでは使用)
@@ -892,6 +893,11 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             move || p_delete.delete_selected(&um)
                         }))
                         .separator()
+                        .separator()
+                        .entry(
+                            MenuItem::new("ツリーをコピー")
+                                .action(move || p_tree.copy_selected_tree()),
+                        )
                         .entry(MenuItem::new("プロパティ").action(move || {
                             let cur = p_props.cur_path.get();
                             let name = p_props.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
