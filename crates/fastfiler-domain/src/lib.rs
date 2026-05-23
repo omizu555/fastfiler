@@ -22,6 +22,7 @@ pub mod file_jobs;
 pub mod file_ops;
 pub mod fs;
 pub mod icons;
+pub mod ole_dnd;
 pub mod path_util;
 pub mod search;
 pub mod shell;

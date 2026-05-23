@@ -495,6 +495,32 @@ pub fn app_view() -> impl IntoView {
             }
         }
     })
+    .on_event_cont(EventListener::PointerLeave, {
+        let app_for_leave = app.clone();
+        move |_e| {
+            // ── #D Phase 2: OLE D&D 起動トリガ ──
+            // window root から PointerLeave が出た瞬間に、ドラッグ中なら
+            // OLE DoDragDrop を起動してエクスプローラ等へ受け渡す (UI スレッド同期)。
+            let Some(ds) = app_for_leave.dragging.get_untracked() else {
+                return;
+            };
+            if !ds.active || ds.paths.is_empty() {
+                return;
+            }
+            #[cfg(windows)]
+            {
+                if !fastfiler_domain::ole_dnd::is_ole_available() {
+                    crate::flog!("[ole-dnd] skip: OleInitialize 未成功");
+                    return;
+                }
+                trigger_external_drag(&app_for_leave, ds);
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = ds;
+            }
+        }
+    })
     .on_event_stop(EventListener::WindowResized, {
         let settings = app.settings.clone();
         move |e| {
@@ -537,4 +563,116 @@ pub fn app_view() -> impl IntoView {
             EventPropagation::Continue
         }
     })
+}
+
+// ────────────────────────────────────────────────────────────────
+// OLE D&D (送信側) — PointerLeave で起動
+// ────────────────────────────────────────────────────────────────
+
+#[cfg(windows)]
+fn trigger_external_drag(app: &AppState, ds: crate::state::DragState) {
+    use fastfiler_domain::ole_dnd::{start_drag, DragOutcome, DragRequest, PreferredEffect};
+
+    // 修飾キーで Copy / Move を切り替える。
+    // Ctrl 押下 → Copy / それ以外 (Shift / 修飾なし) → Move
+    // Shift+Ctrl は Ctrl 優先 (Win 標準と一致)。
+    // 修飾なしは Move を推奨ヒントとして渡す。シェルが拒否すれば Copy にフォールバックされる。
+    let preferred = unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+        let ctrl = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+        if ctrl {
+            PreferredEffect::Copy
+        } else {
+            PreferredEffect::Move
+        }
+    };
+
+    let source_pane = ds.source_pane;
+    let paths = ds.paths.clone();
+    crate::flog!(
+        "[ole-dnd] start_drag begin: paths={} preferred={:?}",
+        paths.len(),
+        preferred
+    );
+
+    let req = DragRequest {
+        paths: paths.clone(),
+        preferred,
+    };
+    let outcome = start_drag(req);
+
+    // DoDragDrop は modal なので戻り次第クリア。
+    app.dragging.set(None);
+
+    match &outcome {
+        Ok(DragOutcome::None) => {
+            crate::flog!("[ole-dnd] outcome: None (ドロップ拒否)");
+        }
+        Ok(DragOutcome::Copy) => {
+            crate::flog!("[ole-dnd] outcome: Copy 成功");
+        }
+        Ok(DragOutcome::Move { delete_source }) => {
+            crate::flog!("[ole-dnd] outcome: Move delete_source={}", delete_source);
+            if *delete_source {
+                let (ok, ng) = delete_sources(&paths);
+                crate::flog!("[ole-dnd] source delete OK={} NG={}", ok, ng);
+                if let Some(sp) = app.find_pane(source_pane) {
+                    sp.status_msg
+                        .set(format!("外部移動: 元削除 OK={} / NG={}", ok, ng));
+                }
+            } else if let Some(sp) = app.find_pane(source_pane) {
+                sp.status_msg
+                    .set("外部移動: 結果不明のため元削除をスキップしました".to_string());
+            }
+        }
+        Ok(DragOutcome::Cancel) => {
+            crate::flog!("[ole-dnd] outcome: Cancel (ESC)");
+        }
+        Ok(DragOutcome::Error(msg)) => {
+            crate::flog!("[ole-dnd] outcome: Error {}", msg);
+            if let Some(sp) = app.find_pane(source_pane) {
+                sp.status_msg.set(format!("外部 D&D エラー: {}", msg));
+            }
+        }
+        Err(e) => {
+            crate::flog!("[ole-dnd] start_drag err: {}", e);
+            if let Some(sp) = app.find_pane(source_pane) {
+                sp.status_msg.set(format!("外部 D&D エラー: {}", e));
+            }
+        }
+    }
+
+    // outcome に関わらず source pane を常に reload する。
+    // シェル (Explorer) がターゲットの場合、CFSTR_PERFORMEDDROPEFFECT を返さず
+    // pdwEffect=NONE で DoDragDrop が戻ることがあるが、内部では実体ファイルが
+    // すでに移動/削除されているケースがある。watcher 通知を待つと体感遅延が出るので
+    // 即時 reload で UI を最新化する。
+    if let Some(sp) = app.find_pane(source_pane) {
+        sp.reload();
+    }
+}
+
+/// OLE D&D Move 成功後の元削除 (永続削除、ゴミ箱には送らない)。
+///
+/// シェル D&D の MOVE は target 側が destination を既に書き込んでいる前提なので、
+/// source の削除はゴミ箱経由ではなく直接削除する (Explorer 互換動作)。
+#[cfg(windows)]
+fn delete_sources(paths: &[std::path::PathBuf]) -> (u32, u32) {
+    let mut ok = 0u32;
+    let mut ng = 0u32;
+    for p in paths {
+        let r = if p.is_dir() {
+            std::fs::remove_dir_all(p)
+        } else {
+            std::fs::remove_file(p)
+        };
+        match r {
+            Ok(()) => ok += 1,
+            Err(e) => {
+                ng += 1;
+                crate::flog!("[ole-dnd] source delete err {}: {}", p.display(), e);
+            }
+        }
+    }
+    (ok, ng)
 }

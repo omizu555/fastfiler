@@ -37,7 +37,7 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] リネーム / 新規ファイル / 新規フォルダ (モーダル)
 - [x] ペイン内 D&D (修飾キー / ボリュームで Move/Copy 自動判別、Ctrl=Copy / Shift=Move)
 - [x] フォルダへドロップ (同階層)
-- [ ] エクスプローラ ⇄ FastFiler 双方向 D&D (OLE `IDropTarget` / `IDataObject` 未実装)
+- [~] エクスプローラ ⇄ FastFiler 双方向 D&D — 送信側 (FastFiler → エクスプローラ) は OLE `IDataObject` で実装済。受信側 (`IDropTarget`) は未実装
 - [ ] 右ボタン D&D メニュー (ここに移動 / ここにコピー / キャンセル)
 - [x] 新規ファイルテンプレート (内蔵 13 種 + ユーザー定義)
 - [x] `.iso / .img / .vhd / .vhdx` のマウント (`ShellExecuteW` の `mount` 動詞)
@@ -106,7 +106,7 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 ### Windows 統合
 - [ ] **Shift+右クリックでシェル拡張メニュー** (`IContextMenu`) を表示 — ADR 0007
 - [~] **OLE D&D Effect の細粒度制御** (IDEAS 旧 #21)
-      — 内部 D&D は `Ctrl=Copy / Shift=Move` + ボリューム判定で実装済。外部 OLE (`IDropTarget` / `IDataObject`) は別タスクで実装予定
+      — 内部 D&D は `Ctrl=Copy / Shift=Move` + ボリューム判定で実装済。外部 OLE は送信側 (`IDataObject` + `DoDragDrop`) のみ実装済 (Ctrl=Copy / それ以外=Move)。受信側 (`IDropTarget`) は別タスクで実装予定
 
 ### ファイル操作の安心感
 - [x] **プログレスダイアログ** (大量コピー / 移動 / 削除)

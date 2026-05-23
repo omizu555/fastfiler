@@ -169,9 +169,20 @@
 - 大量操作 (件数 ≥ 100 または 合計 ≥ 50MB) は進捗ダイアログ経由で実行され、**Undo 対象外**です。
 - ドロップ先の解決優先順は **フォルダ行 → パンくずセグメント → ペイン背景 (現在フォルダ)** です。
 
-#### 外部 D&D (エクスプローラ → FastFiler / FastFiler → エクスプローラ) 🚧
+#### 外部 D&D (エクスプローラ → FastFiler / FastFiler → エクスプローラ)
 
-OLE (`IDropTarget` / `IDataObject`) を介した外部アプリとの D&D は未実装です。現状の外部連携は以下のみ:
+| 方向 | 状態 | 概要 |
+|---|---|---|
+| FastFiler → エクスプローラ | ✅ 実装済 (送信側) | ファイル/フォルダをドラッグして window 外に出すと OLE D&D に切り替わり、エクスプローラや他アプリへ Copy/Move でドロップ可。`Ctrl` で Copy、無修飾で Move (Move は既定で永続削除、Explorer 互換)。 |
+| エクスプローラ → FastFiler | 🚧 未実装 | 受信側 (`IDropTarget`) は今後対応予定。 |
+
+挙動メモ:
+
+- window root から `PointerLeave` が発火した瞬間に `DoDragDrop` を起動します (modal loop)。
+- 外部ドロップが完了したら、結果に関わらず元ペインを即時 reload します (Explorer がシェル経由で source を削除するケースに対応)。
+- `OleInitialize` が失敗した環境では外部 D&D 送信は無効化されますが、内部 D&D は動作します。
+
+クリップボード経由の連携も従来通り使えます:
 
 | 方法 | 操作 |
 |---|---|
@@ -183,9 +194,9 @@ OLE (`IDropTarget` / `IDataObject`) を介した外部アプリとの D&D は未
 
 D&D 中にツリーやフォルダ行の上で **0.7 秒ホバー** すると自動展開し、その先のフォルダへ続けてドロップできます (Windows 11 / macOS Finder 風)。
 
-#### OLE D&D Effect 細粒度制御 (内部 D&D 部分のみ実装)
+#### OLE D&D Effect 細粒度制御
 
-内部 D&D は上表のとおり `Ctrl` / `Shift` / ボリューム判定で Move / Copy を切り替えます。外部アプリとの OLE 統合は未実装 🚧。
+内部 D&D は上表のとおり `Ctrl` / `Shift` / ボリューム判定で Move / Copy を切り替えます。外部 D&D 送信 (FastFiler → エクスプローラ) は `Ctrl` で Copy、それ以外は Move を推奨ヒントとしてターゲットに渡します。
 
 ### 4.4 右ボタン D&D メニュー 🚧
 

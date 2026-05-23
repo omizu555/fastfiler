@@ -875,6 +875,7 @@ dependencies = [
  "ureq",
  "urlencoding",
  "windows 0.58.0",
+ "windows-core 0.58.0",
  "winreg",
 ]
 
@@ -892,6 +893,7 @@ dependencies = [
  "ron",
  "serde",
  "serde_json",
+ "windows 0.58.0",
  "winreg",
 ]
 

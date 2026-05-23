@@ -35,6 +35,18 @@ pub fn run_app() {
 
     logger::init();
     flog!("[main] settings load start");
+
+    // OLE D&D (送信側) 初期化。UI スレッドで 1 回だけ呼ぶ。
+    // 失敗してもアプリは続行 (is_ole_available() が false で start_drag が抑止される)。
+    #[cfg(windows)]
+    {
+        fastfiler_domain::ole_dnd::init_ole();
+        flog!(
+            "[main] ole init done: available={}",
+            fastfiler_domain::ole_dnd::is_ole_available()
+        );
+    }
+
     let p = PersistedSettings::load_or_default();
     flog!(
         "[main] settings loaded: theme={} accent={} window=({:?}x{:?} @ {:?},{:?})",
