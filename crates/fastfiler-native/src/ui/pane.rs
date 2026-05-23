@@ -18,7 +18,7 @@ use floem::views::{
 use fastfiler_domain::icons as ficons;
 
 use crate::fs_model::{FileRow, SortKey};
-use crate::state::{AppState, DragState, ModalKind, PaneState};
+use crate::state::{AppState, DragState, PaneState};
 use crate::theme;
 
 /// 拡張子からカテゴリ別の絵文字を返す (icon_set=emoji 用)。
@@ -100,8 +100,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let selected = pane.selected;
     let anchor = pane.anchor;
     let status_msg = pane.status_msg;
-    let modal_kind = pane.modal_kind;
-    let modal_input = pane.modal_input;
     let search_query = pane.search_query;
     let search_open = pane.search_open;
     let name_col_width_sig = pane.name_col_width;
@@ -220,10 +218,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let pane_for_reload = pane.clone();
     let pane_for_dblclick = pane.clone();
     let pane_for_addr_enter = pane.clone();
-    let pane_for_modal_ok = pane.clone();
-    let pane_for_modal_cancel = pane.clone();
-    let pane_for_modal_enter = pane.clone();
-    let undo_mgr_modal = app.undo_manager.clone();
     let undo_mgr_ctxmenu = app.undo_manager.clone();
     let undo_mgr_blank = app.undo_manager.clone();
     let jobs_ctxmenu = app.jobs.clone();
@@ -1108,62 +1102,6 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     )
     .style(|s| s.width_full());
 
-    // モーダル (新規フォルダ / リネーム入力)
-    let modal_bar = dyn_container(
-        move || modal_kind.get(),
-        move |kind| match kind {
-            ModalKind::None => container(label(|| String::new()))
-                .style(|s| s.height(0))
-                .into_any(),
-            other => {
-                let title = match &other {
-                    ModalKind::NewFolder => "新規フォルダ名",
-                    ModalKind::NewFile => "新規ファイル名",
-                    ModalKind::Rename(_) => "新しい名前",
-                    ModalKind::None => "",
-                };
-                let pane_ok = pane_for_modal_ok.clone();
-                let pane_cancel = pane_for_modal_cancel.clone();
-                let pane_enter = pane_for_modal_enter.clone();
-                let um_enter = undo_mgr_modal.clone();
-                let um_ok = undo_mgr_modal.clone();
-                h_stack((
-                    label(move || title.to_string())
-                        .style(|s| s.padding_horiz(8).color(theme::text_normal())),
-                    text_input(modal_input)
-                        .style(|s| {
-                            s.flex_grow(1.0)
-                                .padding(4)
-                                .border(1)
-                                .border_color(theme::border_focus())
-                        })
-                        .on_event_stop(EventListener::KeyDown, move |e| {
-                            if let Event::KeyDown(ke) = e {
-                                match &ke.key.logical_key {
-                                    Key::Named(NamedKey::Enter) => {
-                                        pane_enter.confirm_modal(&um_enter)
-                                    }
-                                    Key::Named(NamedKey::Escape) => pane_enter.close_modal(),
-                                    _ => {}
-                                }
-                            }
-                        }),
-                    button("OK").action(move || pane_ok.confirm_modal(&um_ok)),
-                    button("Cancel").action(move || pane_cancel.close_modal()),
-                ))
-                .style(|s| {
-                    s.gap(6)
-                        .padding(6)
-                        .items_center()
-                        .background(theme::bg_status())
-                        .border_bottom(1)
-                        .border_color(theme::border_strong())
-                })
-                .into_any()
-            }
-        },
-    );
-
     let pane_for_xbuttons = pane.clone();
     let pane_id = pane.id;
     let app_for_rect = app.clone();
@@ -1200,7 +1138,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             .border_bottom(1)
             .border_color(theme::border_modal())
     });
-    v_stack((top_bar, search_bar, modal_bar, header, scrollable, status))
+    v_stack((top_bar, search_bar, header, scrollable, status))
         .style(move |s| {
             let is_active = app_for_active_style
                 .active_tab()

@@ -48,7 +48,8 @@ fastfiler/
 │               ├── app_view.rs  ルートレイアウト + キーハンドラ
 │               ├── tabs.rs      縦型タブパネル
 │               ├── tree.rs      フォルダツリーペイン
-│               ├── pane.rs      フォルダペイン (一覧 / 検索バー / D&D / モーダル)
+│               ├── pane.rs      フォルダペイン (一覧 / 検索バー / D&D)
+│               ├── modal_dialog.rs  新規フォルダ/新規ファイル/リネーム用センターポップアップ
 │               ├── footer.rs    ステータスバー
 │               └── splitter.rs  ドラッグリサイザ
 │

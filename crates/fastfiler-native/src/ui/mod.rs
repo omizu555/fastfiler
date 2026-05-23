@@ -2,6 +2,7 @@ pub mod app_view;
 pub mod drag_common;
 pub mod drop_exec;
 pub mod footer;
+pub mod modal_dialog;
 pub mod pane;
 pub mod progress;
 pub mod splitter;

@@ -46,7 +46,7 @@ impl EventSink for CounterSink {
 // ModalKind / SplitterTarget / DragState
 // ────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModalKind {
     None,
     NewFolder,

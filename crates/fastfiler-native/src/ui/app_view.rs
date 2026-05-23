@@ -421,8 +421,10 @@ pub fn app_view() -> impl IntoView {
     let ui_font_size_sig = app.settings.ui_font_size;
     let ui_font_sig = app.settings.ui_font;
     let jobs_for_overlay = app.jobs.clone();
+    let app_for_modal = app.clone();
     floem::views::stack((
         switcher,
+        crate::ui::modal_dialog::modal_dialog(app_for_modal),
         crate::ui::progress::progress_dialogs(jobs_for_overlay),
     ))
     .style(move |s| {
