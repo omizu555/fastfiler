@@ -1,0 +1,3 @@
+# installer/ 配下の生成物は git で追わない
+out/
+*.exe

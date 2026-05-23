@@ -27,8 +27,8 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [doc/STATUS.md](./doc/STATUS.md) | 実装ステータス (実装済 / 採用予定 / 不採用) |
 | [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
 | [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作 / ホットキー) |
-| [doc/BUILD.md](./doc/BUILD.md) | ビルド & インストール |
-| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順とチェックリスト |
+| [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 |
+| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順 / インストーラ作成 |
 | [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |
 
 ## ディレクトリ構成
