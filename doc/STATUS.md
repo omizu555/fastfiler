@@ -35,10 +35,10 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] コピー / 切り取り / 貼り付け (同名衝突時は自動採番)
 - [x] 削除 (`SHFileOperationW` 経由のごみ箱送り — クラッシュ耐性)
 - [x] リネーム / 新規ファイル / 新規フォルダ (モーダル)
-- [x] ペイン内 D&D (移動)
+- [x] ペイン内 D&D (修飾キー / ボリュームで Move/Copy 自動判別、Ctrl=Copy / Shift=Move)
 - [x] フォルダへドロップ (同階層)
-- [x] エクスプローラ ⇄ FastFiler 双方向 D&D
-- [x] 右ボタン D&D メニュー (ここに移動 / ここにコピー / キャンセル)
+- [ ] エクスプローラ ⇄ FastFiler 双方向 D&D (OLE `IDropTarget` / `IDataObject` 未実装)
+- [ ] 右ボタン D&D メニュー (ここに移動 / ここにコピー / キャンセル)
 - [x] 新規ファイルテンプレート (内蔵 13 種 + ユーザー定義)
 - [x] `.iso / .img / .vhd / .vhdx` のマウント (`ShellExecuteW` の `mount` 動詞)
 - [x] **ユーザーコマンド** (`%APPDATA%\FastFiler\commands\commands.json`)
@@ -105,7 +105,8 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 
 ### Windows 統合
 - [ ] **Shift+右クリックでシェル拡張メニュー** (`IContextMenu`) を表示 — ADR 0007
-- [ ] **OLE D&D Effect の細粒度制御** (Move / Copy の明示切替、IDEAS 旧 #21)
+- [~] **OLE D&D Effect の細粒度制御** (IDEAS 旧 #21)
+      — 内部 D&D は `Ctrl=Copy / Shift=Move` + ボリューム判定で実装済。外部 OLE (`IDropTarget` / `IDataObject`) は別タスクで実装予定
 
 ### ファイル操作の安心感
 - [x] **プログレスダイアログ** (大量コピー / 移動 / 削除)

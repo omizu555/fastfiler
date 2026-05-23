@@ -17,6 +17,8 @@ use floem::views::{
 
 use fastfiler_domain::file_ops as fops;
 use fastfiler_domain::icons as ficons;
+use fastfiler_domain::path_util::volume_key;
+use fastfiler_domain::undo::{MoveItem, UndoOp};
 
 use crate::fs_model::{unique_dest, FileRow, SortKey};
 use crate::state::{AppState, DragState, ModalKind, PaneState};
@@ -1326,7 +1328,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .pane_rects
                     .with_untracked(|m| m.iter().map(|(k, v)| (*k, *v)).collect());
                 crate::flog!(
-                    "[drop] win_pt=({:.1},{:.1}) mode=COPY pane_rects={:?}",
+                    "[drop] win_pt=({:.1},{:.1}) pane_rects={:?}",
                     win_pt.x,
                     win_pt.y,
                     rects_dump
@@ -1359,41 +1361,150 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     return;
                 };
                 let dest_dir = tp.cur_path.get_untracked();
-                crate::flog!("[drop] dest_dir={} mode={}", dest_dir.display(), "COPY");
+
+                // ── op 決定 (Phase 1: 内部 D&D 修飾キー切替) ──
+                // Q5: Ctrl=Copy / Shift=Move (Ctrl+Shift は Ctrl 優先 → Copy 安全側)
+                // Q4: 修飾なしは Windows 慣習に従い「全 source が dest と同ボリュームなら Move、それ以外 Copy」
+                let ctrl = p.modifiers.control();
+                let shift = p.modifiers.shift();
+                let dest_vk = volume_key(&dest_dir);
+                let all_same_volume =
+                    dest_vk.is_some() && ds.paths.iter().all(|s| volume_key(s) == dest_vk);
+                let (is_move, reason) = if ctrl {
+                    (false, "ctrl")
+                } else if shift {
+                    (true, "shift")
+                } else if all_same_volume {
+                    (true, "same-volume")
+                } else if dest_vk.is_none() || ds.paths.iter().any(|s| volume_key(s).is_none()) {
+                    (false, "unknown-volume")
+                } else if ds.paths.iter().all(|s| volume_key(s) != dest_vk) {
+                    (false, "cross-volume")
+                } else {
+                    (false, "mixed-volume")
+                };
+                let op_label = if is_move { "移動" } else { "コピー" };
+                crate::flog!(
+                    "[drop] dest_dir={} op={} reason={} files={}",
+                    dest_dir.display(),
+                    if is_move { "move" } else { "copy" },
+                    reason,
+                    ds.paths.len()
+                );
+
+                // 衝突回避済みの (src, dst) を組み立てる。Move 時は同一ディレクトリは skip。
+                let mut items: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(ds.paths.len());
+                let mut skipped_same_dir = 0u32;
+                for src in &ds.paths {
+                    if is_move {
+                        if let Some(parent) = src.parent() {
+                            if parent == dest_dir.as_path() {
+                                skipped_same_dir += 1;
+                                crate::flog!(
+                                    "[drop] skip move src={} (same dir as dest)",
+                                    src.display()
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    let Some(name) = src.file_name().map(|s| s.to_string_lossy().into_owned())
+                    else {
+                        continue;
+                    };
+                    let dst = unique_dest(&dest_dir, &name);
+                    items.push((src.clone(), dst));
+                }
+                if items.is_empty() {
+                    if skipped_same_dir > 0 {
+                        tp.status_msg.set(format!(
+                            "D&D {} スキップ ({} 件は同一フォルダ)",
+                            op_label, skipped_same_dir
+                        ));
+                    }
+                    return;
+                }
+
+                // 大量時 (件数 ≥ 100 or 合計 ≥ 50MB) は JobsState 経由 (Undo 不可)
+                let (total_files, total_bytes) = crate::core::jobs::scan_total_for_threshold(
+                    items.iter().map(|(f, _)| f.as_path()),
+                );
+                let big = total_files >= crate::core::jobs::THRESHOLD_FILES
+                    || total_bytes >= crate::core::jobs::THRESHOLD_BYTES;
+                if big {
+                    tp.status_msg.set(format!(
+                        "D&D {} 開始 ({} 件、進捗表示中 / Undo 不可)",
+                        op_label,
+                        items.len()
+                    ));
+                    if is_move {
+                        app_for_up.jobs.spawn_move(items, |_ok| {});
+                    } else {
+                        app_for_up.jobs.spawn_copy(items, |_ok| {});
+                    }
+                    // reload は watcher 任せ (worker thread から signal を触らない)
+                    return;
+                }
+
+                // 閾値未満は同期パス (Move は UndoOp::Move へ push)
                 let _g_drop = crate::core::perf::scope(
-                    crate::core::perf::MetricKind::Copy,
-                    format!("drop files={}", ds.paths.len()),
+                    if is_move {
+                        crate::core::perf::MetricKind::Move
+                    } else {
+                        crate::core::perf::MetricKind::Copy
+                    },
+                    format!("drop sync files={} reason={}", items.len(), reason),
                 );
                 let mut ok = 0u32;
                 let mut err = 0u32;
-                for src in &ds.paths {
-                    let name = match src.file_name() {
-                        Some(n) => n.to_string_lossy().into_owned(),
-                        None => {
-                            err += 1;
-                            continue;
-                        }
-                    };
-                    let dst = unique_dest(&dest_dir, &name);
+                let mut moved: Vec<MoveItem> = Vec::new();
+                for (from, dst) in &items {
                     crate::flog!(
-                        "[drop] copy_path src={} dst={}",
-                        src.display(),
+                        "[drop] {} src={} dst={}",
+                        if is_move { "move" } else { "copy" },
+                        from.display(),
                         dst.display()
                     );
-                    let res = fops::copy_path(
-                        src.to_string_lossy().into_owned(),
-                        dst.to_string_lossy().into_owned(),
-                    );
+                    let res = if is_move {
+                        fops::move_path(
+                            from.to_string_lossy().into_owned(),
+                            dst.to_string_lossy().into_owned(),
+                        )
+                    } else {
+                        fops::copy_path(
+                            from.to_string_lossy().into_owned(),
+                            dst.to_string_lossy().into_owned(),
+                        )
+                    };
                     match res {
-                        Ok(()) => ok += 1,
+                        Ok(()) => {
+                            ok += 1;
+                            if is_move {
+                                moved.push(MoveItem {
+                                    from: from.clone(),
+                                    to: dst.clone(),
+                                });
+                            }
+                        }
                         Err(e) => {
                             crate::flog!("[drop] op error: {}", e);
                             err += 1;
                         }
                     }
                 }
+                if !moved.is_empty() {
+                    app_for_up
+                        .undo_manager
+                        .lock()
+                        .push(UndoOp::Move { items: moved });
+                }
+                let suffix = if skipped_same_dir > 0 {
+                    format!(" / スキップ={}", skipped_same_dir)
+                } else {
+                    String::new()
+                };
                 tp.status_msg
-                    .set(format!("D&D コピー OK={} / NG={}", ok, err));
+                    .set(format!("D&D {} OK={} / NG={}{}", op_label, ok, err, suffix));
                 tp.reload();
                 if let Some(sp) = app_for_up.find_pane(ds.source_pane) {
                     sp.reload();
