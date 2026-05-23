@@ -1,6 +1,6 @@
 # FastFiler 実装ステータス
 
-最終更新: 2026-05-24 / Undo 実装 (リネーム / 移動 / ゴミ箱送り)
+最終更新: 2026-05-25 / 未実装機能の棚卸し (ツリー本体は実装済として分離)
 
 FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採用 (明示的に持たない)」** の
 3 区分で管理する。中核アイデンティティと判断軸は [`/CONTEXT.md`](../CONTEXT.md)、
@@ -23,6 +23,13 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] タブ内ペインの **任意分割 (BSP)** — 横分割と縦分割の任意ネスト
 - [x] スプリッタ (タブペイン幅 / ツリーペイン幅 ドラッグ可変)
 
+### コア — ワークスペースツリー (基本部分)
+- [x] ドライブ起点表示 (遅延展開)
+- [x] フォーカスペイン追従 + 祖先自動展開 + スクロール追従
+- [x] フォルダクリックでフォーカスペインに反映
+- [x] パネル位置 `left` / `right` / `hidden` のドック切替 (`panel_dock_tree`)
+- [x] パネル幅ドラッグ可変 (140〜600px、再起動後も保持)
+
 ### ファイル操作
 - [x] 複数選択 (Ctrl / Shift クリック)
 - [x] コピー / 切り取り / 貼り付け (同名衝突時は自動採番)
@@ -36,6 +43,8 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] `.iso / .img / .vhd / .vhdx` のマウント (`ShellExecuteW` の `mount` 動詞)
 - [x] **ユーザーコマンド** (`%APPDATA%\FastFiler\commands\commands.json`)
       — 右クリックメニューに任意の外部コマンドを追加可能
+- [x] **Undo** (`Ctrl+Z`) — **リネーム / 移動 / ゴミ箱送り** の 3 種限定、
+      in-memory N=20、起動間で保持しない — ADR 0006 / ADR 0008
 
 ### 検索
 - [x] 内蔵インクリメンタル検索 (`Ctrl+F`、cur_path / name 部分一致)
@@ -76,29 +85,36 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 
 このセクションは「実装する意思が確定済み」のもの。優先度は概ね上から高い順。
 
+### ワークスペースツリーの追加機能 (本体は §1 で実装済)
+- [ ] **`Ctrl+Shift+E` トグル配線** — 現状は status_msg に「未実装」を出すだけ。
+      `panel_dock_tree` を `hidden` ↔ 直前位置 でトグルさせる
+- [ ] **キーボード操作** (↑↓ で選択移動 / → で展開 / ← で折畳 or 親へ / Enter でペインに反映)
+      — focused_node state の導入が前提
+- [ ] **UNC サーバノード自動登録** (`\\server\share` を 🖥️ サーバ配下に集約、
+      右クリックで「ツリーから削除」、永続化先は `settings.ron`)
+
 ### タブ / ペイン強化
-- [ ] **ワークスペースツリー** (フル機能再実装)
-      — ドライブ起点グローバルツリー / UNC サーバノード自動登録 /
-      キーボード操作 (↑↓→←) / **フォーカスペインへの追従で祖先自動展開**
 - [ ] **ペイン内ツリービュー** (`📋 / 🌲` 切替) — フォルダのみ表示
       (ファイルは混ぜない、ワークスペースツリーと操作モデルを統一)
+      — ペイン単位の `view_mode` 導入が前提 (基盤)
 - [ ] **タブのロック** (中クリックでロック / 解除、Ctrl+W で閉じなくなる)
 - [ ] **タブアイコン** (UNC `🌐` / ドライブレター `C:` 等の先頭表示)
-- [ ] **ドック式パネル配置** を 5 ヶ所 (`left / right / top / bottom / hidden`) に拡張
-      — ADR 0002 により **各スロット 1 パネルだけ**
+- [ ] **ドック式パネル配置を 5 ヶ所に拡張** — 現状は `left` / `right` / `hidden` の 3 ヶ所のみ。
+      `top` / `bottom` を追加するには `flex_row` 直列を縦横入れ子に再構築 +
+      splitter の縦版が必要。ADR 0002 (各スロット 1 パネル) は維持
 
 ### Windows 統合
 - [ ] **Shift+右クリックでシェル拡張メニュー** (`IContextMenu`) を表示 — ADR 0007
 - [ ] **OLE D&D Effect の細粒度制御** (Move / Copy の明示切替、IDEAS 旧 #21)
 
 ### ファイル操作の安心感
-- [x] **Undo** (`Ctrl+Z`) — **リネーム / 移動 / ゴミ箱送り** の 3 種限定、
-      in-memory N=20 — ADR 0006 / ADR 0008
 - [ ] **プログレスダイアログ** (大量コピー / 移動)
-      — `domain/file_jobs.rs` の `JobRegistry` を UI と接続
+      — `domain/file_jobs.rs` の `JobRegistry` は完備、native 側からの呼び出しと
+      modal 進捗 view + キャンセルボタンを追加して接続するだけ
 
 ### UX / 開発支援
 - [ ] **パネルプリセット** (レイアウト + 開いているタブをまとめて保存・呼出)
+      — ドック 5 ヶ所化 (上記) が前提
 - [ ] **Spring-loaded folder** (D&D 中に 0.7 秒ホバーで自動展開)
 - [ ] **パフォーマンス計測パネル** (設定 →「デバッグ」タブで列挙時間等を表示)
 - [ ] **ASCII ツリーエクスポート** (選択フォルダの構造を `tree` 風にコピー)
@@ -113,10 +129,10 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 |---|---|---|
 | ペイン連動 (🔴Red / 🔵Blue) | [ADR 0001](./adr/0001-remove-pane-linking.md) | 温存コードも撤去予定 |
 | 同期スクロール | [ADR 0001](./adr/0001-remove-pane-linking.md) | 連動と一体で不採用 |
-| プラグイン機構 (JS / WASM) | [ADR 0003](./adr/0003-remove-plugin-system.md) | `domain/plugin.rs` 削除予定 |
-| 内蔵ターミナル | [ADR 0004](./adr/0004-no-builtin-terminal.md) | `domain/term.rs` 削除予定 / `commands.json` で外部起動 |
-| サムネイル一覧 | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/thumbnail.rs` 削除予定 |
-| プレビューペイン | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/preview.rs` 削除予定 |
+| プラグイン機構 (JS / WASM) | [ADR 0003](./adr/0003-remove-plugin-system.md) | `domain/plugin.rs` 削除済 |
+| 内蔵ターミナル | [ADR 0004](./adr/0004-no-builtin-terminal.md) | `domain/term.rs` 削除済 / `commands.json` で外部起動 |
+| サムネイル一覧 | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/thumbnail.rs` 削除済 |
+| プレビューペイン | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/preview.rs` 削除済 |
 | Quick Look (Spacebar 全画面プレビュー) | IDEAS で「やらない」 | プレビュー全般を持たない方針と整合 |
 | Undo (コピー操作) | [ADR 0006](./adr/0006-undo-scope.md) | 破壊的になるため対象外 |
 | USN ジャーナル監視 | 本セッションで確定 | Everything HTTP API 連携で代替 |
