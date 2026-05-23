@@ -19,7 +19,7 @@ pub fn tab_button(app: AppState, tab: Tab) -> impl IntoView {
     let locked = tab.locked;
 
     let title_label = label(move || {
-        // first leaf の title を反応的に取得
+        // first leaf の title を反応的に取得 (pretty_title が `C: name` / `🌐 share` の prefix 付与済み)
         root_sig.with(|r| {
             r.first_leaf()
                 .map(|p| {
