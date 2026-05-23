@@ -15,8 +15,6 @@ pub enum AppError {
     Watch(String),
     #[error("canceled")]
     Canceled,
-    #[error("plugin error: {0}")]
-    Plugin(String),
     #[error("win32 error: {0}")]
     Win32(String),
     #[error("parse error: {0}")]
@@ -37,7 +35,6 @@ impl AppError {
             AppError::NotSupported(_) => "not_supported",
             AppError::Watch(_) => "watch",
             AppError::Canceled => "canceled",
-            AppError::Plugin(_) => "plugin",
             AppError::Win32(_) => "win32",
             AppError::Parse(_) => "parse",
             AppError::EnvMissing(_) => "env_missing",

@@ -689,6 +689,8 @@ pub struct AppState {
     /// app_view ルートの dyn_container がこれを track して全 UI を再構築し
     /// theme:: の関数評価を全 view で再走させる (即時反映)。
     pub theme_rev: RwSignal<u32>,
+    /// Undo 履歴 (ADR 0006/0008)。アプリ全体で 1 本、N=20、起動間で保持しない。
+    pub undo_manager: Arc<Mutex<fastfiler_domain::undo::UndoManager>>,
 }
 
 impl AppState {
@@ -737,6 +739,7 @@ impl AppState {
             pane_splitter_drag: RwSignal::new(None),
             tree_tick: RwSignal::new(0),
             theme_rev: RwSignal::new(0),
+            undo_manager: Arc::new(Mutex::new(fastfiler_domain::undo::UndoManager::new())),
         }
     }
 

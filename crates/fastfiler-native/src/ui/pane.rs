@@ -108,6 +108,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let name_col_width_sig = pane.name_col_width;
     let size_col_width_sig = pane.size_col_width;
     let mtime_col_width_sig = pane.mtime_col_width;
+    // Undo マネージャはアプリ全体で 1 本 (ADR 0006/0008)。
+    // UI からは clipboard_paste / delete_selected / confirm_modal の各クロージャに渡す必要がある。
+    // 個別の use-site (ctxmenu / blank ctxmenu / modal) ごとに事前に clone を取り分けておく。
     let col_resize_drag = floem::reactive::Scope::new()
         .create_rw_signal(None::<(ColumnResizeTarget, f64, f32, f32, f32)>);
     // ドラッグ候補 (PointerDown 時の文脈): (source_pane_id, paths, start_pos_in_pane).
@@ -164,9 +167,10 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         drag_candidate_for_nav.set(None);
                     }
                     // このペインを発生源とする dragging のみクリア (他ペインの D&D は維持)
-                    let should_clear = app_for_nav_clear
-                        .dragging
-                        .with_untracked(|d| d.as_ref().is_some_and(|ds| ds.source_pane == pane_id_for_nav));
+                    let should_clear = app_for_nav_clear.dragging.with_untracked(|d| {
+                        d.as_ref()
+                            .is_some_and(|ds| ds.source_pane == pane_id_for_nav)
+                    });
                     if should_clear {
                         crate::flog!(
                             "[drag] cleared by navigation pane={} (dragging)",
@@ -190,6 +194,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     let pane_for_modal_ok = pane.clone();
     let pane_for_modal_cancel = pane.clone();
     let pane_for_modal_enter = pane.clone();
+    let undo_mgr_modal = app.undo_manager.clone();
+    let undo_mgr_ctxmenu = app.undo_manager.clone();
+    let undo_mgr_blank = app.undo_manager.clone();
     let pane_for_keys = pane.clone();
     let pane_for_click = pane.clone();
     let pane_for_ctxmenu = pane.clone();
@@ -818,6 +825,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             })
             .context_menu({
                 let pane_ctx = pane_for_ctxmenu.clone();
+                let undo_ctx = undo_mgr_ctxmenu.clone();
                 move || {
                     let p_open = pane_ctx.clone();
                     let p_reveal = pane_ctx.clone();
@@ -827,6 +835,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let p_rename = pane_ctx.clone();
                     let p_delete = pane_ctx.clone();
                     let p_props = pane_ctx.clone();
+                    let undo_mgr = undo_ctx.clone();
                     // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
                     let _ = bg_idx; // 警告抑制 (以降のクロージャでは使用)
                     Menu::new("")
@@ -869,13 +878,19 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .entry(
                             MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")),
                         )
-                        .entry(MenuItem::new("貼り付け").action(move || p_paste.clipboard_paste()))
+                        .entry(MenuItem::new("貼り付け").action({
+                            let um = undo_mgr.clone();
+                            move || p_paste.clipboard_paste(&um)
+                        }))
                         .separator()
                         .entry(
                             MenuItem::new("名前の変更")
                                 .action(move || p_rename.open_rename_modal()),
                         )
-                        .entry(MenuItem::new("削除").action(move || p_delete.delete_selected()))
+                        .entry(MenuItem::new("削除").action({
+                            let um = undo_mgr.clone();
+                            move || p_delete.delete_selected(&um)
+                        }))
                         .separator()
                         .entry(MenuItem::new("プロパティ").action(move || {
                             let cur = p_props.cur_path.get();
@@ -895,19 +910,33 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
 
     let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0).min_height(0));
 
-    let status = label(move || {
-        let st = stats.get();
-        let sel_count = selected.with(|s| s.len());
-        let cnt = sink.counter.lock();
-        let msg = status_msg.get();
-        format!(
-            "items: {}   load: {:.2} ms   selected: {}   fs-change: {}   {}",
-            st.count, st.load_ms, sel_count, *cnt, msg
-        )
-    })
+    // ステータスバー: 左側にメッセージ (status_msg)、右側に統計 (items/load/selected/fs-change)。
+    // メッセージ側を flex_grow + min_width(0) にし、ペイン幅が狭くてもメッセージが必ず表示される
+    // (はみ出した場合は統計側ではなくメッセージ側の末尾が省略される)。以前は 1 個の label に
+    // 末尾結合で詰め込んでいたため、ペイン幅が狭いと `ready` 等の末尾が見えなくなっていた。
+    let status = h_stack((
+        label(move || status_msg.get()).style(|s| {
+            s.flex_grow(1.0)
+                .flex_basis(0)
+                .min_width(0)
+                .color(theme::text_normal())
+        }),
+        label(move || {
+            let st = stats.get();
+            let sel_count = selected.with(|s| s.len());
+            let cnt = sink.counter.lock();
+            format!(
+                "items: {}   load: {:.2} ms   selected: {}   fs-change: {}",
+                st.count, st.load_ms, sel_count, *cnt
+            )
+        })
+        .style(|s| s.color(theme::text_dim())),
+    ))
     .style(|s| {
         s.height(22)
+            .width_full()
             .padding_horiz(8)
+            .gap(12)
             .items_center()
             .background(theme::bg_chrome())
             .border_top(1)
@@ -988,6 +1017,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 let pane_ok = pane_for_modal_ok.clone();
                 let pane_cancel = pane_for_modal_cancel.clone();
                 let pane_enter = pane_for_modal_enter.clone();
+                let um_enter = undo_mgr_modal.clone();
+                let um_ok = undo_mgr_modal.clone();
                 h_stack((
                     label(move || title.to_string())
                         .style(|s| s.padding_horiz(8).color(theme::text_normal())),
@@ -1001,13 +1032,15 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                         .on_event_stop(EventListener::KeyDown, move |e| {
                             if let Event::KeyDown(ke) = e {
                                 match &ke.key.logical_key {
-                                    Key::Named(NamedKey::Enter) => pane_enter.confirm_modal(),
+                                    Key::Named(NamedKey::Enter) => {
+                                        pane_enter.confirm_modal(&um_enter)
+                                    }
                                     Key::Named(NamedKey::Escape) => pane_enter.close_modal(),
                                     _ => {}
                                 }
                             }
                         }),
-                    button("OK").action(move || pane_ok.confirm_modal()),
+                    button("OK").action(move || pane_ok.confirm_modal(&um_ok)),
                     button("Cancel").action(move || pane_cancel.close_modal()),
                 ))
                 .style(|s| {
@@ -1369,6 +1402,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             let p_newfile = pane_for_blank_ctxmenu.clone();
             let p_paste = pane_for_blank_ctxmenu.clone();
             let p_reload = pane_for_blank_ctxmenu.clone();
+            let undo_blank = undo_mgr_blank.clone();
             move || {
                 Menu::new("")
                     .entry(MenuItem::new("エクスプローラで開く").action({
@@ -1400,7 +1434,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     }))
                     .entry(MenuItem::new("貼り付け").action({
                         let p = p_paste.clone();
-                        move || p.clipboard_paste()
+                        let um = undo_blank.clone();
+                        move || p.clipboard_paste(&um)
                     }))
                     .separator()
                     .entry(MenuItem::new("更新").action({

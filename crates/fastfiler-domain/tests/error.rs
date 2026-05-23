@@ -4,7 +4,6 @@ use fastfiler_domain::error::AppError;
 #[test]
 fn kind_returns_machine_readable_tag() {
     assert_eq!(AppError::Canceled.kind(), "canceled");
-    assert_eq!(AppError::Plugin("x".into()).kind(), "plugin");
     assert_eq!(AppError::Win32("x".into()).kind(), "win32");
     assert_eq!(AppError::Parse("x".into()).kind(), "parse");
     assert_eq!(AppError::EnvMissing("APPDATA").kind(), "env_missing");
@@ -21,10 +20,6 @@ fn kind_returns_machine_readable_tag() {
 fn display_messages_include_context() {
     assert_eq!(format!("{}", AppError::Canceled), "canceled");
     assert_eq!(
-        format!("{}", AppError::Plugin("zip read".into())),
-        "plugin error: zip read"
-    );
-    assert_eq!(
         format!("{}", AppError::EnvMissing("APPDATA")),
         "env var missing: APPDATA"
     );
@@ -36,6 +31,6 @@ fn serialize_keeps_string_compatibility() {
     // シリアライズは文字列のままであることを保証する。
     let json = serde_json::to_string(&AppError::Canceled).unwrap();
     assert_eq!(json, "\"canceled\"");
-    let json2 = serde_json::to_string(&AppError::Plugin("x".into())).unwrap();
-    assert_eq!(json2, "\"plugin error: x\"");
+    let json2 = serde_json::to_string(&AppError::Win32("x".into())).unwrap();
+    assert_eq!(json2, "\"win32 error: x\"");
 }

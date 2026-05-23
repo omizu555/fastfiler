@@ -5,13 +5,16 @@
 //! こちらに分離する。`impl PaneState` の追加 impl ブロックとして書ける。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use fastfiler_domain::file_ops as fops;
+use fastfiler_domain::undo::{MoveItem, TrashedItem, UndoManager, UndoOp};
 use fastfiler_domain::win_clipboard as wcb;
 use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
+use parking_lot::Mutex;
 
 use crate::fs_model::{sort_rows, unique_dest, SortKey};
-use crate::state::{ModalKind, PaneState};
+use crate::state::{AppState, ModalKind, PaneState};
 
 impl PaneState {
     // ───── 履歴ナビゲーション ─────
@@ -123,41 +126,61 @@ impl PaneState {
     // ───── ファイル操作 (削除 / モーダル経由の作成・リネーム) ─────
 
     /// 選択をゴミ箱へ送る
-    pub fn delete_selected(&self) {
-        let paths: Vec<String> = self
-            .selected_paths()
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
+    ///
+    /// ADR 0008 S4: Undo 対応のため 1 件ずつ trash 処理して成否を取得し、
+    /// 成功分だけを `TrashedItem` 化して `undo_manager` に push する。
+    pub fn delete_selected(&self, undo_manager: &Arc<Mutex<UndoManager>>) {
+        let paths: Vec<PathBuf> = self.selected_paths();
         if paths.is_empty() {
             crate::flog!("[delete] no selection, skip");
             return;
         }
         let n = paths.len();
-        crate::flog!("[delete] -> trash: {} files: {:?}", n, paths);
-        // SHFileOperationW は通常 panic しないが、念のため catch_unwind で保護
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            fops::delete_to_trash(paths)
-        }));
-        // 削除後はインデックスがズレるので必ず選択をクリア
-        self.selected.set(im::OrdSet::new());
-        self.anchor.set(None);
-        match result {
-            Ok(Ok(())) => {
-                self.status_msg
-                    .set(format!("ごみ箱へ送りました ({} 件)", n));
-                self.reload();
-            }
-            Ok(Err(e)) => {
-                self.status_msg.set(format!("削除失敗: {}", e));
-                self.reload();
-            }
-            Err(_) => {
-                self.status_msg
-                    .set(String::from("削除失敗: 内部例外 (詳細はログ参照)"));
-                self.reload();
+        crate::flog!("[delete] -> trash: {} files", n);
+
+        let mut ok_items: Vec<TrashedItem> = Vec::with_capacity(n);
+        let mut ng = 0usize;
+        for p in &paths {
+            // 削除前にメタ情報を採取 (Undo 復元時の識別キーに使う)
+            let meta = std::fs::metadata(p).ok();
+            let snapshot = meta.map(|m| TrashedItem {
+                original_path: p.clone(),
+                file_name: p.file_name().map(|s| s.to_os_string()).unwrap_or_default(),
+                size: if m.is_dir() { 0 } else { m.len() },
+                modified: m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                is_dir: m.is_dir(),
+                deleted_at: std::time::SystemTime::now(),
+            });
+            let path_str = p.to_string_lossy().into_owned();
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                fops::delete_to_trash(vec![path_str])
+            }));
+            match (res, snapshot) {
+                (Ok(Ok(())), Some(item)) => ok_items.push(item),
+                (Ok(Ok(())), None) => {} // メタが取れず Undo 不可だが削除自体は成功
+                (Ok(Err(e)), _) => {
+                    crate::flog!("[delete] op error on {}: {}", p.display(), e);
+                    ng += 1;
+                }
+                (Err(_), _) => {
+                    crate::flog!("[delete] panic on {}", p.display());
+                    ng += 1;
+                }
             }
         }
+        let ok_n = ok_items.len();
+        if !ok_items.is_empty() {
+            undo_manager.lock().push(UndoOp::Trash { items: ok_items });
+        }
+        self.selected.set(im::OrdSet::new());
+        self.anchor.set(None);
+        if ng == 0 {
+            self.status_msg
+                .set(format!("ごみ箱へ送りました ({} 件)", ok_n));
+        } else {
+            self.status_msg.set(format!("削除 OK={} / NG={}", ok_n, ng));
+        }
+        self.reload();
     }
 
     pub fn open_new_folder_modal(&self) {
@@ -191,7 +214,7 @@ impl PaneState {
         self.modal_input.set(String::new());
     }
 
-    pub fn confirm_modal(&self) {
+    pub fn confirm_modal(&self, undo_manager: &Arc<Mutex<UndoManager>>) {
         let kind = self.modal_kind.get_untracked();
         let input = self.modal_input.get_untracked().trim().to_string();
         if input.is_empty() {
@@ -238,6 +261,10 @@ impl PaneState {
                     to.to_string_lossy().into_owned(),
                 ) {
                     Ok(()) => {
+                        undo_manager.lock().push(UndoOp::Rename {
+                            from: from.clone(),
+                            to: to.clone(),
+                        });
                         self.status_msg
                             .set(format!("リネーム: {} → {}", orig, input));
                         self.close_modal();
@@ -289,7 +316,9 @@ impl PaneState {
     }
 
     /// クリップボードから貼り付け (Copy / Move を自動判別)
-    pub fn clipboard_paste(&self) {
+    ///
+    /// move 経由で成功した項目は 1 ユーザーアクション = 1 UndoOp::Move として push する (ADR 0008 D3)。
+    pub fn clipboard_paste(&self, undo_manager: &Arc<Mutex<UndoManager>>) {
         let cb = match wcb::clipboard_read_paths() {
             Ok(Some(c)) => c,
             Ok(None) => {
@@ -313,6 +342,7 @@ impl PaneState {
         );
         let mut ok = 0usize;
         let mut err = 0usize;
+        let mut moved: Vec<MoveItem> = Vec::new();
         for src in &cb.paths {
             let from = PathBuf::from(src);
             let name = from.file_name().map(|s| s.to_string_lossy().into_owned());
@@ -333,16 +363,150 @@ impl PaneState {
                 fops::copy_path(src.clone(), dst.to_string_lossy().into_owned())
             };
             match res {
-                Ok(()) => ok += 1,
+                Ok(()) => {
+                    ok += 1;
+                    if is_move {
+                        // ADR 0008 D4: 同名衝突回避でリネームされる可能性があるため
+                        // Undo は「実際の配置先」を記録する。
+                        moved.push(MoveItem {
+                            from: from.clone(),
+                            to: dst.clone(),
+                        });
+                    }
+                }
                 Err(e) => {
                     crate::flog!("[paste] op error: {}", e);
                     err += 1;
                 }
             }
         }
+        if !moved.is_empty() {
+            undo_manager.lock().push(UndoOp::Move { items: moved });
+        }
         let label = if is_move { "移動" } else { "コピー" };
         self.status_msg
             .set(format!("{} 完了 OK={} / NG={}", label, ok, err));
         self.reload();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AppState::undo (ADR 0006/0008)
+// ─────────────────────────────────────────────────────────────
+
+impl AppState {
+    /// 直近の Undo 操作を実行する。
+    ///
+    /// ADR 0008 S5: ロックは pop のみで取り、I/O はロック外で実行する。
+    /// 完全失敗時は元の op を stack 末尾へ戻し、部分失敗時は失敗分のみを
+    /// 新しい UndoOp として末尾へ push する (Ctrl+Z 連打で再試行可能)。
+    pub fn undo(&self) {
+        let op = { self.undo_manager.lock().pop() };
+        let Some(op) = op else {
+            if let Some(p) = self.active_pane() {
+                p.status_msg.set(String::from("Undo 履歴なし"));
+            }
+            return;
+        };
+        crate::flog!("[undo] start: {} ({} 件)", op.label(), op.count());
+
+        let (msg, remainder) = match op {
+            UndoOp::Rename { from, to } => {
+                match fops::rename_path_no_overwrite(
+                    to.to_string_lossy().into_owned(),
+                    from.to_string_lossy().into_owned(),
+                ) {
+                    Ok(()) => (format!("Undo: リネーム取消 ({})", from.display()), None),
+                    Err(e) => {
+                        crate::flog!("[undo] rename failed: {}", e);
+                        (
+                            format!("Undo 失敗 (リネーム): {}", e),
+                            Some(UndoOp::Rename { from, to }),
+                        )
+                    }
+                }
+            }
+            UndoOp::Move { items } => {
+                let mut failed: Vec<MoveItem> = Vec::new();
+                let mut ok = 0usize;
+                for it in &items {
+                    match fops::move_path_no_overwrite(
+                        it.to.to_string_lossy().into_owned(),
+                        it.from.to_string_lossy().into_owned(),
+                    ) {
+                        Ok(()) => ok += 1,
+                        Err(e) => {
+                            crate::flog!(
+                                "[undo] move-back failed {} -> {}: {}",
+                                it.to.display(),
+                                it.from.display(),
+                                e
+                            );
+                            failed.push(it.clone());
+                        }
+                    }
+                }
+                let total = items.len();
+                let remainder = if failed.is_empty() {
+                    None
+                } else if failed.len() == total {
+                    Some(UndoOp::Move { items: failed })
+                } else {
+                    Some(UndoOp::Move { items: failed })
+                };
+                (
+                    format!("Undo: 移動取消 OK={} / NG={}", ok, total - ok),
+                    remainder,
+                )
+            }
+            UndoOp::Trash { items } => {
+                let mut failed: Vec<TrashedItem> = Vec::new();
+                let mut ok = 0usize;
+                for it in &items {
+                    match fops::restore_from_trash(it) {
+                        Ok(()) => ok += 1,
+                        Err(e) => {
+                            crate::flog!(
+                                "[undo] restore failed {}: {}",
+                                it.original_path.display(),
+                                e
+                            );
+                            failed.push(it.clone());
+                        }
+                    }
+                }
+                let total = items.len();
+                let extra_hint = if !failed.is_empty() {
+                    " (ゴミ箱から自動復元できなかった項目があります)"
+                } else {
+                    ""
+                };
+                let remainder = if failed.is_empty() {
+                    None
+                } else {
+                    Some(UndoOp::Trash { items: failed })
+                };
+                (
+                    format!(
+                        "Undo: ゴミ箱送り取消 OK={} / NG={}{}",
+                        ok,
+                        total - ok,
+                        extra_hint
+                    ),
+                    remainder,
+                )
+            }
+        };
+
+        if let Some(rem) = remainder {
+            self.undo_manager.lock().push(rem);
+        }
+
+        if let Some(p) = self.active_pane() {
+            p.status_msg.set(msg);
+            p.reload();
+        }
+        // FS 監視通知 (ツリー等の更新)
+        self.tree_tick.update(|t| *t = t.wrapping_add(1));
     }
 }

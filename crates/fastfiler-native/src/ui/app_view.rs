@@ -135,8 +135,7 @@ fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
                             let pair_sum = v[pd.idx_a] + v[pd.idx_a + 1];
                             let min_r = (0.05_f32).min(pair_sum * 0.5);
                             let max_a = pair_sum - min_r;
-                            let new_a = ((cur_px - prev_boundary_px) / total)
-                                .clamp(min_r, max_a);
+                            let new_a = ((cur_px - prev_boundary_px) / total).clamp(min_r, max_a);
                             let new_b = pair_sum - new_a;
                             v[pd.idx_a] = new_a;
                             v[pd.idx_a + 1] = new_b;

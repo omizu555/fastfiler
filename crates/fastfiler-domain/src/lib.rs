@@ -1,12 +1,17 @@
-//! FastFiler のドメインロジック (Tauri 非依存)。
+//! FastFiler のドメインロジック (GUI 非依存)。
 //!
-//! Phase 2B (段階移行中):
-//!  - `error`: アプリ共通エラー型
-//!  - `events`: 任意の sink にイベントを emit するための抽象
-//!  - `fs`: ファイルシステム列挙・stat・ドライブ列挙
+//! 公開モジュール:
+//!  - `error` / `events`: 共通エラー型と event sink 抽象
+//!  - `fs` / `file_ops` / `file_jobs` / `watcher`: ファイルシステム操作
+//!  - `search` / `everything`: 検索 (内蔵 + Everything HTTP)
+//!  - `shell` / `shell_assoc` / `win_clipboard` / `icons`: Windows シェル統合
+//!  - `templates` / `user_commands`: 新規ファイルテンプレートとユーザーコマンド
+//!  - `undo`: in-memory Undo スタック (ADR 0006/0008)
 //!
-//! 残りのモジュール (search / file_jobs / term / ... の純粋部分) は
-//! 後続コミットで順次移動する。
+//! 不採用モジュール (削除済):
+//!  - プラグイン機構: ADR 0003
+//!  - 内蔵ターミナル: ADR 0004
+//!  - サムネイル / プレビュー: ADR 0005
 
 pub mod error;
 pub mod events;
@@ -15,14 +20,11 @@ pub mod file_jobs;
 pub mod file_ops;
 pub mod fs;
 pub mod icons;
-pub mod plugin;
-pub mod preview;
 pub mod search;
 pub mod shell;
 pub mod shell_assoc;
 pub mod templates;
-pub mod term;
-pub mod thumbnail;
+pub mod undo;
 pub mod user_commands;
 pub mod watcher;
 pub mod win_clipboard;

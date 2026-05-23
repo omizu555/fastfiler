@@ -169,8 +169,6 @@ pub(super) fn default_hotkeys() -> Vec<(&'static str, &'static str)> {
         ("paste", "Ctrl+V"),
         ("select-all", "Ctrl+A"),
         ("search", "Ctrl+F"),
-        ("toggle-preview", "Ctrl+P"),
-        ("toggle-plugin", "Ctrl+Shift+P"),
         ("open-settings", "Ctrl+,"),
         ("new-tab", "Ctrl+T"),
         ("close-tab", "Ctrl+W"),
@@ -180,7 +178,6 @@ pub(super) fn default_hotkeys() -> Vec<(&'static str, &'static str)> {
         ("toggle-tree", "Ctrl+Shift+E"),
         ("address-bar", "Ctrl+L"),
         ("undo", "Ctrl+Z"),
-        ("toggle-terminal", "Ctrl+`"),
         ("pane-back", "Alt+Left"),
         ("pane-forward", "Alt+Right"),
     ]

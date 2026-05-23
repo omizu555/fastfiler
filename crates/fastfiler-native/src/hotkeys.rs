@@ -163,7 +163,7 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         }
         "delete" => {
             if let Some(p) = pane {
-                p.delete_selected();
+                p.delete_selected(&app.undo_manager);
             }
         }
         "delete-permanent" => {
@@ -188,7 +188,7 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         }
         "paste" => {
             if let Some(p) = pane {
-                p.clipboard_paste();
+                p.clipboard_paste(&app.undo_manager);
             }
         }
         "select-all" => {
@@ -245,9 +245,9 @@ pub fn dispatch_action(app: &AppState, action: &str) -> bool {
         }
         // ─────────── 設定 ───────────
         "open-settings" => app.settings_open.set(true),
+        "undo" => app.undo(),
         // ─────────── 未実装 (status_msg にだけ流す) ───────────
-        "toggle-preview" | "toggle-plugin" | "toggle-tabs" | "toggle-tree" | "undo"
-        | "toggle-terminal" => {
+        "toggle-tabs" | "toggle-tree" => {
             if let Some(p) = pane {
                 p.status_msg.set(format!("(action '{}' 未実装)", action));
             }
