@@ -89,8 +89,8 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 - [x] **`Ctrl+Shift+E` トグル配線** — `panel_dock_tree` を `hidden` ↔ 直前位置 でトグル
 - [x] **キーボード操作** (↑↓ で選択移動 / → で展開 or 最初の子 / ← で折畳 or 親へ / Home/End / Enter でペイン反映 / Esc でフォーカス解除)
       — `tree_focused` / `tree_focused_path` を AppState に保持し、Ctrl+Shift+E は 3 状態サイクル化 (非表示→表示+focus / focus→非表示 / 非focus→focus)
-- [ ] **UNC サーバノード自動登録** (`\\server\share` を 🖥️ サーバ配下に集約、
-      右クリックで「ツリーから削除」、永続化先は `settings.ron`)
+- [x] **UNC サーバノード自動登録** (`\\server\share` を 🖥️ サーバ配下に集約、
+      右クリックで「ツリーから削除」/「サーバごと削除」、`settings.ron` に永続化)
 
 ### タブ / ペイン強化
 - [ ] **ペイン内ツリービュー** (`📋 / 🌲` 切替) — フォルダのみ表示

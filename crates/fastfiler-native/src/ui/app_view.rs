@@ -232,6 +232,74 @@ pub fn app_view() -> impl IntoView {
         );
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  ワークスペースツリー: UNC 自動登録 + tree_roots 再構築 + auto-save
+    // ─────────────────────────────────────────────────────────────
+    // 全タブ全ペインの cur_path を track。UNC を検出したら share root を
+    // tree_unc_shares に追加 (正規化 + 大文字小文字無視 dedup)。
+    {
+        let app_for_unc = app.clone();
+        floem::reactive::create_effect(move |_| {
+            let tabs_v = app_for_unc.tabs.get();
+            let mut found_shares: Vec<String> = Vec::new();
+            for tab in tabs_v.iter() {
+                // BSP 構造変化も track
+                tab.root.with(|_| {});
+                for pane in tab.all_panes() {
+                    let p = pane.cur_path.get();
+                    if let Some(norm) = crate::core::tree_model::normalize_unc_share(&p) {
+                        let s = norm.to_string_lossy().into_owned();
+                        if !found_shares.contains(&s) {
+                            found_shares.push(s);
+                        }
+                    }
+                }
+            }
+            if found_shares.is_empty() {
+                return;
+            }
+            let cur = app_for_unc.settings.tree_unc_shares.get_untracked();
+            let cur_set: std::collections::HashSet<String> =
+                cur.iter().map(|s| s.to_lowercase()).collect();
+            let mut next = cur.clone();
+            let mut added = false;
+            for s in found_shares {
+                if !cur_set.contains(&s.to_lowercase()) {
+                    next.push(s);
+                    added = true;
+                }
+            }
+            if added {
+                app_for_unc.settings.tree_unc_shares.set(next);
+            }
+        });
+    }
+
+    // tree_unc_shares の変化を watch → tree_roots を rebuild + settings.save()。
+    // 初回 (prev=None) の rebuild は読み込み済 shares で行うが save はスキップ。
+    {
+        let app_for_rebuild = app.clone();
+        floem::reactive::create_effect(move |prev: Option<Vec<String>>| {
+            let shares = app_for_rebuild.settings.tree_unc_shares.get();
+            // ローカルドライブ一覧 (起動中変化しない想定)
+            let drives = crate::fs_model::list_drives();
+            let existing = app_for_rebuild.tree_roots.get_untracked();
+            let new_roots =
+                crate::core::tree_model::reconcile_tree_roots(&existing, &drives, &shares);
+            app_for_rebuild.tree_roots.set(new_roots);
+
+            // 初回は save しない、2 回目以降で内容が変わった時のみ save
+            if let Some(p) = &prev {
+                if p != &shares {
+                    if let Err(e) = app_for_rebuild.settings.save() {
+                        eprintln!("[settings] tree_unc_shares save error: {}", e);
+                    }
+                }
+            }
+            shares
+        });
+    }
+
     // テーマ/プリセット/アクセント変更時に theme_rev をインクリメントして全 UI を再構築する。
     // theme.rs の関数はクロージャ評価のたびに最新値を返すので、再構築すれば即時反映される。
     {

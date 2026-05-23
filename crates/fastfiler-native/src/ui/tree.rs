@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use floem::event::{Event, EventListener, EventPropagation};
 use floem::keyboard::{Key, KeyEvent, NamedKey};
+use floem::menu::{Menu, MenuItem};
 use floem::prelude::*;
 use floem::reactive::{SignalGet, SignalUpdate};
 use floem::style::CursorStyle;
@@ -11,15 +12,15 @@ use floem::views::{container, dyn_container, h_stack, label, scroll, v_stack, De
 
 use crate::core::tree_model::{
     expand_to_path, find_node, parent_in_tree, reload_expanded_recursive, visible_paths,
-    visual_index, TreeNode,
+    visual_index, TreeNode, TreeNodeKind,
 };
-use crate::fs_model::list_drives;
 use crate::state::AppState;
 use crate::theme;
 
 pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::AnyView {
     let expanded = node.expanded;
     let children = node.children;
+    let kind = node.kind;
     let path_for_nav = node.path.clone();
     let path_for_focus_style = node.path.clone();
     let path_for_click = node.path.clone();
@@ -63,12 +64,18 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
                 .color(theme::text_normal())
         })
         .on_click_stop(move |_| {
+            // UncServer (仮想 root) はナビゲートしない (実在しない path のため)
+            if matches!(kind, TreeNodeKind::UncServer) {
+                return;
+            }
             if let Some(p) = app_for_click.active_pane() {
                 p.navigate(path_for_nav.clone(), true);
             }
         });
 
     let indent = (depth as f32) * 14.0 + 4.0;
+    let app_for_menu = app.clone();
+    let path_for_menu = node.path.clone();
     let row = h_stack((arrow, name_lbl))
         .style(move |s| {
             // 自分のパスがフォーカス中なら淡いアクセント背景。tree_focused=false の時は薄く。
@@ -97,6 +104,9 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
                 .tree_focused_path
                 .set(Some(path_for_click.clone()));
             app_for_row_click.request_tree_focus();
+        })
+        .context_menu(move || {
+            build_tree_node_menu(app_for_menu.clone(), kind, path_for_menu.clone())
         });
 
     let app_for_kids = app.clone();
@@ -122,15 +132,69 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
     v_stack((row, kids)).style(|s| s.flex_col()).into_any()
 }
 
-pub fn tree_pane(app: AppState) -> impl IntoView {
-    // 初回のみ drives で初期化 (UNC 等は将来 push_back で追加)
-    if app.tree_roots.get_untracked().is_empty() {
-        let roots: im::Vector<TreeNode> = list_drives()
-            .into_iter()
-            .map(|d| TreeNode::new(PathBuf::from(d)))
-            .collect();
-        app.tree_roots.set(roots);
+/// ツリーノードの右クリックメニューを構築。
+/// UncServer はそのサーバ配下の全 share を削除、UncShare は単一 share を削除。
+fn build_tree_node_menu(app: AppState, kind: TreeNodeKind, path: PathBuf) -> Menu {
+    match kind {
+        TreeNodeKind::UncServer => {
+            // \\server 形式 → 配下 (\\server\*) を全削除
+            let server_prefix = {
+                let s = path.to_string_lossy().to_string();
+                // 末尾の \ を除いた \\server を比較用に
+                s.trim_end_matches('\\').to_lowercase()
+            };
+            let app_for_act = app.clone();
+            Menu::new("").entry(
+                MenuItem::new("ツリーから削除 (サーバごと)").action(move || {
+                    let cur = app_for_act.settings.tree_unc_shares.get_untracked();
+                    let next: Vec<String> = cur
+                        .into_iter()
+                        .filter(|s| {
+                            // \\server\share の prefix が \\server (大文字小文字無視) と一致するものを除外
+                            let lower = s.to_lowercase();
+                            !(lower.starts_with(&format!("{}\\", server_prefix))
+                                || lower == server_prefix)
+                        })
+                        .collect();
+                    app_for_act.settings.tree_unc_shares.set(next);
+                    // フォーカスがこのサーバ配下を指していたらクリア
+                    if let Some(fp) = app_for_act.tree_focused_path.get_untracked() {
+                        let fp_lower = fp.to_string_lossy().to_lowercase();
+                        if fp_lower.starts_with(&server_prefix) {
+                            app_for_act.tree_focused_path.set(None);
+                        }
+                    }
+                }),
+            )
+        }
+        TreeNodeKind::UncShare => {
+            let share_path = path.to_string_lossy().to_string();
+            let share_lower = share_path.to_lowercase();
+            let app_for_act = app.clone();
+            Menu::new("").entry(MenuItem::new("ツリーから削除").action(move || {
+                let cur = app_for_act.settings.tree_unc_shares.get_untracked();
+                let next: Vec<String> = cur
+                    .into_iter()
+                    .filter(|s| s.to_lowercase() != share_lower)
+                    .collect();
+                app_for_act.settings.tree_unc_shares.set(next);
+                if let Some(fp) = app_for_act.tree_focused_path.get_untracked() {
+                    let fp_lower = fp.to_string_lossy().to_lowercase();
+                    if fp_lower == share_lower
+                        || fp_lower.starts_with(&format!("{}\\", share_lower))
+                    {
+                        app_for_act.tree_focused_path.set(None);
+                    }
+                }
+            }))
+        }
+        _ => Menu::new(""),
     }
+}
+
+pub fn tree_pane(app: AppState) -> impl IntoView {
+    // tree_roots は AppState の effect (app_view.rs) で reconcile される。
+    // ここでは空の roots でも OK (起動直後は空でも UI は壊れない)。
     let roots_sig = app.tree_roots;
     // スクロール先 Y 座標 (フォローエフェクトが set、scroll が読む)
     let scroll_target: RwSignal<Option<floem::kurbo::Point>> =
@@ -157,6 +221,8 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
     let app_for_follow = app.clone();
     let roots_for_follow = roots_sig;
     floem::reactive::create_effect(move |_| {
+        // tree_roots 自体の変化 (UNC 登録等) でも再走する
+        let _ = roots_for_follow.get();
         // active タブ id を track
         let id = app_for_follow.active.get();
         let tabs = app_for_follow.tabs.get();

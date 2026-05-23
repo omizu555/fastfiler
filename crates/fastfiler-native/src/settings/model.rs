@@ -65,6 +65,8 @@ pub struct AppSettings {
     pub tab_layouts: RwSignal<Vec<String>>,
     /// 各タブのロック状態 (open_tabs と同順)。長さが合わない場合は false 扱い。
     pub tab_locked: RwSignal<Vec<bool>>,
+    /// ワークスペースツリーに登録された UNC share root (正規化済 `\\server\share`)。
+    pub tree_unc_shares: RwSignal<Vec<String>>,
 }
 
 impl AppSettings {
@@ -141,6 +143,7 @@ impl AppSettings {
             open_tabs: RwSignal::new(p.open_tabs.clone()),
             tab_layouts: RwSignal::new(p.tab_layouts.clone()),
             tab_locked: RwSignal::new(p.tab_locked.clone()),
+            tree_unc_shares: RwSignal::new(p.tree_unc_shares.clone()),
         }
     }
 

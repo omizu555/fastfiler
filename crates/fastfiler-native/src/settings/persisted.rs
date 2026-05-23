@@ -96,6 +96,9 @@ pub struct PersistedSettings {
     /// 長さが合わなくても安全側 (false 扱い) で復元する。
     #[serde(default)]
     pub tab_locked: Vec<bool>,
+    /// ワークスペースツリーに登録された UNC share root のリスト (正規化済 `\\server\share`)。
+    #[serde(default)]
+    pub tree_unc_shares: Vec<String>,
 }
 
 pub(super) fn def_true() -> bool {
@@ -184,6 +187,7 @@ impl Default for PersistedSettings {
             open_tabs: Vec::new(),
             tab_layouts: Vec::new(),
             tab_locked: Vec::new(),
+            tree_unc_shares: Vec::new(),
         }
     }
 }
@@ -240,6 +244,7 @@ impl PersistedSettings {
             open_tabs: a.open_tabs.get(),
             tab_layouts: a.tab_layouts.get(),
             tab_locked: a.tab_locked.get(),
+            tree_unc_shares: a.tree_unc_shares.get(),
         }
     }
 
