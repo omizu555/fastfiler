@@ -453,7 +453,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(p) = e {
+                if let Event::PointerDown(_p) = e {
                     if let Some(t) = app_for_resize_name.active_tab() {
                         if t.active_pane.get_untracked() != pane_id_for_resize {
                             t.active_pane.set(pane_id_for_resize);
@@ -462,8 +462,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let n = name_w_sig_for_name.get_untracked().clamp(24.0, 1200.0);
                     let s = size_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
                     let m = mtime_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
-                    // start_x はクリック位置をそのまま使う (列幅計算からの再構築は誤差が乗りやすい)
-                    let start_x = p.pos.x;
+                    // start_x はペイン相対座標 (PointerMove と座標系を合わせる)
+                    let start_x = 60.0 + n as f64 + 3.5;
                     col_resize_for_name.set(Some((ColumnResizeTarget::Name, start_x, n, s, m)));
                 }
             }),
@@ -493,7 +493,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(p) = e {
+                if let Event::PointerDown(_p) = e {
                     if let Some(t) = app_for_resize_size.active_tab() {
                         if t.active_pane.get_untracked() != pane_id_for_resize {
                             t.active_pane.set(pane_id_for_resize);
@@ -502,7 +502,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     let n = name_w_sig_for_size.get_untracked().clamp(24.0, 1200.0);
                     let s = size_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
                     let m = mtime_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
-                    let start_x = p.pos.x;
+                    let start_x = 60.0 + n as f64 + 7.0 + s as f64 + 3.5;
                     col_resize_for_size.set(Some((ColumnResizeTarget::Size, start_x, n, s, m)));
                 }
             }),
