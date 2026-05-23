@@ -23,6 +23,7 @@ use crate::theme;
 /// アプリルートに重ねるモーダルオーバーレイ全体。
 pub fn modal_dialog(app: AppState) -> impl IntoView {
     let tabs_sig = app.tabs;
+    let tabs_for_style = tabs_sig;
     dyn_container(
         move || {
             // 全ペインの modal_kind を track して最初の non-None を取り出す。
@@ -41,12 +42,23 @@ pub fn modal_dialog(app: AppState) -> impl IntoView {
             Some((pane_id, kind)) => render_overlay(app.clone(), pane_id, kind).into_any(),
         },
     )
-    .style(|s| {
-        s.position(Position::Absolute)
-            .inset_left(0)
-            .inset_top(0)
-            .inset_right(0)
-            .inset_bottom(0)
+    .style(move |s| {
+        // モーダルが無いときは display:none にしてヒットテストから外す
+        // (Position::Absolute + inset 0 のままだと全画面を覆ってクリックが吸われる)
+        let has_modal = tabs_for_style.get().iter().any(|t| {
+            t.all_panes()
+                .into_iter()
+                .any(|p| !matches!(p.modal_kind.get(), ModalKind::None))
+        });
+        if has_modal {
+            s.position(Position::Absolute)
+                .inset_left(0)
+                .inset_top(0)
+                .inset_right(0)
+                .inset_bottom(0)
+        } else {
+            s.hide()
+        }
     })
 }
 
