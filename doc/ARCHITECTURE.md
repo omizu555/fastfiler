@@ -1,6 +1,6 @@
 # FastFiler アーキテクチャ
 
-最終更新: 2026-05-09 (機能別フォルダ構成 + lib/bin 分割後)
+最終更新: 2026-05-23 (ADR 0001/0003/0004/0005 によるコード削除後)
 
 ---
 
@@ -22,12 +22,10 @@ fastfiler/
 │   │       ├── everything.rs   Everything HTTP API クライアント
 │   │       ├── shell.rs        ShellExecuteW / open_with_shell
 │   │       ├── shell_assoc.rs  拡張子→ProgID ルックアップ
-│   │       ├── thumbnail.rs    IShellItemImageFactory + LRU
-│   │       ├── preview.rs      画像 / テキストプレビュー
+│   │       ├── icons.rs        SHGetFileInfo + ExtractIcon + LRU
+│   │       ├── user_commands.rs commands.json のロード + 実行
 │   │       ├── templates.rs    テンプレからのファイル作成
-│   │       ├── win_clipboard.rs Windows クリップボード操作
-│   │       ├── plugin.rs       プラグインローダ (将来用)
-│   │       └── term.rs         portable-pty ターミナル
+│   │       └── win_clipboard.rs Windows クリップボード操作
 │   │
 │   └── fastfiler-native/       floem ベースの GUI (bin + lib)
 │       └── src/
@@ -150,3 +148,18 @@ borrow / lifetime 問題が発生しない構造を維持している。
 - `ui/pane.rs` (~950 行) → `ui/pane/{list, search, dnd, context_menu, modal}.rs` への分割
 - `settings/mod.rs` (~745 行) → `settings/{model, persisted, dialog/{tab_general, tab_theme, ...}}.rs` への分割
 - `ui/app_view.rs` の effect 群を `ui/effects.rs` に集約 (見通し改善)
+
+---
+
+## 7. 不採用機能と削除済モジュール
+
+[`adr/`](./adr/) の決定により、以下は **意図的に持たない**。コード上にも残骸を残さず、将来「未完成のフックがある」と誤読されないようにしている。
+
+| 不採用 | ADR | 削除/不在のもの |
+|---|---|---|
+| ペイン連動 (Red/Blue) | [0001](./adr/0001-remove-pane-linking.md) | `PaneState` から連動フィールドを削除済 |
+| プラグイン機構 (JS/WASM) | [0003](./adr/0003-remove-plugin-system.md) | `fastfiler-domain::plugin` / `doc/plugins-sample/` / `AppError::Plugin` / `zip` 依存 |
+| 内蔵ターミナル | [0004](./adr/0004-no-builtin-terminal.md) | `fastfiler-domain::term` / `portable-pty` 依存 / `toggle-terminal` ホットキー |
+| サムネイル / プレビュー | [0005](./adr/0005-no-media-preview.md) | `fastfiler-domain::thumbnail` / `preview` / `base64` 依存 / `toggle-preview` ホットキー |
+
+ユーザーが追加機能を欲しがった場合の正規ルートは **`commands.json` (外部プロセス起動)** または **Shift+右クリック (`IContextMenu`)** ([ADR 0007](./adr/0007-shell-context-menu-shift-only.md))。
