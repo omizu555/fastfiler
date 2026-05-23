@@ -98,7 +98,7 @@ fn collect_visible_dirs(dir: &Path, is_hidden: &dyn Fn(&Path) -> bool) -> Result
         }
         names.push(entry.file_name().to_string_lossy().into_owned());
     }
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names.sort_by_key(|a| a.to_lowercase());
     Ok(names)
 }
 
