@@ -27,7 +27,23 @@ pub fn open_with_shell(path: String) -> AppResult<()> {
             "xltx" | "xltm" | "xlt" | "dotx" | "dotm" | "dot" | "potx" | "potm" | "pot" => None,
             _ => Some("open"),
         };
-        win::shell_exec(verb, &path, None)
+        // 作業ディレクトリはファイルの親フォルダを指定する。
+        // 指定しないと FastFiler の cwd が継承され、.bat 等で相対パスが
+        // 想定外の場所基準になる (エクスプローラのダブルクリック動作と揃える)。
+        //
+        // 例外:
+        // - .lnk / .url: ショートカット自身が「作業フォルダ」を持つので
+        //   ここで上書きせず shell に解決を任せる。
+        // - ディレクトリ: explorer 起動で cwd は無意味なので None にする
+        //   (親フォルダを渡してしまうと意味的に紛らわしい)。
+        let pth = std::path::Path::new(&path);
+        let skip_cwd = matches!(ext.as_str(), "lnk" | "url") || pth.is_dir();
+        let cwd = if skip_cwd {
+            None
+        } else {
+            pth.parent().and_then(|p| p.to_str()).map(|s| s.to_owned())
+        };
+        win::shell_exec(verb, &path, None, cwd.as_deref())
     }
     #[cfg(not(windows))]
     {
@@ -41,7 +57,7 @@ pub fn reveal_in_explorer(path: String) -> AppResult<()> {
     {
         // explorer.exe /select,"path" でファイルを選択状態でフォルダを開く
         let arg = format!("/select,\"{}\"", path);
-        win::shell_exec(Some("open"), "explorer.exe", Some(&arg))
+        win::shell_exec(Some("open"), "explorer.exe", Some(&arg), None)
     }
     #[cfg(not(windows))]
     {
@@ -83,10 +99,16 @@ mod win {
             .collect()
     }
 
-    pub fn shell_exec(op: Option<&str>, file: &str, args: Option<&str>) -> AppResult<()> {
+    pub fn shell_exec(
+        op: Option<&str>,
+        file: &str,
+        args: Option<&str>,
+        cwd: Option<&str>,
+    ) -> AppResult<()> {
         let op_w = op.map(wide);
         let file_w = wide(file);
         let args_w = args.map(wide);
+        let cwd_w = cwd.map(wide);
         let hinst = unsafe {
             ShellExecuteW(
                 None,
@@ -98,7 +120,10 @@ mod win {
                     .as_ref()
                     .map(|w| PCWSTR(w.as_ptr()))
                     .unwrap_or(PCWSTR::null()),
-                PCWSTR::null(),
+                cwd_w
+                    .as_ref()
+                    .map(|w| PCWSTR(w.as_ptr()))
+                    .unwrap_or(PCWSTR::null()),
                 SW_SHOWNORMAL,
             )
         };
