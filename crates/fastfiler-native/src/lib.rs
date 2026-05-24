@@ -39,6 +39,16 @@ pub fn run_app() {
     logger::init();
     flog!("[main] settings load start");
 
+    // 多重起動チェック (Windows のみ)。既に起動中なら既存ウィンドウを前面化して終了。
+    #[cfg(windows)]
+    {
+        if !crate::win32::single_instance::acquire_single_instance() {
+            flog!("[main] another instance is already running; activating existing window and exiting");
+            crate::win32::single_instance::activate_existing_window();
+            return;
+        }
+    }
+
     // OLE D&D (送信側) 初期化。UI スレッドで 1 回だけ呼ぶ。
     // 失敗してもアプリは続行 (is_ole_available() が false で start_drag が抑止される)。
     #[cfg(windows)]

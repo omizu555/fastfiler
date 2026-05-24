@@ -5,3 +5,4 @@
 #![cfg(windows)]
 
 pub mod right_drag_hook;
+pub mod single_instance;
