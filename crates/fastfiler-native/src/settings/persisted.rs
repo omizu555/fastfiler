@@ -16,12 +16,6 @@ pub struct PersistedSettings {
     pub initial_path: String,
     #[serde(default)]
     pub show_hidden: bool,
-    #[serde(default = "def_true")]
-    pub show_thumbnails: bool,
-    #[serde(default)]
-    pub show_preview: bool,
-    #[serde(default)]
-    pub show_plugin_panel: bool,
     #[serde(default)]
     pub hide_pane_toolbar: bool,
     #[serde(default = "def_system")]
@@ -32,8 +26,6 @@ pub struct PersistedSettings {
     pub accent_color: String,
     #[serde(default = "def_emoji")]
     pub icon_set: String,
-    #[serde(default = "def_default")]
-    pub icon_pack: String,
     #[serde(default)]
     pub ui_font: String,
     #[serde(default = "def_13")]
@@ -45,10 +37,6 @@ pub struct PersistedSettings {
     pub tabs_width: String,
     #[serde(default = "def_240")]
     pub tree_width: String,
-    #[serde(default)]
-    pub same_panel_stack: bool,
-    #[serde(default = "def_tabs_left")]
-    pub workspace_layout: String,
     #[serde(default = "def_left")]
     pub panel_dock_tabs: String,
     #[serde(default = "def_left")]
@@ -62,20 +50,7 @@ pub struct PersistedSettings {
     pub everything_scope: bool,
 
     #[serde(default)]
-    pub show_terminal: bool,
-    #[serde(default = "def_240")]
-    pub terminal_height: String,
-    #[serde(default)]
-    pub terminal_shell: String,
-    #[serde(default)]
-    pub terminal_font: String,
-    #[serde(default = "def_13")]
-    pub terminal_font_size: String,
-
-    #[serde(default)]
     pub hotkeys: Vec<(String, String)>,
-    #[serde(default)]
-    pub plugins_enabled: Vec<(String, bool)>,
 
     #[serde(default)]
     pub window_x: Option<i32>,
@@ -128,9 +103,6 @@ pub(super) fn def_220() -> String {
 pub(super) fn def_240() -> String {
     String::from("240")
 }
-pub(super) fn def_tabs_left() -> String {
-    String::from("tabsLeft")
-}
 pub(super) fn def_left() -> String {
     String::from("left")
 }
@@ -146,23 +118,17 @@ impl Default for PersistedSettings {
         Self {
             initial_path: def_initial_path(),
             show_hidden: false,
-            show_thumbnails: true,
-            show_preview: false,
-            show_plugin_panel: false,
             hide_pane_toolbar: false,
             theme: def_system(),
             theme_preset: def_default(),
             accent_color: String::new(),
             icon_set: def_emoji(),
-            icon_pack: def_default(),
             ui_font: String::new(),
             ui_font_size: def_13(),
 
             tab_columns: def_1(),
             tabs_width: def_220(),
             tree_width: def_240(),
-            same_panel_stack: false,
-            workspace_layout: def_tabs_left(),
             panel_dock_tabs: def_left(),
             panel_dock_tree: def_left(),
 
@@ -170,14 +136,7 @@ impl Default for PersistedSettings {
             everything_port: def_80(),
             everything_scope: true,
 
-            show_terminal: false,
-            terminal_height: def_240(),
-            terminal_shell: String::new(),
-            terminal_font: String::new(),
-            terminal_font_size: def_13(),
-
             hotkeys: Vec::new(),
-            plugins_enabled: Vec::new(),
 
             window_x: None,
             window_y: None,
@@ -197,40 +156,23 @@ impl PersistedSettings {
         Self {
             initial_path: a.initial_path.get(),
             show_hidden: a.show_hidden.get(),
-            show_thumbnails: a.show_thumbnails.get(),
-            show_preview: a.show_preview.get(),
-            show_plugin_panel: a.show_plugin_panel.get(),
             hide_pane_toolbar: a.hide_pane_toolbar.get(),
             theme: a.theme.get(),
             theme_preset: a.theme_preset.get(),
             accent_color: a.accent_color.get(),
             icon_set: a.icon_set.get(),
-            icon_pack: a.icon_pack.get(),
             ui_font: a.ui_font.get(),
             ui_font_size: a.ui_font_size.get(),
             tab_columns: a.tab_columns.get(),
             tabs_width: a.tabs_width.get(),
             tree_width: a.tree_width.get(),
-            same_panel_stack: a.same_panel_stack.get(),
-            workspace_layout: a.workspace_layout.get(),
             panel_dock_tabs: a.panel_dock_tabs.get(),
             panel_dock_tree: a.panel_dock_tree.get(),
             search_backend: a.search_backend.get(),
             everything_port: a.everything_port.get(),
             everything_scope: a.everything_scope.get(),
-            show_terminal: a.show_terminal.get(),
-            terminal_height: a.terminal_height.get(),
-            terminal_shell: a.terminal_shell.get(),
-            terminal_font: a.terminal_font.get(),
-            terminal_font_size: a.terminal_font_size.get(),
             hotkeys: a
                 .hotkeys
-                .get()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.get()))
-                .collect(),
-            plugins_enabled: a
-                .plugins_enabled
                 .get()
                 .iter()
                 .map(|(k, v)| (k.clone(), v.get()))

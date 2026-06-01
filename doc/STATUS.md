@@ -141,10 +141,10 @@ FastFiler の機能を **「実装済」「採用予定 (未実装)」「不採�
 |---|---|---|
 | ペイン連動 (🔴Red / 🔵Blue) | [ADR 0001](./adr/0001-remove-pane-linking.md) | 温存コードも撤去予定 |
 | 同期スクロール | [ADR 0001](./adr/0001-remove-pane-linking.md) | 連動と一体で不採用 |
-| プラグイン機構 (JS / WASM) | [ADR 0003](./adr/0003-remove-plugin-system.md) | `domain/plugin.rs` 削除済 |
-| 内蔵ターミナル | [ADR 0004](./adr/0004-no-builtin-terminal.md) | `domain/term.rs` 削除済 / `commands.json` で外部起動 |
-| サムネイル一覧 | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/thumbnail.rs` 削除済 |
-| プレビューペイン | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/preview.rs` 削除済 |
+| プラグイン機構 (JS / WASM) | [ADR 0003](./adr/0003-remove-plugin-system.md) | `domain/plugin.rs` 削除済 / 設定 UI も撤去済 (2026-06-01) |
+| 内蔵ターミナル | [ADR 0004](./adr/0004-no-builtin-terminal.md) | `domain/term.rs` 削除済 / `commands.json` で外部起動 / 設定 UI も撤去済 (2026-06-01) |
+| サムネイル一覧 | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/thumbnail.rs` 削除済 / 設定 UI も撤去済 (2026-06-01) |
+| プレビューペイン | [ADR 0005](./adr/0005-no-media-preview.md) | `domain/preview.rs` 削除済 / 設定 UI も撤去済 (2026-06-01) |
 | Quick Look (Spacebar 全画面プレビュー) | IDEAS で「やらない」 | プレビュー全般を持たない方針と整合 |
 | Undo (コピー操作) | [ADR 0006](./adr/0006-undo-scope.md) | 破壊的になるため対象外 |
 | USN ジャーナル監視 | 本セッションで確定 | Everything HTTP API 連携で代替 |

@@ -13,15 +13,11 @@ pub struct AppSettings {
     // General
     pub initial_path: RwSignal<String>,
     pub show_hidden: RwSignal<bool>,
-    pub show_thumbnails: RwSignal<bool>,
-    pub show_preview: RwSignal<bool>,
-    pub show_plugin_panel: RwSignal<bool>,
     pub hide_pane_toolbar: RwSignal<bool>,
     pub theme: RwSignal<String>,        // "system" | "dark" | "light"
     pub theme_preset: RwSignal<String>, // "default" | "dracula" | ...
     pub accent_color: RwSignal<String>, // "#rrggbb" or ""
     pub icon_set: RwSignal<String>,     // "emoji" | "minimal" | "colored"
-    pub icon_pack: RwSignal<String>,    // "default" | "emoji" | ...
     pub ui_font: RwSignal<String>,
     pub ui_font_size: RwSignal<String>, // 文字列で保持 (text_input 用)
 
@@ -29,9 +25,7 @@ pub struct AppSettings {
     pub tab_columns: RwSignal<String>, // "1".."4"
     pub tabs_width: RwSignal<String>,
     pub tree_width: RwSignal<String>,
-    pub same_panel_stack: RwSignal<bool>,
-    pub workspace_layout: RwSignal<String>, // "tabsLeft" | "tabsRight" | "tabsHidden"
-    pub panel_dock_tabs: RwSignal<String>,  // "left" | "right" | "top" | "bottom" | "hidden"
+    pub panel_dock_tabs: RwSignal<String>, // "left" | "right" | "hidden"
     pub panel_dock_tree: RwSignal<String>,
 
     // Search
@@ -39,18 +33,8 @@ pub struct AppSettings {
     pub everything_port: RwSignal<String>,
     pub everything_scope: RwSignal<bool>,
 
-    // Terminal
-    pub show_terminal: RwSignal<bool>,
-    pub terminal_height: RwSignal<String>,
-    pub terminal_shell: RwSignal<String>,
-    pub terminal_font: RwSignal<String>,
-    pub terminal_font_size: RwSignal<String>,
-
     // Hotkeys (action -> combo)
     pub hotkeys: RwSignal<im::Vector<(String, RwSignal<String>)>>,
-
-    // Plugins (ID -> enabled)
-    pub plugins_enabled: RwSignal<im::Vector<(String, RwSignal<bool>)>>,
 
     // Window state (位置/サイズ復元用)
     pub window_x: RwSignal<Option<i32>>,
@@ -94,31 +78,20 @@ impl AppSettings {
                 })
                 .collect()
         };
-        let plugins_enabled: im::Vector<(String, RwSignal<bool>)> = p
-            .plugins_enabled
-            .iter()
-            .map(|(k, v)| (k.clone(), RwSignal::new(*v)))
-            .collect();
         Self {
             initial_path: RwSignal::new(p.initial_path.clone()),
             show_hidden: RwSignal::new(p.show_hidden),
-            show_thumbnails: RwSignal::new(p.show_thumbnails),
-            show_preview: RwSignal::new(p.show_preview),
-            show_plugin_panel: RwSignal::new(p.show_plugin_panel),
             hide_pane_toolbar: RwSignal::new(p.hide_pane_toolbar),
             theme: RwSignal::new(p.theme.clone()),
             theme_preset: RwSignal::new(p.theme_preset.clone()),
             accent_color: RwSignal::new(p.accent_color.clone()),
             icon_set: RwSignal::new(p.icon_set.clone()),
-            icon_pack: RwSignal::new(p.icon_pack.clone()),
             ui_font: RwSignal::new(p.ui_font.clone()),
             ui_font_size: RwSignal::new(p.ui_font_size.clone()),
 
             tab_columns: RwSignal::new(p.tab_columns.clone()),
             tabs_width: RwSignal::new(p.tabs_width.clone()),
             tree_width: RwSignal::new(p.tree_width.clone()),
-            same_panel_stack: RwSignal::new(p.same_panel_stack),
-            workspace_layout: RwSignal::new(p.workspace_layout.clone()),
             panel_dock_tabs: RwSignal::new(p.panel_dock_tabs.clone()),
             panel_dock_tree: RwSignal::new(p.panel_dock_tree.clone()),
 
@@ -126,14 +99,7 @@ impl AppSettings {
             everything_port: RwSignal::new(p.everything_port.clone()),
             everything_scope: RwSignal::new(p.everything_scope),
 
-            show_terminal: RwSignal::new(p.show_terminal),
-            terminal_height: RwSignal::new(p.terminal_height.clone()),
-            terminal_shell: RwSignal::new(p.terminal_shell.clone()),
-            terminal_font: RwSignal::new(p.terminal_font.clone()),
-            terminal_font_size: RwSignal::new(p.terminal_font_size.clone()),
-
             hotkeys: RwSignal::new(hotkeys),
-            plugins_enabled: RwSignal::new(plugins_enabled),
 
             window_x: RwSignal::new(p.window_x),
             window_y: RwSignal::new(p.window_y),

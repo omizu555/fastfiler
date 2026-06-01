@@ -308,27 +308,23 @@ pub fn app_view() -> impl IntoView {
         let preset_sig = app.settings.theme_preset;
         let accent_sig = app.settings.accent_color;
         let icon_set_sig = app.settings.icon_set;
-        let icon_pack_sig = app.settings.icon_pack;
-        floem::reactive::create_effect(
-            move |prev: Option<(String, String, String, String, String)>| {
-                let cur = (
-                    theme_sig.get(),
-                    preset_sig.get(),
-                    accent_sig.get(),
-                    icon_set_sig.get(),
-                    icon_pack_sig.get(),
-                );
-                if let Some(p) = prev.as_ref() {
-                    if p != &cur {
-                        crate::theme::set_mode_from_str(&cur.0);
-                        crate::theme::set_preset_from_str(&cur.1);
-                        crate::theme::set_accent_from_str(&cur.2);
-                        app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
-                    }
+        floem::reactive::create_effect(move |prev: Option<(String, String, String, String)>| {
+            let cur = (
+                theme_sig.get(),
+                preset_sig.get(),
+                accent_sig.get(),
+                icon_set_sig.get(),
+            );
+            if let Some(p) = prev.as_ref() {
+                if p != &cur {
+                    crate::theme::set_mode_from_str(&cur.0);
+                    crate::theme::set_preset_from_str(&cur.1);
+                    crate::theme::set_accent_from_str(&cur.2);
+                    app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
                 }
-                cur
-            },
-        );
+            }
+            cur
+        });
     }
 
     let theme_rev = app.theme_rev;
@@ -340,21 +336,19 @@ pub fn app_view() -> impl IntoView {
             } else {
                 let app = app.clone();
                 let app_for_layout = app.clone();
-                let layout_sig = app.settings.workspace_layout;
                 let dock_tabs_sig = app.settings.panel_dock_tabs;
                 let dock_tree_sig = app.settings.panel_dock_tree;
                 let main_row = dyn_container(
                     move || {
-                        let layout = layout_sig.get();
                         let dt = dock_tabs_sig.get();
                         let dr = dock_tree_sig.get();
-                        (layout, dt, dr)
+                        (dt, dr)
                     },
-                    move |(layout, dock_tabs, dock_tree)| {
+                    move |(dock_tabs, dock_tree)| {
                         let app = app_for_layout.clone();
-                        let tabs_hidden = layout == "tabsHidden" || dock_tabs == "hidden";
+                        let tabs_hidden = dock_tabs == "hidden";
                         let tree_hidden = dock_tree == "hidden";
-                        let tabs_right = dock_tabs == "right" || layout == "tabsRight";
+                        let tabs_right = dock_tabs == "right";
                         let tree_right = dock_tree == "right";
 
                         // 中央 active_panes はレイアウト再構築の都度新規生成する。

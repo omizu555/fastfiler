@@ -1,4 +1,4 @@
-//! 設定ダイアログ本体 (`settings_view`) と、各タブ (general/workspace/search/terminal/hotkeys/plugins/debug) のビュー。
+//! 設定ダイアログ本体 (`settings_view`) と、各タブ (general/workspace/search/hotkeys/debug) のビュー。
 
 use floem::prelude::*;
 use floem::style::CursorStyle;
@@ -15,22 +15,13 @@ use super::widgets::{row_check, row_font, row_input, row_select, section_label};
 fn tab_general(s: &AppSettings) -> floem::AnyView {
     let body = v_stack((
         section_label("General"),
-        row_input("起動パス (initialPath)", s.initial_path),
-        row_check("隠しファイルを表示 (showHidden)", s.show_hidden),
-        row_check("サムネイル表示 (showThumbnails)", s.show_thumbnails),
-        row_check("プレビュー表示 (showPreview)", s.show_preview),
-        row_check(
-            "プラグインパネル表示 (showPluginPanel)",
-            s.show_plugin_panel,
-        ),
-        row_check(
-            "ペインツールバーを隠す (hidePaneToolbar)",
-            s.hide_pane_toolbar,
-        ),
+        row_input("起動パス", s.initial_path),
+        row_check("隠しファイルを表示", s.show_hidden),
+        row_check("ペインツールバーを隠す", s.hide_pane_toolbar),
         section_label("Theme"),
-        row_select("テーマ (theme)", s.theme, vec!["system", "dark", "light"]),
+        row_select("テーマ", s.theme, vec!["system", "dark", "light"]),
         row_select(
-            "プリセット (themePreset)",
+            "プリセット",
             s.theme_preset,
             vec![
                 "default",
@@ -43,14 +34,13 @@ fn tab_general(s: &AppSettings) -> floem::AnyView {
         ),
         row_input("アクセントカラー (#rrggbb)", s.accent_color),
         row_select(
-            "アイコンセット (iconSet)",
+            "アイコンセット",
             s.icon_set,
             vec!["emoji", "minimal", "colored"],
         ),
-        row_input("アイコンパック (iconPack)", s.icon_pack),
         section_label("Font"),
-        row_font("UI フォント (uiFont)", s.ui_font),
-        row_input("UI フォントサイズ (uiFontSize)", s.ui_font_size),
+        row_font("UI フォント", s.ui_font),
+        row_input("UI フォントサイズ", s.ui_font_size),
     ))
     .style(|s| s.flex_col());
     container(body).style(|s| s.padding(8)).into_any()
@@ -59,24 +49,18 @@ fn tab_general(s: &AppSettings) -> floem::AnyView {
 fn tab_workspace(s: &AppSettings) -> floem::AnyView {
     let body = v_stack((
         section_label("Workspace"),
-        row_input("タブ列数 (tabColumns)", s.tab_columns),
-        row_input("タブ幅 px (tabsWidth)", s.tabs_width),
-        row_input("ツリー幅 px (treeWidth)", s.tree_width),
-        row_check("同パネル積み重ね (samePanelStack)", s.same_panel_stack),
+        row_input("タブ列数 (1〜4)", s.tab_columns),
+        row_input("タブ幅 (px)", s.tabs_width),
+        row_input("ツリー幅 (px)", s.tree_width),
         row_select(
-            "レイアウト (workspace.layout)",
-            s.workspace_layout,
-            vec!["tabsLeft", "tabsRight", "tabsHidden"],
-        ),
-        row_select(
-            "タブパネル位置 (panelDock.tabs)",
+            "タブパネル位置",
             s.panel_dock_tabs,
-            vec!["left", "right", "top", "bottom", "float", "hidden"],
+            vec!["left", "right", "hidden"],
         ),
         row_select(
-            "ツリーパネル位置 (panelDock.tree)",
+            "ツリーパネル位置",
             s.panel_dock_tree,
-            vec!["left", "right", "top", "bottom", "float", "hidden"],
+            vec!["left", "right", "hidden"],
         ),
     ))
     .style(|s| s.flex_col());
@@ -87,25 +71,12 @@ fn tab_search(s: &AppSettings) -> floem::AnyView {
     let body = v_stack((
         section_label("Search"),
         row_select(
-            "バックエンド (searchBackend)",
+            "検索バックエンド",
             s.search_backend,
             vec!["builtin", "everything"],
         ),
-        row_input("Everything ポート (everythingPort)", s.everything_port),
-        row_check("Everything スコープ (everythingScope)", s.everything_scope),
-    ))
-    .style(|s| s.flex_col());
-    container(body).style(|s| s.padding(8)).into_any()
-}
-
-fn tab_terminal(s: &AppSettings) -> floem::AnyView {
-    let body = v_stack((
-        section_label("Terminal"),
-        row_check("ターミナル表示 (showTerminal)", s.show_terminal),
-        row_input("ターミナル高さ px (terminalHeight)", s.terminal_height),
-        row_input("シェル (terminalShell)", s.terminal_shell),
-        row_input("フォント (terminalFont)", s.terminal_font),
-        row_input("フォントサイズ (terminalFontSize)", s.terminal_font_size),
+        row_input("Everything ポート", s.everything_port),
+        row_check("Everything スコープ", s.everything_scope),
     ))
     .style(|s| s.flex_col());
     container(body).style(|s| s.padding(8)).into_any()
@@ -136,43 +107,6 @@ fn tab_hotkeys(s: &AppSettings) -> floem::AnyView {
     container(floem::views::stack_from_iter(rows).style(|s| s.flex_col()))
         .style(|s| s.padding(8))
         .into_any()
-}
-
-fn tab_plugins(s: &AppSettings) -> floem::AnyView {
-    let plugins = s.plugins_enabled.get();
-    let body: floem::AnyView = if plugins.is_empty() {
-        v_stack((
-            section_label("Plugins"),
-            label(|| String::from("(プラグインは検出されていません)"))
-                .style(|s| s.padding(12).color(theme::text_dim())),
-        ))
-        .style(|s| s.flex_col())
-        .into_any()
-    } else {
-        let mut rows: Vec<floem::AnyView> = Vec::new();
-        rows.push(section_label("Plugins").into_any());
-        for (id, sig) in plugins.iter() {
-            let id_text = id.clone();
-            let sig = *sig;
-            rows.push(
-                label(move || {
-                    let mark = if sig.get() { "[v]" } else { "[ ]" };
-                    format!("{} {}", mark, id_text)
-                })
-                .style(|s| {
-                    s.padding(6)
-                        .cursor(CursorStyle::Pointer)
-                        .color(theme::text_normal())
-                })
-                .on_click_stop(move |_| sig.set(!sig.get()))
-                .into_any(),
-            );
-        }
-        floem::views::stack_from_iter(rows)
-            .style(|s| s.flex_col())
-            .into_any()
-    };
-    container(body).style(|s| s.padding(8)).into_any()
 }
 
 pub fn settings_view(settings: AppSettings, open: RwSignal<bool>) -> impl IntoView {
@@ -236,9 +170,7 @@ pub fn settings_view(settings: AppSettings, open: RwSignal<bool>) -> impl IntoVi
         make_tab("general", "General"),
         make_tab("workspace", "Workspace"),
         make_tab("search", "Search"),
-        make_tab("terminal", "Terminal"),
         make_tab("hotkeys", "Hotkeys"),
-        make_tab("plugins", "Plugins"),
         make_tab("debug", "Debug"),
     ))
     .style(|s| {
@@ -257,9 +189,7 @@ pub fn settings_view(settings: AppSettings, open: RwSignal<bool>) -> impl IntoVi
             "general" => tab_general(&settings_for_body),
             "workspace" => tab_workspace(&settings_for_body),
             "search" => tab_search(&settings_for_body),
-            "terminal" => tab_terminal(&settings_for_body),
             "hotkeys" => tab_hotkeys(&settings_for_body),
-            "plugins" => tab_plugins(&settings_for_body),
             "debug" => tab_debug(perf_snapshot),
             _ => label(|| String::new()).into_any(),
         },
