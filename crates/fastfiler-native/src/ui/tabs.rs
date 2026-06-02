@@ -187,11 +187,7 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
         move |(tabs, cols, width_str)| {
             let app = app_for_grid.clone();
             let total = tabs.len();
-            let rows = if total == 0 {
-                0
-            } else {
-                (total + cols - 1) / cols
-            };
+            let rows = if total == 0 { 0 } else { total.div_ceil(cols) };
             // パネル幅から固定列幅を算出 (padding 8 + gap 2 * (cols-1))
             let panel_w = width_str
                 .parse::<f32>()

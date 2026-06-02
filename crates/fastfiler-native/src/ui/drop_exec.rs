@@ -113,15 +113,9 @@ pub fn execute_drop(
             dst.display()
         );
         let res = if is_move {
-            fops::move_path(
-                from.to_string_lossy().into_owned(),
-                dst.to_string_lossy().into_owned(),
-            )
+            fops::move_path(from, dst)
         } else {
-            fops::copy_path(
-                from.to_string_lossy().into_owned(),
-                dst.to_string_lossy().into_owned(),
-            )
+            fops::copy_path(from, dst)
         };
         match res {
             Ok(()) => {

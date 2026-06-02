@@ -149,7 +149,7 @@ pub fn render_tree_node(app: AppState, node: TreeNode, depth: usize) -> floem::A
         move || (expanded.get(), children.get()),
         move |(open, kids)| {
             if !open {
-                return container(label(|| String::new()))
+                return container(label(String::new))
                     .style(|s| s.height(0))
                     .into_any();
             }

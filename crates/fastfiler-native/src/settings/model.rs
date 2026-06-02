@@ -5,8 +5,56 @@
 //! - 各シグナルは UI / effect から直接 read/write される
 
 use floem::prelude::*;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::persisted::{settings_path, PersistedSettings};
+
+/// ファイル行に表示するアイコンの種類。
+///
+/// 永続化 (RON) 表現は後方互換のため小文字文字列 (`"emoji"` 等) を用いる。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum IconSet {
+    /// 拡張子別の絵文字。
+    #[default]
+    Emoji,
+    /// 記号のみ (▸ / ·)。
+    Minimal,
+    /// OS のシステムアイコン (カラー)。
+    Colored,
+}
+
+impl IconSet {
+    /// 永続化/設定文字列表現を返す。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IconSet::Emoji => "emoji",
+            IconSet::Minimal => "minimal",
+            IconSet::Colored => "colored",
+        }
+    }
+
+    /// 設定文字列から復元する (未知の値は `Emoji`)。
+    pub fn from_setting(s: &str) -> Self {
+        match s {
+            "minimal" => IconSet::Minimal,
+            "colored" => IconSet::Colored,
+            _ => IconSet::Emoji,
+        }
+    }
+}
+
+impl Serialize for IconSet {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for IconSet {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(de)?;
+        Ok(IconSet::from_setting(&s))
+    }
+}
 
 #[derive(Clone)]
 pub struct AppSettings {
@@ -17,9 +65,9 @@ pub struct AppSettings {
     pub theme: RwSignal<String>,        // "system" | "dark" | "light"
     pub theme_preset: RwSignal<String>, // "default" | "dracula" | ...
     pub accent_color: RwSignal<String>, // "#rrggbb" or ""
-    pub icon_set: RwSignal<String>,     // "emoji" | "minimal" | "colored"
+    pub icon_set: RwSignal<IconSet>,
     pub ui_font: RwSignal<String>,
-    pub ui_font_size: RwSignal<String>, // 文字列で保持 (text_input 用)
+    pub ui_font_size: RwSignal<f32>,
 
     // Workspace
     pub tab_columns: RwSignal<String>, // "1".."4"
@@ -51,6 +99,12 @@ pub struct AppSettings {
     pub tab_locked: RwSignal<Vec<bool>>,
     /// ワークスペースツリーに登録された UNC share root (正規化済 `\\server\share`)。
     pub tree_unc_shares: RwSignal<Vec<String>>,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AppSettings {
@@ -85,9 +139,9 @@ impl AppSettings {
             theme: RwSignal::new(p.theme.clone()),
             theme_preset: RwSignal::new(p.theme_preset.clone()),
             accent_color: RwSignal::new(p.accent_color.clone()),
-            icon_set: RwSignal::new(p.icon_set.clone()),
+            icon_set: RwSignal::new(p.icon_set),
             ui_font: RwSignal::new(p.ui_font.clone()),
-            ui_font_size: RwSignal::new(p.ui_font_size.clone()),
+            ui_font_size: RwSignal::new(p.ui_font_size),
 
             tab_columns: RwSignal::new(p.tab_columns.clone()),
             tabs_width: RwSignal::new(p.tabs_width.clone()),

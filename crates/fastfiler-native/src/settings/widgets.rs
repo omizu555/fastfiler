@@ -37,6 +37,33 @@ pub(super) fn row_input(title: &'static str, sig: RwSignal<String>) -> impl Into
     .style(|s| s.padding(4).items_center().gap(8))
 }
 
+/// 数値 (f32) シグナルを文字列バッファ経由で編集する入力欄。
+/// 入力が有効な f32 のときだけ `sig` を更新する (このウィジェットが唯一の書き込み元)。
+pub(super) fn row_num_input(title: &'static str, sig: RwSignal<f32>) -> impl IntoView {
+    let buf = RwSignal::new(format!("{}", sig.get_untracked()));
+    floem::reactive::create_effect(move |_| {
+        let text = buf.get();
+        if let Ok(n) = text.trim().parse::<f32>() {
+            if (sig.get_untracked() - n).abs() > f32::EPSILON {
+                sig.set(n);
+            }
+        }
+    });
+    h_stack((
+        label(move || title.to_string())
+            .style(|s| s.width(220).padding(6).color(theme::text_label())),
+        text_input(buf).style(|s| {
+            s.flex_grow(1.0)
+                .padding(4)
+                .border(1)
+                .border_color(theme::border_strong())
+                .background(theme::bg_modal())
+                .color(theme::text_normal())
+        }),
+    ))
+    .style(|s| s.padding(4).items_center().gap(8))
+}
+
 pub(super) fn row_check(title: &'static str, sig: RwSignal<bool>) -> impl IntoView {
     h_stack((label(move || {
         let mark = if sig.get() { "[v]" } else { "[ ]" };
@@ -89,7 +116,47 @@ pub(super) fn row_select(
     .style(|s| s.padding(4).items_center().gap(8))
 }
 
-/// インストール済みフォントから選ぶ簡易コンボボックス。
+/// 任意の Copy 値を選ぶセグメント型セレクタ (enum 用)。
+/// `options` は (表示ラベル, 値) のペア。選択中の値はハイライトする。
+pub(super) fn row_select_value<T>(
+    title: &'static str,
+    sig: RwSignal<T>,
+    options: Vec<(&'static str, T)>,
+) -> impl IntoView
+where
+    T: Copy + PartialEq + 'static,
+{
+    let buttons: Vec<floem::AnyView> = options
+        .into_iter()
+        .map(|(text, val)| {
+            label(move || text.to_string())
+                .style(move |st| {
+                    let active = sig.get() == val;
+                    let bg = if active {
+                        theme::accent_select()
+                    } else {
+                        theme::bg_chrome()
+                    };
+                    st.padding_horiz(10)
+                        .padding_vert(4)
+                        .background(bg)
+                        .border(1)
+                        .border_color(theme::border_default())
+                        .cursor(CursorStyle::Pointer)
+                        .color(theme::text_normal())
+                })
+                .on_click_stop(move |_| sig.set(val))
+                .into_any()
+        })
+        .collect();
+
+    h_stack((
+        label(move || title.to_string())
+            .style(|s| s.width(220).padding(6).color(theme::text_label())),
+        floem::views::stack_from_iter(buttons).style(|s| s.flex_row().gap(2)),
+    ))
+    .style(|s| s.padding(4).items_center().gap(8))
+}
 /// text_input でフィルタ可能、▼ で候補を開閉、候補クリックで確定する。
 pub(super) fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoView {
     let all_fonts: Vec<String> = fonts::installed_fonts().to_vec();
@@ -101,7 +168,6 @@ pub(super) fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoV
 
     // sig が外部から変わったら入力欄も同期
     {
-        let filter = filter;
         floem::reactive::create_effect(move |_| {
             let v = sig.get();
             if filter.get_untracked() != v {
@@ -115,7 +181,7 @@ pub(super) fn row_font(title: &'static str, sig: RwSignal<String>) -> impl IntoV
         move || (open.get(), filter.get()),
         move |(o, f)| {
             if !o {
-                return container(label(|| String::new()))
+                return container(label(String::new))
                     .style(|s| s.height(0))
                     .into_any();
             }

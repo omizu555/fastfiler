@@ -9,8 +9,10 @@ use floem::views::{
 
 use crate::theme;
 
-use super::model::AppSettings;
-use super::widgets::{row_check, row_font, row_input, row_select, section_label};
+use super::model::{AppSettings, IconSet};
+use super::widgets::{
+    row_check, row_font, row_input, row_num_input, row_select, row_select_value, section_label,
+};
 
 fn tab_general(s: &AppSettings) -> floem::AnyView {
     let body = v_stack((
@@ -33,14 +35,18 @@ fn tab_general(s: &AppSettings) -> floem::AnyView {
             ],
         ),
         row_input("アクセントカラー (#rrggbb)", s.accent_color),
-        row_select(
+        row_select_value(
             "アイコンセット",
             s.icon_set,
-            vec!["emoji", "minimal", "colored"],
+            vec![
+                ("emoji", IconSet::Emoji),
+                ("minimal", IconSet::Minimal),
+                ("colored", IconSet::Colored),
+            ],
         ),
         section_label("Font"),
         row_font("UI フォント", s.ui_font),
-        row_input("UI フォントサイズ", s.ui_font_size),
+        row_num_input("UI フォントサイズ", s.ui_font_size),
     ))
     .style(|s| s.flex_col());
     container(body).style(|s| s.padding(8)).into_any()
@@ -191,7 +197,7 @@ pub fn settings_view(settings: AppSettings, open: RwSignal<bool>) -> impl IntoVi
             "search" => tab_search(&settings_for_body),
             "hotkeys" => tab_hotkeys(&settings_for_body),
             "debug" => tab_debug(perf_snapshot),
-            _ => label(|| String::new()).into_any(),
+            _ => label(String::new).into_any(),
         },
     )
     .style(|s| s.size_full().flex_grow(1.0));

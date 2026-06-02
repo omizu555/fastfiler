@@ -12,7 +12,7 @@ fn kind_returns_machine_readable_tag() {
     assert_eq!(AppError::NotSupported("x".into()).kind(), "not_supported");
     assert_eq!(AppError::Watch("x".into()).kind(), "watch");
     assert_eq!(AppError::Other("x".into()).kind(), "other");
-    let io = AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "e"));
+    let io = AppError::Io(std::io::Error::other("e"));
     assert_eq!(io.kind(), "io");
 }
 

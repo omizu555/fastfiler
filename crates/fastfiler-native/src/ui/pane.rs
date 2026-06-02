@@ -18,6 +18,7 @@ use floem::views::{
 use fastfiler_domain::icons as ficons;
 
 use crate::fs_model::{FileRow, SortKey};
+use crate::settings::IconSet;
 use crate::state::{AppState, DragState, PaneState};
 use crate::theme;
 
@@ -95,89 +96,76 @@ enum ColumnResizeTarget {
     Size,
 }
 
-pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
-    let cur_path = pane.cur_path;
-    let path_input = pane.path_input;
-    let rows = pane.rows;
-    let stats = pane.stats;
-    let selected = pane.selected;
-    let anchor = pane.anchor;
-    let status_msg = pane.status_msg;
-    let search_query = pane.search_query;
-    let search_open = pane.search_open;
-    let name_col_width_sig = pane.name_col_width;
-    let size_col_width_sig = pane.size_col_width;
-    let mtime_col_width_sig = pane.mtime_col_width;
-    let ui_font_size_sig = app.settings.ui_font_size;
-    // Undo マネージャはアプリ全体で 1 本 (ADR 0006/0008)。
-    // UI からは clipboard_paste / delete_selected / confirm_modal の各クロージャに渡す必要がある。
-    // 個別の use-site (ctxmenu / blank ctxmenu / modal) ごとに事前に clone を取り分けておく。
-    let col_resize_drag = floem::reactive::Scope::new()
-        .create_rw_signal(None::<(ColumnResizeTarget, f64, f32, f32, f32)>);
-    // ドラッグ候補 (PointerDown 時の文脈): (source_pane_id, paths, start_pos_in_pane, right_button).
-    // PointerMove で閾値を超えるまでは dragging に乗せず、誤発火を防ぐ。
-    let drag_candidate =
-        floem::reactive::Scope::new().create_rw_signal(None::<(u64, Vec<PathBuf>, Point, bool)>);
-    let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
-    let sink = pane.sink.clone();
+/// ドラッグ候補 (source_pane_id, paths, start_pos_in_pane, right_button)。
+type DragCandidate = (u64, Vec<PathBuf>, Point, bool);
+/// カラムリサイズ中の状態 (対象, start_x, name幅, size幅, mtime幅)。
+type ColResizeState = (ColumnResizeTarget, f64, f32, f32, f32);
+
+// ────────────────────────────────────────────────────────────────
+// Effect attachment
+// ────────────────────────────────────────────────────────────────
+
+/// FS 監視・ナビゲーションクリア・フィルタ計測の各エフェクトと
+/// Everything 検索エフェクトをペインに登録する。
+fn attach_pane_effects(
+    pane: PaneState,
+    app: AppState,
+    drag_candidate: RwSignal<Option<DragCandidate>>,
+) {
     let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
     let fs_change_tick = pane.fs_change_tick;
 
     // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
-    let pane_for_fs = pane.clone();
-    let app_for_fs = app.clone();
-    let pane_id_for_fs = pane.id;
-    floem::reactive::create_effect(move |prev: Option<u32>| {
-        // signal を track して変化時に rows のみ更新
-        let v = fs_event_signal.get();
-        let cur = fs_change_tick.get_untracked();
-        if v.is_some() {
-            let next = cur.wrapping_add(1);
-            fs_change_tick.set(next);
-            crate::flog!(
-                "[fs] pane={} event received, tick {}->{}",
-                pane_id_for_fs,
-                cur,
-                next
-            );
-            pane_for_fs.refresh_rows_only();
-            // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
-            app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
-        }
-        prev.unwrap_or(0).wrapping_add(1)
-    });
+    {
+        let pane_for_fs = pane.clone();
+        let app_for_fs = app.clone();
+        let pane_id = pane.id;
+        floem::reactive::create_effect(move |prev: Option<u32>| {
+            let v = fs_event_signal.get();
+            let cur = fs_change_tick.get_untracked();
+            if v.is_some() {
+                let next = cur.wrapping_add(1);
+                fs_change_tick.set(next);
+                crate::flog!(
+                    "[fs] pane={} event received, tick {}->{}",
+                    pane_id,
+                    cur,
+                    next
+                );
+                pane_for_fs.refresh_rows_only();
+                // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
+                app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
+            }
+            prev.unwrap_or(0).wrapping_add(1)
+        });
+    }
 
     // cur_path 変化を監視: ナビゲーション発生時に drag 関連状態を必ず掃除する。
     // ダブルクリックで子フォルダに入った場合などは、対応する PointerUp が
     // 元の view 破棄により発火しないので、drag_candidate / dragging が残留する
     // ことがある (戻った後にドラッグ状態が継続する症状の原因)。
     {
-        let app_for_nav_clear = app.clone();
-        let drag_candidate_for_nav = drag_candidate;
-        let pane_id_for_nav = pane.id;
+        let app_for_nav = app.clone();
+        let pane_id = pane.id;
         let cur_path_sig = pane.cur_path;
         floem::reactive::create_effect(move |prev: Option<PathBuf>| {
             let cur = cur_path_sig.get();
             if let Some(ref p) = prev {
                 if p != &cur {
-                    if drag_candidate_for_nav.get_untracked().is_some() {
+                    if drag_candidate.get_untracked().is_some() {
                         crate::flog!(
                             "[drag] cleared by navigation pane={} (drag_candidate)",
-                            pane_id_for_nav
+                            pane_id
                         );
-                        drag_candidate_for_nav.set(None);
+                        drag_candidate.set(None);
                     }
                     // このペインを発生源とする dragging のみクリア (他ペインの D&D は維持)
-                    let should_clear = app_for_nav_clear.dragging.with_untracked(|d| {
-                        d.as_ref()
-                            .is_some_and(|ds| ds.source_pane == pane_id_for_nav)
-                    });
+                    let should_clear = app_for_nav
+                        .dragging
+                        .with_untracked(|d| d.as_ref().is_some_and(|ds| ds.source_pane == pane_id));
                     if should_clear {
-                        crate::flog!(
-                            "[drag] cleared by navigation pane={} (dragging)",
-                            pane_id_for_nav
-                        );
-                        app_for_nav_clear.dragging.set(None);
+                        crate::flog!("[drag] cleared by navigation pane={} (dragging)", pane_id);
+                        app_for_nav.dragging.set(None);
                     }
                 }
             }
@@ -188,9 +176,8 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     // Everything 検索 effect (search/mod.rs に分離)
     crate::search::attach_everything_effect(&pane, &app);
 
-    // フィルタ計測 effect: search_query が変化したときに rows をフィルタする
-    // コストを計測する。filtered_rows closure 内で計測すると毎描画ごとに
-    // 二重計測されるのでここに独立 effect を置く。
+    // フィルタ計測 effect: search_query が変化したときのフィルタコストを計測する。
+    // filtered_rows closure 内で計測すると毎描画ごとに二重計測されるので独立 effect に置く。
     {
         let p_filter = pane.clone();
         floem::reactive::create_effect(move |prev: Option<String>| {
@@ -217,76 +204,128 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             q
         });
     }
+}
 
-    let pane_for_up = pane.clone();
-    let pane_for_reload = pane.clone();
-    let pane_for_dblclick = pane.clone();
-    let pane_for_addr_enter = pane.clone();
-    let undo_mgr_ctxmenu = app.undo_manager.clone();
-    let undo_mgr_blank = app.undo_manager.clone();
-    let jobs_ctxmenu = app.jobs.clone();
-    let jobs_blank = app.jobs.clone();
-    let pane_for_keys = pane.clone();
-    let pane_for_click = pane.clone();
-    let pane_for_ctxmenu = pane.clone();
-    let pane_for_blank_ctxmenu = pane.clone();
-    let pane_for_sort_name = pane.clone();
-    let pane_for_sort_size = pane.clone();
-    let pane_for_sort_mtime = pane.clone();
-    let sort_key_sig = pane.sort_key;
-    let sort_desc_sig = pane.sort_desc;
+// ────────────────────────────────────────────────────────────────
+// ステータスバー
+// ────────────────────────────────────────────────────────────────
 
-    let app_for_split_h = app.clone();
-    let app_for_split_v = app.clone();
-    let app_for_close_pane = app.clone();
-    let pane_id_for_close = pane.id;
-    let search_open_for_btn = pane.search_open;
-    let search_query_for_btn = pane.search_query;
-    let search_results_for_btn = pane.search_results;
-    let hide_toolbar_sig = app.settings.hide_pane_toolbar;
-    let left_toolbar = h_stack((button("↑").action(move || pane_for_up.up()),)).style(move |s| {
-        let s = s.gap(6).padding(6).items_center();
-        if hide_toolbar_sig.get() {
-            s.height(0).padding(0).hide()
-        } else {
-            s
-        }
-    });
-    let right_toolbar = h_stack((
-        button("🔍").action(move || {
-            let cur = search_open_for_btn.get_untracked();
-            if cur {
-                search_query_for_btn.set(String::new());
-                search_results_for_btn.set(None);
-                search_open_for_btn.set(false);
-            } else {
-                search_open_for_btn.set(true);
-            }
+fn pane_status_bar(pane: PaneState) -> impl IntoView {
+    let stats = pane.stats;
+    let status_msg = pane.status_msg;
+    let selected = pane.selected;
+    let sink = pane.sink.clone();
+    h_stack((
+        label(move || status_msg.get()).style(|s| {
+            s.flex_grow(1.0)
+                .flex_basis(0)
+                .min_width(0)
+                .color(theme::text_normal())
         }),
-        button("⟳").action(move || pane_for_reload.reload()),
-        button("⇔").action(move || app_for_split_h.split_active(false)),
-        button("⇕").action(move || app_for_split_v.split_active(true)),
-        button("✕").action(move || app_for_close_pane.close_pane(pane_id_for_close)),
+        label(move || {
+            let st = stats.get();
+            let sel_count = selected.with(|s| s.len());
+            let cnt = sink.counter.lock();
+            format!(
+                "items: {}   load: {:.2} ms   selected: {}   fs-change: {}",
+                st.count, st.load_ms, sel_count, *cnt
+            )
+        })
+        .style(|s| s.color(theme::text_dim())),
     ))
-    .style(move |s| {
-        let s = s.gap(6).padding(6).items_center().flex_shrink(0.0);
-        if hide_toolbar_sig.get() {
-            s.height(0).padding(0).hide()
-        } else {
-            s
-        }
-    });
+    .style(|s| {
+        s.height(22)
+            .width_full()
+            .padding_horiz(8)
+            .gap(12)
+            .items_center()
+            .background(theme::bg_chrome())
+            .border_top(1)
+            .border_color(theme::border_default())
+    })
+}
 
-    // パンくず + 編集モード統合 (旧 toolbar の text_input は削除し、breadcrumb をクリックで編集に切替)
+// ────────────────────────────────────────────────────────────────
+// 検索バー
+// ────────────────────────────────────────────────────────────────
+
+fn pane_search_bar(pane: PaneState) -> impl IntoView {
+    let search_open = pane.search_open;
+    let search_query = pane.search_query;
+    let search_results = pane.search_results;
+    dyn_container(
+        move || search_open.get(),
+        move |open| {
+            if !open {
+                return container(label(String::new))
+                    .style(|s| s.height(0))
+                    .into_any();
+            }
+            let q = search_query;
+            let results_clear = search_results;
+            h_stack((
+                label(|| String::from("🔍")).style(|s| s.padding_horiz(6).color(theme::text_dim())),
+                text_input(q)
+                    .style(|s| {
+                        s.flex_grow(1.0)
+                            .flex_basis(0)
+                            .min_width(0)
+                            .height(24)
+                            .padding_horiz(8)
+                            .padding_vert(4)
+                            .border(1)
+                            .border_color(theme::border_focus())
+                            .background(theme::bg_modal())
+                            .color(theme::text_normal())
+                    })
+                    .on_event_stop(EventListener::KeyDown, move |e| {
+                        if let Event::KeyDown(ke) = e {
+                            if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
+                                q.set(String::new());
+                                results_clear.set(None);
+                                search_open.set(false);
+                            }
+                        }
+                    }),
+                button("✕").action(move || {
+                    q.set(String::new());
+                    results_clear.set(None);
+                    search_open.set(false);
+                }),
+            ))
+            .style(|s| {
+                s.padding_horiz(4)
+                    .padding_vert(2)
+                    .gap(4)
+                    .items_center()
+                    .width_full()
+                    .height(28)
+                    .background(theme::bg_status())
+                    .border_bottom(1)
+                    .border_color(theme::border_default())
+            })
+            .into_any()
+        },
+    )
+    .style(|s| s.width_full())
+}
+
+// ────────────────────────────────────────────────────────────────
+// パンくずリスト（アドレスバー）
+// ────────────────────────────────────────────────────────────────
+
+fn pane_breadcrumb(pane: PaneState) -> impl IntoView {
+    let cur_path = pane.cur_path;
+    let path_input = pane.path_input;
+    // edit_mode はこのビュー内でのみ使用するローカル signal
     let edit_mode = floem::reactive::Scope::new().create_rw_signal(false);
     let pane_for_crumb = pane.clone();
-    let pane_for_addr_enter2 = pane_for_addr_enter.clone();
-    let breadcrumb = dyn_container(
+    let pane_for_enter = pane.clone();
+    dyn_container(
         move || (edit_mode.get(), cur_path.get()),
         move |(editing, p): (bool, PathBuf)| {
             if editing {
-                let path_input = path_input;
-                let pane_enter = pane_for_addr_enter2.clone();
+                let pane_enter = pane_for_enter.clone();
                 h_stack((text_input(path_input)
                     .style(|s| {
                         s.flex_grow(1.0)
@@ -347,7 +386,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     first = false;
                     let target = acc.clone();
                     let pane_seg = pane_for_crumb.clone();
-                    let display = part.trim_end_matches(|c| c == '\\' || c == '/').to_string();
+                    let display = part.trim_end_matches(['\\', '/']).to_string();
                     let display = if display.is_empty() {
                         String::from("(root)")
                     } else {
@@ -367,7 +406,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                 }
                 // 末尾余白 (クリックで編集モード)
                 items.push(
-                    container(label(|| String::new()))
+                    container(label(String::new))
                         .style(|s| s.flex_grow(1.0).height(20).cursor(CursorStyle::Text))
                         .into_any(),
                 );
@@ -397,7 +436,99 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             .flex_grow(1.0)
             .flex_basis(0)
             .background(theme::bg_modal())
+    })
+}
+
+// ────────────────────────────────────────────────────────────────
+// トップバー（ツールバー + パンくず）
+// ────────────────────────────────────────────────────────────────
+
+fn pane_top_bar(pane: PaneState, app: AppState) -> impl IntoView {
+    let hide_toolbar_sig = app.settings.hide_pane_toolbar;
+    let pane_for_up = pane.clone();
+    let left_toolbar = h_stack((button("↑").action(move || pane_for_up.up()),)).style(move |s| {
+        let s = s.gap(6).padding(6).items_center();
+        if hide_toolbar_sig.get() {
+            s.height(0).padding(0).hide()
+        } else {
+            s
+        }
     });
+
+    let search_open_for_btn = pane.search_open;
+    let search_query_for_btn = pane.search_query;
+    let search_results_for_btn = pane.search_results;
+    let pane_for_reload = pane.clone();
+    let app_for_split_h = app.clone();
+    let app_for_split_v = app.clone();
+    let pane_id_for_close = pane.id;
+    let app_for_close = app.clone();
+    let right_toolbar = h_stack((
+        button("🔍").action(move || {
+            let cur = search_open_for_btn.get_untracked();
+            if cur {
+                search_query_for_btn.set(String::new());
+                search_results_for_btn.set(None);
+                search_open_for_btn.set(false);
+            } else {
+                search_open_for_btn.set(true);
+            }
+        }),
+        button("⟳").action(move || pane_for_reload.reload()),
+        button("⇔").action(move || app_for_split_h.split_active(false)),
+        button("⇕").action(move || app_for_split_v.split_active(true)),
+        button("✕").action(move || app_for_close.close_pane(pane_id_for_close)),
+    ))
+    .style(move |s| {
+        let s = s.gap(6).padding(6).items_center().flex_shrink(0.0);
+        if hide_toolbar_sig.get() {
+            s.height(0).padding(0).hide()
+        } else {
+            s
+        }
+    });
+
+    let breadcrumb = pane_breadcrumb(pane);
+    h_stack((
+        left_toolbar,
+        breadcrumb.clip().style(|s| {
+            s.flex_grow(1.0)
+                .flex_basis(0)
+                .min_width(0)
+                .height(28)
+                .items_center()
+        }),
+        right_toolbar,
+    ))
+    .style(|s| {
+        s.width_full()
+            .items_center()
+            .border_bottom(1)
+            .border_color(theme::border_modal())
+    })
+}
+
+// ────────────────────────────────────────────────────────────────
+// カラムヘッダ（ソートボタン + リサイズハンドル）
+// ────────────────────────────────────────────────────────────────
+
+fn pane_column_header(
+    pane: PaneState,
+    app: AppState,
+    col_resize_drag: RwSignal<Option<ColResizeState>>,
+) -> impl IntoView {
+    let name_col_width_sig = pane.name_col_width;
+    let size_col_width_sig = pane.size_col_width;
+    let mtime_col_width_sig = pane.mtime_col_width;
+    let sort_key_sig = pane.sort_key;
+    let sort_desc_sig = pane.sort_desc;
+    let pane_id = pane.id;
+    let header_search_open = pane.search_open;
+    let pane_for_sort_name = pane.clone();
+    let pane_for_sort_size = pane.clone();
+    let pane_for_sort_mtime = pane.clone();
+    let app_for_resize_name = app.clone();
+    let app_for_resize_size = app.clone();
 
     let arrow = move |k: SortKey| -> String {
         if sort_key_sig.get() == k {
@@ -411,21 +542,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         }
     };
 
-    let header_search_open = pane.search_open;
-    let app_for_resize_name = app.clone();
-    let app_for_resize_size = app.clone();
-    let pane_id_for_resize = pane.id;
-    let col_resize_for_name = col_resize_drag;
-    let col_resize_for_size = col_resize_drag;
-    let name_w_sig_for_name = name_col_width_sig;
-    let size_w_sig_for_name = size_col_width_sig;
-    let mtime_w_sig_for_name = mtime_col_width_sig;
-    let name_w_sig_for_size = name_col_width_sig;
-    let size_w_sig_for_size = size_col_width_sig;
-    let mtime_w_sig_for_size = mtime_col_width_sig;
-    let col_resize_for_name_style = col_resize_drag;
-    let col_resize_for_size_style = col_resize_drag;
-    let header = h_stack((
+    h_stack((
         text("#").style(|s| s.width(60).padding_horiz(6).font_bold()),
         label(move || format!("Name{}", arrow(SortKey::Name)))
             .style(move |s| {
@@ -436,12 +553,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .cursor(CursorStyle::Pointer)
             })
             .on_click_stop(move |_| pane_for_sort_name.click_sort(SortKey::Name)),
-        container(label(|| String::new()))
+        container(label(String::new))
             .style(move |s| {
-                let active = matches!(
-                    col_resize_for_name_style.get(),
-                    Some((ColumnResizeTarget::Name, ..))
-                );
+                let active = matches!(col_resize_drag.get(), Some((ColumnResizeTarget::Name, ..)));
                 let bg = if active {
                     theme::border_focus()
                 } else {
@@ -453,18 +567,18 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(_p) = e {
+                if let Event::PointerDown(_) = e {
                     if let Some(t) = app_for_resize_name.active_tab() {
-                        if t.active_pane.get_untracked() != pane_id_for_resize {
-                            t.active_pane.set(pane_id_for_resize);
+                        if t.active_pane.get_untracked() != pane_id {
+                            t.active_pane.set(pane_id);
                         }
                     }
-                    let n = name_w_sig_for_name.get_untracked().clamp(24.0, 1200.0);
-                    let s = size_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
-                    let m = mtime_w_sig_for_name.get_untracked().clamp(24.0, 600.0);
+                    let n = name_col_width_sig.get_untracked().clamp(24.0, 1200.0);
+                    let s = size_col_width_sig.get_untracked().clamp(24.0, 600.0);
+                    let m = mtime_col_width_sig.get_untracked().clamp(24.0, 600.0);
                     // start_x はペイン相対座標 (PointerMove と座標系を合わせる)
                     let start_x = 60.0 + n as f64 + 3.5;
-                    col_resize_for_name.set(Some((ColumnResizeTarget::Name, start_x, n, s, m)));
+                    col_resize_drag.set(Some((ColumnResizeTarget::Name, start_x, n, s, m)));
                 }
             }),
         label(move || format!("Size{}", arrow(SortKey::Size)))
@@ -476,12 +590,9 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .cursor(CursorStyle::Pointer)
             })
             .on_click_stop(move |_| pane_for_sort_size.click_sort(SortKey::Size)),
-        container(label(|| String::new()))
+        container(label(String::new))
             .style(move |s| {
-                let active = matches!(
-                    col_resize_for_size_style.get(),
-                    Some((ColumnResizeTarget::Size, ..))
-                );
+                let active = matches!(col_resize_drag.get(), Some((ColumnResizeTarget::Size, ..)));
                 let bg = if active {
                     theme::border_focus()
                 } else {
@@ -493,17 +604,17 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     .background(bg)
             })
             .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(_p) = e {
+                if let Event::PointerDown(_) = e {
                     if let Some(t) = app_for_resize_size.active_tab() {
-                        if t.active_pane.get_untracked() != pane_id_for_resize {
-                            t.active_pane.set(pane_id_for_resize);
+                        if t.active_pane.get_untracked() != pane_id {
+                            t.active_pane.set(pane_id);
                         }
                     }
-                    let n = name_w_sig_for_size.get_untracked().clamp(24.0, 1200.0);
-                    let s = size_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
-                    let m = mtime_w_sig_for_size.get_untracked().clamp(24.0, 600.0);
+                    let n = name_col_width_sig.get_untracked().clamp(24.0, 1200.0);
+                    let s = size_col_width_sig.get_untracked().clamp(24.0, 600.0);
+                    let m = mtime_col_width_sig.get_untracked().clamp(24.0, 600.0);
                     let start_x = 60.0 + n as f64 + 7.0 + s as f64 + 3.5;
-                    col_resize_for_size.set(Some((ColumnResizeTarget::Size, start_x, n, s, m)));
+                    col_resize_drag.set(Some((ColumnResizeTarget::Size, start_x, n, s, m)));
                 }
             }),
         label(move || format!("Modified{}", arrow(SortKey::Modified)))
@@ -531,20 +642,511 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             .border_bottom(1)
             .border_color(theme::border_strong())
             .background(theme::bg_header())
-    });
+    })
+}
 
-    let row_height: f64 = 22.0;
+// ────────────────────────────────────────────────────────────────
+// 行ビュー（1 行分: アイコン / テキスト / D&D / コンテキストメニュー）
+// ────────────────────────────────────────────────────────────────
 
-    let app_for_rows = app.clone();
-    let pane_for_rows = pane.clone();
-    let search_results_sig = pane.search_results;
-    // 表示行: search_results が Some なら Everything 結果をそのまま表示 (orig_idx は擬似)。
+fn pane_row_item(
+    idx: usize,
+    row: FileRow,
+    pane: PaneState,
+    app: AppState,
+    drag_candidate: RwSignal<Option<DragCandidate>>,
+) -> impl IntoView {
+    let undo_mgr = app.undo_manager.clone();
+    let jobs = app.jobs.clone();
+
+    let bg_idx = idx;
+    let is_dir = row.is_dir;
+    let name_for_open = row.name.clone();
+    let row_name_for_drag = row.name.clone();
+    let row_name_for_drag_style = row.name.clone();
+    let row_name_spring_enter = row.name.clone();
+    let row_name_spring_leave = row.name.clone();
+    let name_raw = row.name.clone();
+    let size_raw = row.size_text.clone();
+    let mtime_raw = row.mtime_text.clone();
+
+    // シグナルは Copy なので clone 不要
+    let name_col_width_sig = pane.name_col_width;
+    let size_col_width_sig = pane.size_col_width;
+    let mtime_col_width_sig = pane.mtime_col_width;
+    let ui_font_size_sig = app.settings.ui_font_size;
+    let selected = pane.selected;
+    let cur_path = pane.cur_path;
+    let pane_id = pane.id;
+
+    // PaneState / AppState の clone (各クロージャが個別に所有権を持つ)
+    let pane_for_style = pane.clone();
+    let app_for_style = app.clone();
+    let pane_for_down = pane.clone();
+    let app_for_down_clear = app.clone();
+    let app_for_row_up = app.clone();
+    let pane_for_click = pane.clone();
+    let app_for_click_clear = app.clone();
+    let pane_for_dbl = pane.clone();
+    let pane_for_spring_enter = pane.clone();
+    let app_for_spring_enter = app.clone();
+    let pane_for_spring_leave = pane.clone();
+    let app_for_spring_leave = app.clone();
+    let pane_for_ctxmenu = pane.clone();
+
+    // アイコン: icon_set 設定で表示形式を切替 (theme_rev で再構築されるので get_untracked で OK)
+    let icon_name = row.name.clone();
+    let icon_name_for_emoji = row.name.clone();
+    let icon: floem::AnyView = match app.settings.icon_set.get_untracked() {
+        IconSet::Emoji => {
+            let s = ext_emoji(&icon_name_for_emoji, is_dir);
+            label(move || s.clone())
+                .style(|s| s.width(20).font_size(14.0).items_center())
+                .into_any()
+        }
+        IconSet::Minimal => {
+            let g = if is_dir { "▸" } else { "·" };
+            label(move || g.to_string())
+                .style(|s| s.width(20).color(theme::text_dim()).items_center())
+                .into_any()
+        }
+        IconSet::Colored => img(move || {
+            let res = if is_dir {
+                ficons::folder_icon_png(false)
+            } else {
+                ficons::system_icon_png(&icon_name, false, true)
+            };
+            res.map(|arc| (*arc).clone()).unwrap_or_default()
+        })
+        .style(|s| s.width(16).height(16))
+        .into_any(),
+    };
+
+    // パス列 (検索バー表示時のみ出す)
+    let show_path_col = pane.search_open.get_untracked();
+    let path_text = if show_path_col {
+        row.full_path.clone().unwrap_or_else(|| {
+            pane.cur_path
+                .get_untracked()
+                .join(&row.name)
+                .to_string_lossy()
+                .into_owned()
+        })
+    } else {
+        String::new()
+    };
+    let path_label: floem::AnyView = if show_path_col {
+        container(label(move || path_text.clone()).style(|s| {
+            s.color(theme::text_dim())
+                .min_width(0)
+                .cursor(CursorStyle::Pointer)
+        }))
+        .style(|s| {
+            s.flex_grow(1.0)
+                .flex_basis(0)
+                .min_width(0)
+                .height(22)
+                .padding_horiz(6)
+                .items_center()
+        })
+        .into_any()
+    } else {
+        container(label(String::new))
+            .style(|s| s.width(0))
+            .into_any()
+    };
+
+    h_stack((
+        container(
+            h_stack((container(icon).style(|s| s.width(24).items_center()),))
+                .style(|s| s.width_full().height(22).padding_horiz(6).items_center()),
+        )
+        .style(|s| s.width(60).height(22).items_center()),
+        container(
+            label(move || {
+                elide_for_width(
+                    &name_raw,
+                    name_col_width_sig.get().clamp(24.0, 1200.0),
+                    6.0,
+                    ui_font_size_sig.get().clamp(8.0, 32.0),
+                )
+            })
+            .style(move |s| {
+                let s = s
+                    .min_width(0)
+                    .cursor(CursorStyle::Pointer)
+                    .selectable(false);
+                if is_dir {
+                    s.color(theme::text_dir())
+                } else {
+                    s
+                }
+            }),
+        )
+        .style(move |s| {
+            s.width(name_col_width_sig.get().clamp(24.0, 1200.0))
+                .min_width(0)
+                .height(22)
+                .padding_horiz(6)
+                .items_center()
+        }),
+        container(label(String::new)).style(|s| s.width(7.0).height(22)),
+        container(
+            label(move || {
+                elide_for_width(
+                    &size_raw,
+                    size_col_width_sig.get().clamp(24.0, 600.0),
+                    6.0,
+                    ui_font_size_sig.get().clamp(8.0, 32.0),
+                )
+            })
+            .style(|s| {
+                s.color(theme::text_dim())
+                    .cursor(CursorStyle::Pointer)
+                    .selectable(false)
+            }),
+        )
+        .style(move |s| {
+            s.width(size_col_width_sig.get().clamp(24.0, 600.0))
+                .height(22)
+                .padding_horiz(6)
+                .items_center()
+        }),
+        container(label(String::new)).style(|s| s.width(7.0).height(22)),
+        container(
+            label(move || {
+                elide_for_width(
+                    &mtime_raw,
+                    mtime_col_width_sig.get().clamp(24.0, 600.0),
+                    6.0,
+                    ui_font_size_sig.get().clamp(8.0, 32.0),
+                )
+            })
+            .style(|s| {
+                s.color(theme::text_dim())
+                    .cursor(CursorStyle::Pointer)
+                    .selectable(false)
+            }),
+        )
+        .style(move |s| {
+            s.width(mtime_col_width_sig.get().clamp(24.0, 600.0))
+                .height(22)
+                .padding_horiz(6)
+                .items_center()
+        }),
+        path_label,
+    ))
+    .style(move |s| {
+        let zebra = if bg_idx.is_multiple_of(2) {
+            theme::bg_zebra_a()
+        } else {
+            theme::bg_zebra_b()
+        };
+        let sel = selected.with(|s| s.contains(&bg_idx));
+        let drag_picked = app_for_style
+            .dragging
+            .get()
+            .map(|ds| {
+                if !ds.active || ds.source_pane != pane_for_style.id {
+                    return false;
+                }
+                let cur = pane_for_style.cur_path.get_untracked();
+                let row_path = cur.join(&row_name_for_drag_style);
+                ds.paths.iter().any(|p| p == &row_path)
+            })
+            .unwrap_or(false);
+        let bg = if sel || drag_picked {
+            theme::accent_select()
+        } else {
+            zebra
+        };
+        let row_style = s
+            .height(22.0)
+            .width_full()
+            .min_width(0)
+            .items_center()
+            .background(bg)
+            .cursor(CursorStyle::Pointer);
+        if sel || drag_picked {
+            // 選択中/掴み中はホバーで色を変えない（accent を維持）
+            row_style
+        } else {
+            row_style.hover(|s| s.background(theme::bg_hover()))
+        }
+    })
+    .on_event_stop(EventListener::PointerDown, move |e| {
+        if let Event::PointerDown(p) = e {
+            let is_secondary = p.button.is_secondary();
+            // 右クリック (secondary) → エクスプローラ準拠で「未選択ならその行だけ選択」。
+            // context_menu builder のタイミング依存を避け、メニュー表示前に確実に選択を整える。
+            if is_secondary {
+                let in_sel = pane_for_down
+                    .selected
+                    .with_untracked(|s| s.contains(&bg_idx));
+                if !in_sel {
+                    let mut s = im::OrdSet::new();
+                    s.insert(bg_idx);
+                    pane_for_down.selected.set(s);
+                    pane_for_down.anchor.set(Some(bg_idx));
+                }
+                // 右ボタン D&D 候補として登録。閾値を超えなければ PointerUp 時に context_menu が出る。
+                let cur = pane_for_down.cur_path.get_untracked();
+                let row_path = cur.join(&row_name_for_drag);
+                // 選択状態を更新後に in_sel を再評価する (上で選択を入れ替えた可能性)
+                let now_in_sel = pane_for_down
+                    .selected
+                    .with_untracked(|s| s.contains(&bg_idx));
+                let paths: Vec<PathBuf> = if now_in_sel {
+                    let sel = pane_for_down.selected.get_untracked();
+                    let rs = pane_for_down.rows.get_untracked();
+                    sel.iter()
+                        .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
+                        .collect()
+                } else {
+                    vec![row_path]
+                };
+                crate::flog!(
+                    "[drag] candidate(right) pane={} row={} paths={}",
+                    pane_for_down.id,
+                    bg_idx,
+                    paths.len()
+                );
+                drag_candidate.set(Some((pane_for_down.id, paths, p.pos, true)));
+                return;
+            }
+            if !p.button.is_primary() {
+                return;
+            }
+            // 前回のドラッグ状態が残っていれば、ここで必ずリセット (前回 PointerUp が捕捉漏れした保険)
+            if app_for_down_clear.dragging.get_untracked().is_some() {
+                crate::flog!("[drag] stale dragging cleared on new PointerDown");
+                app_for_down_clear.dragging.set(None);
+            }
+            let cur = pane_for_down.cur_path.get_untracked();
+            let row_path = cur.join(&row_name_for_drag);
+            let in_sel = pane_for_down
+                .selected
+                .with_untracked(|s| s.contains(&bg_idx));
+            // 選択外の行で押下 (修飾キーなし) → エクスプローラ同様その行に選択を切替
+            if !in_sel && !p.modifiers.control() && !p.modifiers.shift() {
+                let mut s = im::OrdSet::new();
+                s.insert(bg_idx);
+                pane_for_down.selected.set(s);
+                pane_for_down.anchor.set(Some(bg_idx));
+            }
+            let paths: Vec<PathBuf> = if in_sel {
+                let sel = pane_for_down.selected.get_untracked();
+                let rs = pane_for_down.rows.get_untracked();
+                sel.iter()
+                    .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
+                    .collect()
+            } else {
+                vec![row_path]
+            };
+            crate::flog!(
+                "[drag] candidate pane={} row={} in_sel={} paths={}",
+                pane_for_down.id,
+                bg_idx,
+                in_sel,
+                paths.len()
+            );
+            // ここでは dragging を作らない。閾値を超えた PointerMove で初めて作る。
+            drag_candidate.set(Some((pane_for_down.id, paths, p.pos, false)));
+        }
+    })
+    .on_event_cont(EventListener::PointerUp, move |_| {
+        // 安全網: クリック判定にならず、かつペイン側 PointerUp にも届かない経路があり得るので
+        // 行レベルでも drag 候補は必ず解除する。
+        if drag_candidate.get_untracked().is_some() {
+            drag_candidate.set(None);
+        }
+        // dragging は「同一ペイン内で離した = ドロップ対象でない」場合のみクリアする。
+        // 他ペイン由来のドロップは伝播先のペイン PointerUp で処理させる必要があるため、
+        // ここでクリアすると行が密に並んでいる領域でドロップが成立しなくなる。
+        let should_clear = app_for_row_up
+            .dragging
+            .with_untracked(|d| d.as_ref().is_some_and(|ds| ds.source_pane == pane_id));
+        if should_clear {
+            crate::flog!("[drag] cleared by row PointerUp safety net (same-pane)");
+            app_for_row_up.dragging.set(None);
+        }
+    })
+    .on_click_stop(move |e| {
+        // floem では Click ハンドラが Stop を返すと PointerUp リスナが消費される。
+        // そのためペイン側 PointerUp で行う候補クリアがここに届かない経路がある。
+        // クリック確定時点で必ず drag 関連状態を掃除する。
+        if drag_candidate.get_untracked().is_some() {
+            drag_candidate.set(None);
+        }
+        if app_for_click_clear.dragging.get_untracked().is_some() {
+            app_for_click_clear.dragging.set(None);
+        }
+        let (ctrl, shift) = if let Event::PointerUp(p) = e {
+            (p.modifiers.control(), p.modifiers.shift())
+        } else {
+            (false, false)
+        };
+        crate::flog!(
+            "[click] row pane={} idx={} ctrl={} shift={}",
+            pane_for_click.id,
+            bg_idx,
+            ctrl,
+            shift
+        );
+        pane_for_click.click_row(bg_idx, ctrl, shift);
+    })
+    .on_double_click_stop(move |_| {
+        let cur = cur_path.get();
+        let target = cur.join(&name_for_open);
+        if is_dir {
+            pane_for_dbl.navigate(target, true);
+        } else {
+            let _ = fastfiler_domain::shell::open_with_shell(target.to_string_lossy().into_owned());
+        }
+    })
+    .on_event_cont(EventListener::PointerEnter, move |_| {
+        // Spring-loaded folder: D&D 中のみ arm。ファイルは不要。
+        if !is_dir {
+            return;
+        }
+        if app_for_spring_enter.dragging.get_untracked().is_none() {
+            return;
+        }
+        let target = pane_for_spring_enter
+            .cur_path
+            .get_untracked()
+            .join(&row_name_spring_enter);
+        // 自分のペインのカレント (= 既に開いている) は cd しても意味ないので無視
+        if target == pane_for_spring_enter.cur_path.get_untracked() {
+            return;
+        }
+        crate::ui::spring::arm_pane(&app_for_spring_enter, pane_for_spring_enter.id, target);
+    })
+    .on_event_cont(EventListener::PointerLeave, move |_| {
+        if !is_dir {
+            return;
+        }
+        let target = pane_for_spring_leave
+            .cur_path
+            .get_untracked()
+            .join(&row_name_spring_leave);
+        crate::ui::spring::disarm_if_pane(&app_for_spring_leave, pane_for_spring_leave.id, &target);
+    })
+    .context_menu({
+        let pane_ctx = pane_for_ctxmenu;
+        let undo_ctx = undo_mgr;
+        let jobs_ctx = jobs;
+        move || {
+            let p_open = pane_ctx.clone();
+            let p_reveal = pane_ctx.clone();
+            let p_cut = pane_ctx.clone();
+            let p_copy = pane_ctx.clone();
+            let p_paste = pane_ctx.clone();
+            let p_rename = pane_ctx.clone();
+            let p_delete = pane_ctx.clone();
+            let p_props = pane_ctx.clone();
+            let p_tree = pane_ctx.clone();
+            let um = undo_ctx.clone();
+            let j = jobs_ctx.clone();
+            // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
+            let _ = bg_idx;
+            Menu::new("")
+                .entry(MenuItem::new("開く").action({
+                    let p = p_open.clone();
+                    move || {
+                        let cur = p.cur_path.get();
+                        let name = p.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                        let isd = p
+                            .rows
+                            .with(|v| v.get(bg_idx).map(|r| r.is_dir).unwrap_or(false));
+                        if let Some(n) = name {
+                            let target = cur.join(n);
+                            if isd {
+                                p.navigate(target, true);
+                            } else {
+                                let _ = fastfiler_domain::shell::open_with_shell(
+                                    target.to_string_lossy().into_owned(),
+                                );
+                            }
+                        }
+                    }
+                }))
+                .entry(MenuItem::new("エクスプローラで表示").action(move || {
+                    let cur = p_reveal.cur_path.get();
+                    let name = p_reveal
+                        .rows
+                        .with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                    if let Some(n) = name {
+                        let target = cur.join(n);
+                        let _ = fastfiler_domain::shell::reveal_in_explorer(
+                            target.to_string_lossy().into_owned(),
+                        );
+                    }
+                }))
+                .separator()
+                .entry(MenuItem::new("切り取り").action(move || p_cut.clipboard_write("move")))
+                .entry(MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")))
+                .entry(MenuItem::new("貼り付け").action({
+                    let um = um.clone();
+                    let j = j.clone();
+                    move || p_paste.clipboard_paste(&um, &j)
+                }))
+                .separator()
+                .entry(MenuItem::new("名前の変更").action(move || p_rename.open_rename_modal()))
+                .entry(MenuItem::new("削除").action({
+                    let um = um.clone();
+                    let j = j.clone();
+                    move || p_delete.delete_selected(&um, &j)
+                }))
+                .separator()
+                .entry(MenuItem::new("ツリーをコピー").action(move || p_tree.copy_selected_tree()))
+                .entry(MenuItem::new("プロパティ").action(move || {
+                    let cur = p_props.cur_path.get();
+                    let name = p_props.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
+                    if let Some(n) = name {
+                        let target = cur.join(n);
+                        let _ = fastfiler_domain::shell::show_properties(
+                            target.to_string_lossy().into_owned(),
+                        );
+                    }
+                }))
+        }
+    })
+}
+
+// ────────────────────────────────────────────────────────────────
+// メインペインビュー
+// ────────────────────────────────────────────────────────────────
+
+pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
+    // ローカル signal 群（ペインに閉じたドラッグ・リサイズ状態）
+    let col_resize_drag = floem::reactive::Scope::new().create_rw_signal(None::<ColResizeState>);
+    let drag_candidate = floem::reactive::Scope::new().create_rw_signal(None::<DragCandidate>);
+    let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
+
+    // エフェクト登録
+    attach_pane_effects(pane.clone(), app.clone(), drag_candidate);
+
+    // サブビュー構築
+    let top_bar = pane_top_bar(pane.clone(), app.clone());
+    let header = pane_column_header(pane.clone(), app.clone(), col_resize_drag);
+    let search_bar = pane_search_bar(pane.clone());
+    let status = pane_status_bar(pane.clone());
+
+    // ファイルリスト
+    let search_open = pane.search_open;
+    let search_results = pane.search_results;
+    let search_query = pane.search_query;
+    let rows = pane.rows;
+    let pane_for_list = pane.clone();
+    let app_for_list = app.clone();
+    // 表示行: search_results が Some なら Everything 結果をそのまま表示。
     // None なら従来の builtin filter (search_query で部分一致)。
     let filtered_rows = move || -> im::Vector<(usize, FileRow)> {
         // search_open を依存に入れて、検索バー開閉時に list を再構築させる
         // (path 列の出し入れを反映するため)
         let _ = search_open.get();
-        if let Some(ev) = search_results_sig.get() {
+        if let Some(ev) = search_results.get() {
             return ev.iter().enumerate().map(|(i, r)| (i, r.clone())).collect();
         }
         let q = search_query.get().to_lowercase();
@@ -559,637 +1161,51 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
     };
     let list = virtual_stack(
         VirtualDirection::Vertical,
-        VirtualItemSize::Fixed(Box::new(move || row_height)),
+        VirtualItemSize::Fixed(Box::new(|| 22.0_f64)),
         filtered_rows,
-        move |(idx, row): &(usize, FileRow)| (*idx, row.name.clone(), row.is_dir),
+        |(idx, row): &(usize, FileRow)| (*idx, row.name.clone(), row.is_dir),
         move |(idx, row): (usize, FileRow)| {
-            let is_dir = row.is_dir;
-            let bg_idx = idx;
-            let name_for_open = row.name.clone();
-            let row_name_for_drag = row.name.clone();
-            let row_name_for_drag_style = row.name.clone();
-            let pane_dbl = pane_for_dblclick.clone();
-            let pane_clk = pane_for_click.clone();
-            let pane_for_drag = pane_for_rows.clone();
-            let app_for_drag = app_for_rows.clone();
-            let pane_for_drag_style = pane_for_rows.clone();
-            let app_for_drag_style = app_for_rows.clone();
-            let app_for_spring_enter = app_for_rows.clone();
-            let app_for_spring_leave = app_for_rows.clone();
-            let pane_for_spring_enter = pane_for_rows.clone();
-            let pane_for_spring_leave = pane_for_rows.clone();
-            let row_name_for_spring_enter = row.name.clone();
-            let row_name_for_spring_leave = row.name.clone();
-            let drag_candidate_for_row = drag_candidate;
-            let drag_candidate_for_click = drag_candidate;
-            let drag_candidate_for_row_up = drag_candidate;
-            let app_for_click_clear = app_for_rows.clone();
-            let app_for_row_pointer_up = app_for_rows.clone();
-            let app_for_row_pointer_down_clear = app_for_rows.clone();
-            let pane_for_click_log = pane_for_rows.clone();
-            let pane_for_drag_clear_id = pane_for_rows.id;
-            let _ = &app_for_drag;
-
-            // アイコン: icon_set 設定で表示形式を切替 (theme_rev で再構築されるので
-            // get_untracked で OK)
-            let icon_name = row.name.clone();
-            let icon_name_for_emoji = row.name.clone();
-            let name_raw = row.name.clone();
-            let size_raw = row.size_text.clone();
-            let mtime_raw = row.mtime_text.clone();
-            let icon_set = app_for_rows.settings.icon_set.get_untracked();
-            let icon: floem::AnyView = if icon_set == "emoji" {
-                let s = ext_emoji(&icon_name_for_emoji, is_dir);
-                label(move || s.clone())
-                    .style(|s| s.width(20).font_size(14.0).items_center())
-                    .into_any()
-            } else if icon_set == "minimal" {
-                let g = if is_dir { "▸" } else { "·" };
-                label(move || g.to_string())
-                    .style(|s| s.width(20).color(theme::text_dim()).items_center())
-                    .into_any()
-            } else {
-                img(move || {
-                    let res = if is_dir {
-                        ficons::folder_icon_png(false)
-                    } else {
-                        ficons::system_icon_png(&icon_name, false, true)
-                    };
-                    res.map(|arc| (*arc).clone()).unwrap_or_default()
-                })
-                .style(|s| s.width(16).height(16))
-                .into_any()
-            };
-
-            let show_path_col = pane_for_rows.search_open.get_untracked();
-            let path_text = if show_path_col {
-                row.full_path.clone().unwrap_or_else(|| {
-                    pane_for_rows
-                        .cur_path
-                        .get_untracked()
-                        .join(&row.name)
-                        .to_string_lossy()
-                        .into_owned()
-                })
-            } else {
-                String::new()
-            };
-            let path_label: floem::AnyView = if show_path_col {
-                container(label(move || path_text.clone()).style(|s| {
-                    s.color(theme::text_dim())
-                        .min_width(0)
-                        .cursor(CursorStyle::Pointer)
-                }))
-                .style(|s| {
-                    s.flex_grow(1.0)
-                        .flex_basis(0)
-                        .min_width(0)
-                        .height(22)
-                        .padding_horiz(6)
-                        .items_center()
-                })
-                .into_any()
-            } else {
-                container(label(|| String::new()))
-                    .style(|s| s.width(0))
-                    .into_any()
-            };
-
-            h_stack((
-                container(
-                    h_stack((container(icon).style(|s| s.width(24).items_center()),))
-                        .style(|s| s.width_full().height(22).padding_horiz(6).items_center()),
-                )
-                .style(|s| s.width(60).height(22).items_center()),
-                container(
-                    label(move || {
-                        elide_for_width(
-                            &name_raw,
-                            name_col_width_sig.get().clamp(24.0, 1200.0),
-                            6.0,
-                            ui_font_size_sig
-                                .get()
-                                .parse::<f32>()
-                                .unwrap_or(13.0)
-                                .clamp(8.0, 32.0),
-                        )
-                    })
-                    .style(move |s| {
-                        let s = s
-                            .min_width(0)
-                            .cursor(CursorStyle::Pointer)
-                            .selectable(false);
-                        if is_dir {
-                            s.color(theme::text_dir())
-                        } else {
-                            s
-                        }
-                    }),
-                )
-                .style(move |s| {
-                    s.width(name_col_width_sig.get().clamp(24.0, 1200.0))
-                        .min_width(0)
-                        .height(22)
-                        .padding_horiz(6)
-                        .items_center()
-                }),
-                container(label(|| String::new())).style(|s| s.width(7.0).height(22)),
-                container(
-                    label(move || {
-                        elide_for_width(
-                            &size_raw,
-                            size_col_width_sig.get().clamp(24.0, 600.0),
-                            6.0,
-                            ui_font_size_sig
-                                .get()
-                                .parse::<f32>()
-                                .unwrap_or(13.0)
-                                .clamp(8.0, 32.0),
-                        )
-                    })
-                    .style(|s| {
-                        s.color(theme::text_dim())
-                            .cursor(CursorStyle::Pointer)
-                            .selectable(false)
-                    }),
-                )
-                .style(move |s| {
-                    s.width(size_col_width_sig.get().clamp(24.0, 600.0))
-                        .height(22)
-                        .padding_horiz(6)
-                        .items_center()
-                }),
-                container(label(|| String::new())).style(|s| s.width(7.0).height(22)),
-                container(
-                    label(move || {
-                        elide_for_width(
-                            &mtime_raw,
-                            mtime_col_width_sig.get().clamp(24.0, 600.0),
-                            6.0,
-                            ui_font_size_sig
-                                .get()
-                                .parse::<f32>()
-                                .unwrap_or(13.0)
-                                .clamp(8.0, 32.0),
-                        )
-                    })
-                    .style(|s| {
-                        s.color(theme::text_dim())
-                            .cursor(CursorStyle::Pointer)
-                            .selectable(false)
-                    }),
-                )
-                .style(move |s| {
-                    s.width(mtime_col_width_sig.get().clamp(24.0, 600.0))
-                        .height(22)
-                        .padding_horiz(6)
-                        .items_center()
-                }),
-                path_label,
-            ))
-            .style(move |s| {
-                let zebra = if bg_idx % 2 == 0 {
-                    theme::bg_zebra_a()
-                } else {
-                    theme::bg_zebra_b()
-                };
-                let sel = selected.with(|s| s.contains(&bg_idx));
-                let drag_picked = app_for_drag_style
-                    .dragging
-                    .get()
-                    .map(|ds| {
-                        if !ds.active || ds.source_pane != pane_for_drag_style.id {
-                            return false;
-                        }
-                        let cur = pane_for_drag_style.cur_path.get_untracked();
-                        let row_path = cur.join(&row_name_for_drag_style);
-                        ds.paths.iter().any(|p| p == &row_path)
-                    })
-                    .unwrap_or(false);
-                let bg = if sel || drag_picked {
-                    theme::accent_select()
-                } else {
-                    zebra
-                };
-                let row_style = s
-                    .height(row_height)
-                    .width_full()
-                    .min_width(0)
-                    .items_center()
-                    .background(bg)
-                    .cursor(CursorStyle::Pointer);
-                if sel || drag_picked {
-                    // 選択中/掴み中はホバーで色を変えない（accent を維持）。
-                    row_style
-                } else {
-                    row_style.hover(|s| s.background(theme::bg_hover()))
-                }
-            })
-            .on_event_stop(EventListener::PointerDown, move |e| {
-                if let Event::PointerDown(p) = e {
-                    let is_secondary = p.button.is_secondary();
-                    // 右クリック (secondary) → エクスプローラ準拠で「未選択ならその行だけ選択」。
-                    // context_menu builder のタイミング依存を避け、メニュー表示前に確実に選択を整える。
-                    if is_secondary {
-                        let in_sel = pane_for_drag
-                            .selected
-                            .with_untracked(|s| s.contains(&bg_idx));
-                        if !in_sel {
-                            let mut s = im::OrdSet::new();
-                            s.insert(bg_idx);
-                            pane_for_drag.selected.set(s);
-                            pane_for_drag.anchor.set(Some(bg_idx));
-                        }
-                        // 右ボタン D&D 候補として登録する。閾値を超えなければ
-                        // PointerUp 時に通常の context_menu が出る。
-                        let cur = pane_for_drag.cur_path.get_untracked();
-                        let row_path = cur.join(&row_name_for_drag);
-                        // 選択状態を更新後に in_sel を再評価する (上で選択を入れ替えた可能性)。
-                        let now_in_sel = pane_for_drag
-                            .selected
-                            .with_untracked(|s| s.contains(&bg_idx));
-                        let paths: Vec<PathBuf> = if now_in_sel {
-                            let sel = pane_for_drag.selected.get_untracked();
-                            let rs = pane_for_drag.rows.get_untracked();
-                            sel.iter()
-                                .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
-                                .collect()
-                        } else {
-                            vec![row_path]
-                        };
-                        crate::flog!(
-                            "[drag] candidate(right) pane={} row={} paths={}",
-                            pane_for_drag.id,
-                            bg_idx,
-                            paths.len()
-                        );
-                        drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos, true)));
-                        return;
-                    }
-                    if !p.button.is_primary() {
-                        return;
-                    }
-                    // 前回のドラッグ状態が残っていれば、ここで必ずリセット。
-                    // (前回 PointerUp が捕捉漏れしていた保険)
-                    if app_for_row_pointer_down_clear
-                        .dragging
-                        .get_untracked()
-                        .is_some()
-                    {
-                        crate::flog!("[drag] stale dragging cleared on new PointerDown");
-                        app_for_row_pointer_down_clear.dragging.set(None);
-                    }
-                    let cur = pane_for_drag.cur_path.get_untracked();
-                    let row_path = cur.join(&row_name_for_drag);
-                    let in_sel = pane_for_drag
-                        .selected
-                        .with_untracked(|s| s.contains(&bg_idx));
-                    // 選択外の行で押下 (修飾キーなし) → エクスプローラ同様その行に選択を切替。
-                    // これでクリック済みの別ファイルと併せて「2 個選択に見える」現象を防ぐ。
-                    if !in_sel && !p.modifiers.control() && !p.modifiers.shift() {
-                        let mut s = im::OrdSet::new();
-                        s.insert(bg_idx);
-                        pane_for_drag.selected.set(s);
-                        pane_for_drag.anchor.set(Some(bg_idx));
-                    }
-                    let paths: Vec<PathBuf> = if in_sel {
-                        let sel = pane_for_drag.selected.get_untracked();
-                        let rs = pane_for_drag.rows.get_untracked();
-                        sel.iter()
-                            .filter_map(|i| rs.get(*i).map(|r| cur.join(&r.name)))
-                            .collect()
-                    } else {
-                        vec![row_path]
-                    };
-                    crate::flog!(
-                        "[drag] candidate pane={} row={} in_sel={} paths={}",
-                        pane_for_drag.id,
-                        bg_idx,
-                        in_sel,
-                        paths.len()
-                    );
-                    // ここでは dragging を作らない。閾値を超えた PointerMove で初めて作る。
-                    drag_candidate_for_row.set(Some((pane_for_drag.id, paths, p.pos, false)));
-                }
-            })
-            .on_event_cont(EventListener::PointerUp, move |_| {
-                // 安全網: クリック判定にならず、かつペイン側 PointerUp にも届かない
-                // 経路があり得るので、行レベルでも drag 候補は必ず解除する。
-                if drag_candidate_for_row_up.get_untracked().is_some() {
-                    drag_candidate_for_row_up.set(None);
-                }
-                // dragging は「同一ペイン内で離した = ドロップ対象でない」場合のみクリアする。
-                // 他ペイン由来のドロップは伝播先のペイン PointerUp で処理させる必要があるため、
-                // ここでクリアすると行が密に並んでいる領域でドロップが成立しなくなる。
-                let should_clear = app_for_row_pointer_up.dragging.with_untracked(|d| {
-                    d.as_ref()
-                        .is_some_and(|ds| ds.source_pane == pane_for_drag_clear_id)
-                });
-                if should_clear {
-                    crate::flog!("[drag] cleared by row PointerUp safety net (same-pane)");
-                    app_for_row_pointer_up.dragging.set(None);
-                }
-            })
-            .on_click_stop(move |e| {
-                // floem では Click ハンドラが Stop を返すと PointerUp リスナが消費される。
-                // そのためペイン側 PointerUp で行う候補クリアがここに届かない経路がある。
-                // クリック確定時点で必ず drag 関連状態を掃除する。
-                drag_candidate_for_click.set(None);
-                if app_for_click_clear.dragging.get_untracked().is_some() {
-                    app_for_click_clear.dragging.set(None);
-                }
-                let (ctrl, shift) = if let Event::PointerUp(p) = e {
-                    (p.modifiers.control(), p.modifiers.shift())
-                } else {
-                    (false, false)
-                };
-                crate::flog!(
-                    "[click] row pane={} idx={} ctrl={} shift={}",
-                    pane_for_click_log.id,
-                    bg_idx,
-                    ctrl,
-                    shift
-                );
-                pane_clk.click_row(bg_idx, ctrl, shift);
-            })
-            .on_double_click_stop(move |_| {
-                let cur = cur_path.get();
-                let target = cur.join(&name_for_open);
-                if is_dir {
-                    pane_dbl.navigate(target, true);
-                } else {
-                    let _ = fastfiler_domain::shell::open_with_shell(
-                        target.to_string_lossy().into_owned(),
-                    );
-                }
-            })
-            .on_event_cont(EventListener::PointerEnter, move |_| {
-                // Spring-loaded folder: D&D 中のみ arm。is_dir 以外はファイル → spring 不要。
-                if !is_dir {
-                    return;
-                }
-                if app_for_spring_enter.dragging.get_untracked().is_none() {
-                    return;
-                }
-                let target = pane_for_spring_enter
-                    .cur_path
-                    .get_untracked()
-                    .join(&row_name_for_spring_enter);
-                // 自分のペインのカレント (= 既に開いている) は cd しても意味ないので無視。
-                if target == pane_for_spring_enter.cur_path.get_untracked() {
-                    return;
-                }
-                crate::ui::spring::arm_pane(
-                    &app_for_spring_enter,
-                    pane_for_spring_enter.id,
-                    target,
-                );
-            })
-            .on_event_cont(EventListener::PointerLeave, move |_| {
-                if !is_dir {
-                    return;
-                }
-                let target = pane_for_spring_leave
-                    .cur_path
-                    .get_untracked()
-                    .join(&row_name_for_spring_leave);
-                crate::ui::spring::disarm_if_pane(
-                    &app_for_spring_leave,
-                    pane_for_spring_leave.id,
-                    &target,
-                );
-            })
-            .context_menu({
-                let pane_ctx = pane_for_ctxmenu.clone();
-                let undo_ctx = undo_mgr_ctxmenu.clone();
-                let jobs_ctx = jobs_ctxmenu.clone();
-                move || {
-                    let p_open = pane_ctx.clone();
-                    let p_reveal = pane_ctx.clone();
-                    let p_cut = pane_ctx.clone();
-                    let p_copy = pane_ctx.clone();
-                    let p_paste = pane_ctx.clone();
-                    let p_rename = pane_ctx.clone();
-                    let p_delete = pane_ctx.clone();
-                    let p_props = pane_ctx.clone();
-                    let p_tree = pane_ctx.clone();
-                    let undo_mgr = undo_ctx.clone();
-                    let jobs = jobs_ctx.clone();
-                    // 選択切替は PointerDown (secondary) 側で済ませているため、ここでは行わない。
-                    let _ = bg_idx; // 警告抑制 (以降のクロージャでは使用)
-                    Menu::new("")
-                        .entry(MenuItem::new("開く").action({
-                            let p = p_open.clone();
-                            move || {
-                                let cur = p.cur_path.get();
-                                let name = p.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
-                                let isd = p
-                                    .rows
-                                    .with(|v| v.get(bg_idx).map(|r| r.is_dir).unwrap_or(false));
-                                if let Some(n) = name {
-                                    let target = cur.join(n);
-                                    if isd {
-                                        p.navigate(target, true);
-                                    } else {
-                                        let _ = fastfiler_domain::shell::open_with_shell(
-                                            target.to_string_lossy().into_owned(),
-                                        );
-                                    }
-                                }
-                            }
-                        }))
-                        .entry(MenuItem::new("エクスプローラで表示").action(move || {
-                            let cur = p_reveal.cur_path.get();
-                            let name = p_reveal
-                                .rows
-                                .with(|v| v.get(bg_idx).map(|r| r.name.clone()));
-                            if let Some(n) = name {
-                                let target = cur.join(n);
-                                let _ = fastfiler_domain::shell::reveal_in_explorer(
-                                    target.to_string_lossy().into_owned(),
-                                );
-                            }
-                        }))
-                        .separator()
-                        .entry(
-                            MenuItem::new("切り取り").action(move || p_cut.clipboard_write("move")),
-                        )
-                        .entry(
-                            MenuItem::new("コピー").action(move || p_copy.clipboard_write("copy")),
-                        )
-                        .entry(MenuItem::new("貼り付け").action({
-                            let um = undo_mgr.clone();
-                            let j = jobs.clone();
-                            move || p_paste.clipboard_paste(&um, &j)
-                        }))
-                        .separator()
-                        .entry(
-                            MenuItem::new("名前の変更")
-                                .action(move || p_rename.open_rename_modal()),
-                        )
-                        .entry(MenuItem::new("削除").action({
-                            let um = undo_mgr.clone();
-                            let j = jobs.clone();
-                            move || p_delete.delete_selected(&um, &j)
-                        }))
-                        .separator()
-                        .separator()
-                        .entry(
-                            MenuItem::new("ツリーをコピー")
-                                .action(move || p_tree.copy_selected_tree()),
-                        )
-                        .entry(MenuItem::new("プロパティ").action(move || {
-                            let cur = p_props.cur_path.get();
-                            let name = p_props.rows.with(|v| v.get(bg_idx).map(|r| r.name.clone()));
-                            if let Some(n) = name {
-                                let target = cur.join(n);
-                                let _ = fastfiler_domain::shell::show_properties(
-                                    target.to_string_lossy().into_owned(),
-                                );
-                            }
-                        }))
-                }
-            })
+            pane_row_item(
+                idx,
+                row,
+                pane_for_list.clone(),
+                app_for_list.clone(),
+                drag_candidate,
+            )
         },
     )
     .style(|s| s.flex_col().width_full());
 
     let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0).min_height(0));
 
-    // ステータスバー: 左側にメッセージ (status_msg)、右側に統計 (items/load/selected/fs-change)。
-    // メッセージ側を flex_grow + min_width(0) にし、ペイン幅が狭くてもメッセージが必ず表示される
-    // (はみ出した場合は統計側ではなくメッセージ側の末尾が省略される)。以前は 1 個の label に
-    // 末尾結合で詰め込んでいたため、ペイン幅が狭いと `ready` 等の末尾が見えなくなっていた。
-    let status = h_stack((
-        label(move || status_msg.get()).style(|s| {
-            s.flex_grow(1.0)
-                .flex_basis(0)
-                .min_width(0)
-                .color(theme::text_normal())
-        }),
-        label(move || {
-            let st = stats.get();
-            let sel_count = selected.with(|s| s.len());
-            let cnt = sink.counter.lock();
-            format!(
-                "items: {}   load: {:.2} ms   selected: {}   fs-change: {}",
-                st.count, st.load_ms, sel_count, *cnt
-            )
-        })
-        .style(|s| s.color(theme::text_dim())),
-    ))
-    .style(|s| {
-        s.height(22)
-            .width_full()
-            .padding_horiz(8)
-            .gap(12)
-            .items_center()
-            .background(theme::bg_chrome())
-            .border_top(1)
-            .border_color(theme::border_default())
-    });
-
-    // 検索バー (search_open=true で表示、入力は search_query をリアルタイム反映)
-    let search_bar = dyn_container(
-        move || search_open.get(),
-        move |open| {
-            if !open {
-                return container(label(|| String::new()))
-                    .style(|s| s.height(0))
-                    .into_any();
-            }
-            let q = search_query;
-            let results_clear = pane.search_results;
-            h_stack((
-                label(|| String::from("🔍")).style(|s| s.padding_horiz(6).color(theme::text_dim())),
-                text_input(q)
-                    .style(|s| {
-                        s.flex_grow(1.0)
-                            .flex_basis(0)
-                            .min_width(0)
-                            .height(24)
-                            .padding_horiz(8)
-                            .padding_vert(4)
-                            .border(1)
-                            .border_color(theme::border_focus())
-                            .background(theme::bg_modal())
-                            .color(theme::text_normal())
-                    })
-                    .on_event_stop(EventListener::KeyDown, move |e| {
-                        if let Event::KeyDown(ke) = e {
-                            if matches!(ke.key.logical_key, Key::Named(NamedKey::Escape)) {
-                                q.set(String::new());
-                                results_clear.set(None);
-                                search_open.set(false);
-                            }
-                        }
-                    }),
-                button("✕").action(move || {
-                    q.set(String::new());
-                    results_clear.set(None);
-                    search_open.set(false);
-                }),
-            ))
-            .style(|s| {
-                s.padding_horiz(4)
-                    .padding_vert(2)
-                    .gap(4)
-                    .items_center()
-                    .width_full()
-                    .height(28)
-                    .background(theme::bg_status())
-                    .border_bottom(1)
-                    .border_color(theme::border_default())
-            })
-            .into_any()
-        },
-    )
-    .style(|s| s.width_full());
-
-    let pane_for_xbuttons = pane.clone();
+    // イベントハンドラ用変数
     let pane_id = pane.id;
+    let anchor = pane.anchor;
+    let pane_for_keys = pane.clone();
+    let pane_for_xbuttons = pane.clone();
+    let pane_for_blank_ctx = pane.clone();
     let app_for_rect = app.clone();
     let app_for_rect2 = app.clone();
     let app_for_move = app.clone();
     let app_for_up = app.clone();
     let app_for_focus = app.clone();
-    let app_for_active_style = app.clone();
-    let app_for_drag_style = app.clone();
-    let name_w_sig_for_drag = name_col_width_sig;
-    let size_w_sig_for_drag = size_col_width_sig;
-    let name_w_sig_for_drag_read = name_col_width_sig;
-    let size_w_sig_for_drag_read = size_col_width_sig;
-    let mtime_w_sig_for_drag_read = mtime_col_width_sig;
-    let pane_width_for_drag = pane_width_sig;
-    let col_resize_for_drag = col_resize_drag;
-    let col_resize_for_drag_end = col_resize_drag;
-    let drag_candidate_for_move = drag_candidate;
-    let drag_candidate_for_up = drag_candidate;
-    let top_bar = h_stack((
-        left_toolbar,
-        breadcrumb.clip().style(|s| {
-            s.flex_grow(1.0)
-                .flex_basis(0)
-                .min_width(0)
-                .height(28)
-                .items_center()
-        }),
-        right_toolbar,
-    ))
-    .style(|s| {
-        s.width_full()
-            .items_center()
-            .border_bottom(1)
-            .border_color(theme::border_modal())
-    });
+    let app_for_style = app.clone();
+    let undo_mgr_blank = app.undo_manager.clone();
+    let jobs_blank = app.jobs.clone();
+    let name_w_for_drag = pane.name_col_width;
+    let size_w_for_drag = pane.size_col_width;
+    let name_w_for_drag_read = pane.name_col_width;
+    let size_w_for_drag_read = pane.size_col_width;
+    let mtime_w_for_drag_read = pane.mtime_col_width;
+
     v_stack((top_bar, search_bar, header, scrollable, status))
         .style(move |s| {
-            let is_active = app_for_active_style
+            let is_active = app_for_style
                 .active_tab()
                 .map(|t| t.active_pane.get() == pane_id)
                 .unwrap_or(false);
-            let drag_state = app_for_drag_style.dragging.get();
-            let ext_hover = app_for_drag_style
+            let drag_state = app_for_style.dragging.get();
+            let ext_hover = app_for_style
                 .external_drop_hover
                 .get()
                 .map(|h| h.pane_id == pane_id)
@@ -1199,7 +1215,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                     (false, false)
                 } else {
                     let is_source = ds.source_pane == pane_id;
-                    let is_target = app_for_drag_style
+                    let is_target = app_for_style
                         .pane_rects
                         .with_untracked(|m| m.get(&pane_id).map(|r| r.contains(ds.current_window)))
                         .unwrap_or(false)
@@ -1246,43 +1262,44 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerMove, move |e| {
             if let Event::PointerMove(p) = e {
+                // カラムリサイズ処理
                 if let Some((target, start_x, start_name, start_size, _start_mtime)) =
-                    col_resize_for_drag.get_untracked()
+                    col_resize_drag.get_untracked()
                 {
                     let dx = (p.pos.x - start_x) as f32;
-                    let pane_w = pane_width_for_drag.get_untracked();
+                    let pane_w = pane_width_sig.get_untracked();
                     let sep_total = 14.0f32;
                     let base = 60.0f32 + sep_total;
                     match target {
                         ColumnResizeTarget::Name => {
                             let mut new_w = (start_name + dx).clamp(24.0, 1200.0);
                             if pane_w > 0.0 {
-                                let size_w = size_w_sig_for_drag_read.get_untracked();
-                                let mtime_w = mtime_w_sig_for_drag_read.get_untracked();
-                                let max_w =
-                                    (pane_w - base - size_w - mtime_w).max(24.0).min(1200.0);
+                                let sw = size_w_for_drag_read.get_untracked();
+                                let mw = mtime_w_for_drag_read.get_untracked();
+                                let max_w = (pane_w - base - sw - mw).clamp(24.0, 1200.0);
                                 new_w = new_w.min(max_w);
                             }
-                            name_w_sig_for_drag.set(new_w);
+                            name_w_for_drag.set(new_w);
                         }
                         ColumnResizeTarget::Size => {
                             let mut new_w = (start_size + dx).clamp(24.0, 600.0);
                             if pane_w > 0.0 {
-                                let name_w = name_w_sig_for_drag_read.get_untracked();
-                                let mtime_w = mtime_w_sig_for_drag_read.get_untracked();
-                                let max_w = (pane_w - base - name_w - mtime_w).max(24.0).min(600.0);
+                                let nw = name_w_for_drag_read.get_untracked();
+                                let mw = mtime_w_for_drag_read.get_untracked();
+                                let max_w = (pane_w - base - nw - mw).clamp(24.0, 600.0);
                                 new_w = new_w.min(max_w);
                             }
-                            size_w_sig_for_drag.set(new_w);
+                            size_w_for_drag.set(new_w);
                         }
                     }
                     return;
                 }
+
+                // D&D 閾値判定: 未生成の dragging を初めて立ち上げる
                 let dragging = app_for_move.dragging.get_untracked();
                 if dragging.is_none() {
-                    // dragging 未生成: 候補があり閾値超えなら、ここで初めて生成する。
                     if let Some((source_pane, paths, start_pos, right_button)) =
-                        drag_candidate_for_move.get_untracked()
+                        drag_candidate.get_untracked()
                     {
                         let dx = (p.pos.x - start_pos.x) as f32;
                         let dy = (p.pos.y - start_pos.y) as f32;
@@ -1324,7 +1341,7 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
                             // dragging を生成したら候補は役目を終える。
                             // 残しておくとドロップ完了後にマウスを動かしただけで
                             // 再度 dragging が立ち上がってしまう (ゴースト drag)。
-                            drag_candidate_for_move.set(None);
+                            drag_candidate.set(None);
                         }
                     }
                     return;
@@ -1360,12 +1377,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         })
         .on_event_cont(EventListener::PointerUp, move |e| {
             if let Event::PointerUp(p) = e {
-                if col_resize_for_drag_end.get_untracked().is_some() {
-                    col_resize_for_drag_end.set(None);
+                if col_resize_drag.get_untracked().is_some() {
+                    col_resize_drag.set(None);
                     return;
                 }
                 // クリックの押し戻し時にも候補は確実にクリア（ドラッグ未成立含む）。
-                drag_candidate_for_up.set(None);
+                drag_candidate.set(None);
                 // 左ボタン以外: floem 0.2 は secondary PointerUp を listener に配信しないため、
                 // ここに secondary が届くケースは limit されている。右ボタン D&D drop の検出は
                 // Win32 サブクラス (`WM_RBUTTONUP`) 側で行う (ADR 0011)。安全策で cancel のみ。
@@ -1498,12 +1515,12 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         .context_menu({
             // ペイン余白 (行のないところ) で開く context menu。
             // 行 context_menu は子側で先に消費されるので、ここに来るのは余白のみ。
-            let p_open_here = pane_for_blank_ctxmenu.clone();
-            let p_reveal_here = pane_for_blank_ctxmenu.clone();
-            let p_newfolder = pane_for_blank_ctxmenu.clone();
-            let p_newfile = pane_for_blank_ctxmenu.clone();
-            let p_paste = pane_for_blank_ctxmenu.clone();
-            let p_reload = pane_for_blank_ctxmenu.clone();
+            let p_open_here = pane_for_blank_ctx.clone();
+            let p_reveal_here = pane_for_blank_ctx.clone();
+            let p_newfolder = pane_for_blank_ctx.clone();
+            let p_newfile = pane_for_blank_ctx.clone();
+            let p_paste = pane_for_blank_ctx.clone();
+            let p_reload = pane_for_blank_ctx.clone();
             let undo_blank = undo_mgr_blank.clone();
             let jobs_b = jobs_blank.clone();
             move || {

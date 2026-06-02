@@ -7,71 +7,66 @@
 use crate::error::{AppError, AppResult};
 use crate::undo::TrashedItem;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
-pub fn create_dir(path: String) -> AppResult<()> {
-    fs::create_dir_all(PathBuf::from(path))?;
+pub fn create_dir(path: &Path) -> AppResult<()> {
+    fs::create_dir_all(path)?;
     Ok(())
 }
 
-pub fn rename_path(from: String, to: String) -> AppResult<()> {
-    fs::rename(PathBuf::from(from), PathBuf::from(to))?;
+pub fn rename_path(from: &Path, to: &Path) -> AppResult<()> {
+    fs::rename(from, to)?;
     Ok(())
 }
 
-pub fn delete_path(path: String, recursive: bool) -> AppResult<()> {
-    let p = PathBuf::from(&path);
-    let meta = fs::metadata(&p)?;
+pub fn delete_path(path: &Path, recursive: bool) -> AppResult<()> {
+    let meta = fs::metadata(path)?;
     if meta.is_dir() {
         if recursive {
-            fs::remove_dir_all(&p)?;
+            fs::remove_dir_all(path)?;
         } else {
-            fs::remove_dir(&p)?;
+            fs::remove_dir(path)?;
         }
     } else {
-        fs::remove_file(&p)?;
+        fs::remove_file(path)?;
     }
     Ok(())
 }
 
-pub fn copy_path(from: String, to: String) -> AppResult<()> {
-    let src = PathBuf::from(&from);
-    let dst = PathBuf::from(&to);
-    let meta = fs::metadata(&src)?;
+pub fn copy_path(from: &Path, to: &Path) -> AppResult<()> {
+    let meta = fs::metadata(from)?;
     if meta.is_dir() {
-        copy_dir_recursive(&src, &dst)?;
+        copy_dir_recursive(from, to)?;
     } else {
-        if let Some(parent) = dst.parent() {
+        if let Some(parent) = to.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::copy(&src, &dst)?;
+        fs::copy(from, to)?;
     }
     Ok(())
 }
 
-pub fn move_path(from: String, to: String) -> AppResult<()> {
-    let src = PathBuf::from(&from);
-    let dst = PathBuf::from(&to);
-    if let Some(parent) = dst.parent() {
+pub fn move_path(from: &Path, to: &Path) -> AppResult<()> {
+    if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    match fs::rename(&src, &dst) {
+    match fs::rename(from, to) {
         Ok(_) => Ok(()),
         Err(_) => {
-            let meta = fs::metadata(&src)?;
+            let meta = fs::metadata(from)?;
             if meta.is_dir() {
-                copy_dir_recursive(&src, &dst)?;
-                fs::remove_dir_all(&src)?;
+                copy_dir_recursive(from, to)?;
+                fs::remove_dir_all(from)?;
             } else {
-                fs::copy(&src, &dst)?;
-                fs::remove_file(&src)?;
+                fs::copy(from, to)?;
+                fs::remove_file(from)?;
             }
             Ok(())
         }
     }
 }
 
-fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> AppResult<()> {
+fn copy_dir_recursive(src: &Path, dst: &Path) -> AppResult<()> {
     fs::create_dir_all(dst)?;
     for ent in fs::read_dir(src)? {
         let ent = ent?;
@@ -108,43 +103,46 @@ pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
 
 /// 上書き禁止版 rename。`to` が既に存在したら失敗扱い。
 /// Undo の逆 rename / 逆 move に使う。
-pub fn rename_path_no_overwrite(from: String, to: String) -> AppResult<()> {
-    let to_pb = PathBuf::from(&to);
-    if to_pb.exists() {
-        return Err(AppError::Other(format!("destination exists: {}", to)));
+pub fn rename_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()> {
+    if to.exists() {
+        return Err(AppError::Other(format!(
+            "destination exists: {}",
+            to.display()
+        )));
     }
-    fs::rename(PathBuf::from(from), to_pb)?;
+    fs::rename(from, to)?;
     Ok(())
 }
 
 /// 上書き禁止版 move。`to` が存在すれば失敗、親フォルダは必要なら作成する。
 /// ドライブ跨ぎフォールバックも上書きしない (`copy_path_no_overwrite` 経由)。
-pub fn move_path_no_overwrite(from: String, to: String) -> AppResult<()> {
-    let src = PathBuf::from(&from);
-    let dst = PathBuf::from(&to);
-    if dst.exists() {
-        return Err(AppError::Other(format!("destination exists: {}", to)));
+pub fn move_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()> {
+    if to.exists() {
+        return Err(AppError::Other(format!(
+            "destination exists: {}",
+            to.display()
+        )));
     }
-    if let Some(parent) = dst.parent() {
+    if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    if fs::rename(&src, &dst).is_ok() {
+    if fs::rename(from, to).is_ok() {
         return Ok(());
     }
     // ドライブ跨ぎ等で rename が失敗した場合は copy + remove で擬似 move。
     // 上書きしない (dst 存在チェックは冒頭で済み)。
-    let meta = fs::metadata(&src)?;
+    let meta = fs::metadata(from)?;
     if meta.is_dir() {
-        copy_dir_no_overwrite(&src, &dst)?;
-        fs::remove_dir_all(&src)?;
+        copy_dir_no_overwrite(from, to)?;
+        fs::remove_dir_all(from)?;
     } else {
-        fs::copy(&src, &dst)?;
-        fs::remove_file(&src)?;
+        fs::copy(from, to)?;
+        fs::remove_file(from)?;
     }
     Ok(())
 }
 
-fn copy_dir_no_overwrite(src: &PathBuf, dst: &PathBuf) -> AppResult<()> {
+fn copy_dir_no_overwrite(src: &Path, dst: &Path) -> AppResult<()> {
     if dst.exists() {
         return Err(AppError::Other(format!(
             "destination exists: {}",

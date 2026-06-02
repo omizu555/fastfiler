@@ -14,5 +14,5 @@ pub mod persisted;
 mod widgets;
 
 pub use dialog::settings_view;
-pub use model::AppSettings;
+pub use model::{AppSettings, IconSet};
 pub use persisted::PersistedSettings;

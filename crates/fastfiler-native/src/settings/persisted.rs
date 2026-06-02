@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use floem::reactive::SignalGet;
 
-use super::model::AppSettings;
+use super::model::{AppSettings, IconSet};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PersistedSettings {
@@ -24,12 +24,12 @@ pub struct PersistedSettings {
     pub theme_preset: String,
     #[serde(default)]
     pub accent_color: String,
-    #[serde(default = "def_emoji")]
-    pub icon_set: String,
+    #[serde(default)]
+    pub icon_set: IconSet,
     #[serde(default)]
     pub ui_font: String,
-    #[serde(default = "def_13")]
-    pub ui_font_size: String,
+    #[serde(default = "def_font_size", deserialize_with = "de_font_size")]
+    pub ui_font_size: f32,
 
     #[serde(default = "def_1")]
     pub tab_columns: String,
@@ -88,11 +88,25 @@ pub(super) fn def_system() -> String {
 pub(super) fn def_default() -> String {
     String::from("default")
 }
-pub(super) fn def_emoji() -> String {
-    String::from("emoji")
+pub(super) fn def_font_size() -> f32 {
+    13.0
 }
-pub(super) fn def_13() -> String {
-    String::from("13")
+
+/// `ui_font_size` を数値・文字列どちらの RON 表現でも受け付ける (旧版は文字列で保存)。
+fn de_font_size<'de, D>(de: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        Num(f32),
+        Str(String),
+    }
+    Ok(match NumOrStr::deserialize(de)? {
+        NumOrStr::Num(n) => n,
+        NumOrStr::Str(s) => s.trim().parse().unwrap_or(13.0),
+    })
 }
 pub(super) fn def_1() -> String {
     String::from("1")
@@ -122,9 +136,9 @@ impl Default for PersistedSettings {
             theme: def_system(),
             theme_preset: def_default(),
             accent_color: String::new(),
-            icon_set: def_emoji(),
+            icon_set: IconSet::default(),
             ui_font: String::new(),
-            ui_font_size: def_13(),
+            ui_font_size: def_font_size(),
 
             tab_columns: def_1(),
             tabs_width: def_220(),

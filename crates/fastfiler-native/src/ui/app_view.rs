@@ -165,7 +165,7 @@ pub fn app_view() -> impl IntoView {
             let tw = tabs_width_sig.get();
             let trw = tree_width_sig.get();
             let cur = (cols, tw, trw);
-            let changed = prev.as_ref().map_or(false, |p| p != &cur);
+            let changed = prev.as_ref().is_some_and(|p| p != &cur);
             if changed {
                 if let Err(e) = settings_for_save.save() {
                     eprintln!("[settings] auto-save error: {}", e);
@@ -216,7 +216,7 @@ pub fn app_view() -> impl IntoView {
                     .collect();
                 let locked: Vec<bool> = tabs_v.iter().map(|t| t.locked.get()).collect();
                 let cur = (paths, layouts, locked);
-                let changed = prev.as_ref().map_or(true, |p| p != &cur);
+                let changed = prev.as_ref() != Some(&cur);
                 if changed {
                     app_for_tabs.settings.open_tabs.set(cur.0.clone());
                     app_for_tabs.settings.tab_layouts.set(cur.1.clone());
@@ -308,23 +308,25 @@ pub fn app_view() -> impl IntoView {
         let preset_sig = app.settings.theme_preset;
         let accent_sig = app.settings.accent_color;
         let icon_set_sig = app.settings.icon_set;
-        floem::reactive::create_effect(move |prev: Option<(String, String, String, String)>| {
-            let cur = (
-                theme_sig.get(),
-                preset_sig.get(),
-                accent_sig.get(),
-                icon_set_sig.get(),
-            );
-            if let Some(p) = prev.as_ref() {
-                if p != &cur {
-                    crate::theme::set_mode_from_str(&cur.0);
-                    crate::theme::set_preset_from_str(&cur.1);
-                    crate::theme::set_accent_from_str(&cur.2);
-                    app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
+        floem::reactive::create_effect(
+            move |prev: Option<(String, String, String, crate::settings::IconSet)>| {
+                let cur = (
+                    theme_sig.get(),
+                    preset_sig.get(),
+                    accent_sig.get(),
+                    icon_set_sig.get(),
+                );
+                if let Some(p) = prev.as_ref() {
+                    if p != &cur {
+                        crate::theme::set_mode_from_str(&cur.0);
+                        crate::theme::set_preset_from_str(&cur.1);
+                        crate::theme::set_accent_from_str(&cur.2);
+                        app_for_theme.theme_rev.update(|v| *v = v.wrapping_add(1));
+                    }
                 }
-            }
-            cur
-        });
+                cur
+            },
+        );
     }
 
     let theme_rev = app.theme_rev;
@@ -422,11 +424,7 @@ pub fn app_view() -> impl IntoView {
         crate::ui::progress::progress_dialogs(jobs_for_overlay),
     ))
     .style(move |s| {
-        let fs = ui_font_size_sig
-            .get()
-            .parse::<f32>()
-            .unwrap_or(13.0)
-            .clamp(8.0, 32.0);
+        let fs = ui_font_size_sig.get().clamp(8.0, 32.0);
         let family = ui_font_sig.get();
         let s = s
             .size_full()
@@ -1008,15 +1006,9 @@ fn perform_external_drop(
     let mut moved: Vec<MoveItem> = Vec::new();
     for (from, dst) in &items {
         let res = if is_move {
-            fops::move_path(
-                from.to_string_lossy().into_owned(),
-                dst.to_string_lossy().into_owned(),
-            )
+            fops::move_path(from, dst)
         } else {
-            fops::copy_path(
-                from.to_string_lossy().into_owned(),
-                dst.to_string_lossy().into_owned(),
-            )
+            fops::copy_path(from, dst)
         };
         match res {
             Ok(()) => {

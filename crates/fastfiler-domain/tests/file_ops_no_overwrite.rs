@@ -17,11 +17,7 @@ fn rename_no_overwrite_succeeds_when_destination_missing() {
     let a = td_path(&td, "a.txt");
     let b = td_path(&td, "b.txt");
     fs::write(&a, b"hi").unwrap();
-    fops::rename_path_no_overwrite(
-        a.to_string_lossy().into_owned(),
-        b.to_string_lossy().into_owned(),
-    )
-    .unwrap();
+    fops::rename_path_no_overwrite(&a, &b).unwrap();
     assert!(!a.exists());
     assert!(b.exists());
 }
@@ -33,10 +29,7 @@ fn rename_no_overwrite_fails_when_destination_exists() {
     let b = td_path(&td, "b.txt");
     fs::write(&a, b"src").unwrap();
     fs::write(&b, b"dst").unwrap();
-    let res = fops::rename_path_no_overwrite(
-        a.to_string_lossy().into_owned(),
-        b.to_string_lossy().into_owned(),
-    );
+    let res = fops::rename_path_no_overwrite(&a, &b);
     assert!(res.is_err(), "should refuse to overwrite");
     // 上書きされていないこと
     assert_eq!(fs::read(&b).unwrap(), b"dst");
@@ -49,11 +42,7 @@ fn move_no_overwrite_creates_parent_and_moves() {
     let src = td_path(&td, "src.txt");
     fs::write(&src, b"x").unwrap();
     let dst = td.path().join("sub").join("dst.txt");
-    fops::move_path_no_overwrite(
-        src.to_string_lossy().into_owned(),
-        dst.to_string_lossy().into_owned(),
-    )
-    .unwrap();
+    fops::move_path_no_overwrite(&src, &dst).unwrap();
     assert!(!src.exists());
     assert!(dst.exists());
 }
@@ -65,10 +54,7 @@ fn move_no_overwrite_fails_when_destination_exists() {
     let dst = td_path(&td, "d.txt");
     fs::write(&src, b"src").unwrap();
     fs::write(&dst, b"dst").unwrap();
-    let res = fops::move_path_no_overwrite(
-        src.to_string_lossy().into_owned(),
-        dst.to_string_lossy().into_owned(),
-    );
+    let res = fops::move_path_no_overwrite(&src, &dst);
     assert!(res.is_err());
     assert_eq!(fs::read(&dst).unwrap(), b"dst");
     assert!(src.exists());

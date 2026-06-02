@@ -36,7 +36,7 @@ pub fn attach_everything_effect(pane: &PaneState, app: &AppState) {
             if results_sig.with_untracked(|r| r.is_some()) {
                 results_sig.set(None);
             }
-            return ();
+            return;
         }
         let port_u: u16 = port_s.parse().unwrap_or(80);
         let scope_path: Option<String> = if scope {
@@ -91,6 +91,5 @@ pub fn attach_everything_effect(pane: &PaneState, app: &AppState) {
             );
             cb(res.map_err(|e| e.0));
         });
-        ()
     });
 }

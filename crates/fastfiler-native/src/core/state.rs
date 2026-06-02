@@ -11,7 +11,7 @@
 //!
 //! 値は `RwSignal` / `Arc` で Clone 可能なので、ビュー間で安全に共有できる。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -50,7 +50,6 @@ impl EventSink for CounterSink {
 pub enum ModalKind {
     None,
     NewFolder,
-    #[allow(dead_code)]
     NewFile,
     /// 元の名前 (リネーム対象)
     Rename(String),
@@ -192,73 +191,102 @@ impl PaneState {
             target.to_string_lossy().into_owned(),
         );
         let t = Instant::now();
-        match read_folder(&target, self.show_hidden.get_untracked()) {
-            Ok(mut v) => {
-                sort_rows(
-                    &mut v,
-                    self.sort_key.get_untracked(),
-                    self.sort_desc.get_untracked(),
-                );
-                let ms = t.elapsed().as_secs_f64() * 1000.0;
-                let len = v.len();
-                crate::core::perf::record_manual(
-                    crate::core::perf::MetricKind::ListDir,
-                    format!("{} rows={}", target.display(), len),
-                    ms,
-                );
-                let prev_path = self.cur_path.get_untracked();
-                let same_path = prev_path == target;
-                if push_history && !same_path {
-                    self.history.update(|h| {
-                        h.back.push_back(prev_path.clone());
-                        h.forward.clear();
-                    });
-                }
-                // 変化時のみ set してシグナル通知の連鎖を抑える
-                if !same_path {
-                    self.cur_path.set(target.clone());
-                    let s = target.to_string_lossy().into_owned();
-                    if self.path_input.with_untracked(|p| p != &s) {
-                        self.path_input.set(s);
-                    }
-                    let title_new = pretty_title(&target);
-                    if self.title.with_untracked(|p| p != &title_new) {
-                        self.title.set(title_new);
-                    }
-                }
-                self.rows.set(v);
-                if !self.selected.with_untracked(|s| s.is_empty()) {
-                    self.selected.set(im::OrdSet::new());
-                }
-                if self.anchor.get_untracked().is_some() {
-                    self.anchor.set(None);
-                }
-                self.stats.set(Stats {
-                    load_ms: ms,
-                    count: len,
-                });
-                if self.status_msg.with_untracked(|m| m != "ok") {
-                    self.status_msg.set(String::from("ok"));
-                }
-
-                let s = target.to_string_lossy().into_owned();
-                let mut wp = self.watched.lock();
-                let need_rewatch = wp.as_deref() != Some(s.as_str());
-                if need_rewatch {
-                    if let Some(old) = wp.as_ref() {
-                        self.watcher.unwatch(old);
-                    }
-                    *wp = Some(s.clone());
-                    *self.sink.counter.lock() = 0;
-                    if self.fs_change_tick.get_untracked() != 0 {
-                        self.fs_change_tick.set(0);
-                    }
-                    let sd: Arc<dyn EventSink> = self.sink.clone();
-                    let _ = self.watcher.watch_with_sink(s, sd);
-                }
+        let v = match self.load_sorted_rows(&target) {
+            Ok(v) => v,
+            Err(e) => {
+                self.status_msg.set(format!("read failed: {}", e));
+                return;
             }
-            Err(e) => self.status_msg.set(format!("read failed: {}", e)),
+        };
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        let len = v.len();
+        crate::core::perf::record_manual(
+            crate::core::perf::MetricKind::ListDir,
+            format!("{} rows={}", target.display(), len),
+            ms,
+        );
+
+        let prev_path = self.cur_path.get_untracked();
+        let same_path = prev_path == target;
+        self.commit_path_change(&target, &prev_path, push_history, same_path);
+
+        // 行・選択・統計を更新する (変化時のみ set してシグナル通知の連鎖を抑える)
+        self.rows.set(v);
+        if !self.selected.with_untracked(|s| s.is_empty()) {
+            self.selected.set(im::OrdSet::new());
         }
+        if self.anchor.get_untracked().is_some() {
+            self.anchor.set(None);
+        }
+        self.stats.set(Stats {
+            load_ms: ms,
+            count: len,
+        });
+        if self.status_msg.with_untracked(|m| m != "ok") {
+            self.status_msg.set(String::from("ok"));
+        }
+
+        self.rewatch(&target);
+    }
+
+    /// 現在のソート設定で `path` を読み込み、ソート済みの行を返す。
+    /// navigate / refresh_rows_only から共有する。
+    fn load_sorted_rows(&self, path: &Path) -> Result<im::Vector<FileRow>, String> {
+        let mut v = read_folder(path, self.show_hidden.get_untracked())?;
+        sort_rows(
+            &mut v,
+            self.sort_key.get_untracked(),
+            self.sort_desc.get_untracked(),
+        );
+        Ok(v)
+    }
+
+    /// ナビゲーション時のパス系シグナル更新 (history / cur_path / path_input / title)。
+    /// 変化時のみ set してシグナル通知の連鎖を抑える。
+    fn commit_path_change(
+        &self,
+        target: &Path,
+        prev_path: &Path,
+        push_history: bool,
+        same_path: bool,
+    ) {
+        if push_history && !same_path {
+            self.history.update(|h| {
+                h.back.push_back(prev_path.to_path_buf());
+                h.forward.clear();
+            });
+        }
+        if same_path {
+            return;
+        }
+        self.cur_path.set(target.to_path_buf());
+        let s = target.to_string_lossy().into_owned();
+        if self.path_input.with_untracked(|p| p != &s) {
+            self.path_input.set(s);
+        }
+        let title_new = pretty_title(target);
+        if self.title.with_untracked(|p| p != &title_new) {
+            self.title.set(title_new);
+        }
+    }
+
+    /// `path` に対する FS 監視を張り直す。監視中パスと同一なら何もしない。
+    fn rewatch(&self, path: &Path) {
+        let s = path.to_string_lossy().into_owned();
+        let mut wp = self.watched.lock();
+        if wp.as_deref() == Some(s.as_str()) {
+            return;
+        }
+        if let Some(old) = wp.as_ref() {
+            self.watcher.unwatch(old);
+        }
+        *wp = Some(s.clone());
+        *self.sink.counter.lock() = 0;
+        if self.fs_change_tick.get_untracked() != 0 {
+            self.fs_change_tick.set(0);
+        }
+        let sd: Arc<dyn EventSink> = self.sink.clone();
+        let _ = self.watcher.watch_with_sink(s, sd);
     }
 
     /// ファイル監視イベントによる軽量再読込。
@@ -266,15 +294,9 @@ impl PaneState {
     /// rows と stats のみを差分検出して更新する。シグナル更新の連鎖を抑える。
     pub fn refresh_rows_only(&self) {
         let cur = self.cur_path.get_untracked();
-        let show_hidden = self.show_hidden.get_untracked();
-        let Ok(mut v) = read_folder(&cur, show_hidden) else {
+        let Ok(v) = self.load_sorted_rows(&cur) else {
             return;
         };
-        sort_rows(
-            &mut v,
-            self.sort_key.get_untracked(),
-            self.sort_desc.get_untracked(),
-        );
         let new_len = v.len();
         // 簡易差分: 件数 + name + size + mtime が同じなら更新スキップ
         let same = self.rows.with_untracked(|r| {
@@ -345,7 +367,7 @@ fn make_equal_ratios(n: usize) -> RwSignal<Vec<f32>> {
 }
 
 /// ratios を合計 1.0 に正規化
-fn normalize_ratios(v: &mut Vec<f32>) {
+fn normalize_ratios(v: &mut [f32]) {
     let sum: f32 = v.iter().sum();
     if sum > 0.0001 {
         for r in v.iter_mut() {

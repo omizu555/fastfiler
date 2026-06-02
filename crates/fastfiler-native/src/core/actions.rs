@@ -288,7 +288,6 @@ impl PaneState {
         self.modal_kind.set(ModalKind::NewFolder);
     }
 
-    #[allow(dead_code)]
     pub fn open_new_file_modal(&self) {
         self.modal_input.set(String::from("new.txt"));
         self.modal_kind.set(ModalKind::NewFile);
@@ -347,7 +346,7 @@ impl PaneState {
             ModalKind::None => {}
             ModalKind::NewFolder => {
                 let target = cur.join(&input);
-                match fops::create_dir(target.to_string_lossy().into_owned()) {
+                match fops::create_dir(&target) {
                     Ok(()) => {
                         self.status_msg.set(format!("作成: {}", input));
                         self.close_modal();
@@ -377,10 +376,7 @@ impl PaneState {
                 }
                 let from = cur.join(&orig);
                 let to = cur.join(&input);
-                match fops::rename_path(
-                    from.to_string_lossy().into_owned(),
-                    to.to_string_lossy().into_owned(),
-                ) {
+                match fops::rename_path(&from, &to) {
                     Ok(()) => {
                         undo_manager.lock().push(UndoOp::Rename {
                             from: from.clone(),
@@ -519,15 +515,9 @@ impl PaneState {
                 dst.display()
             );
             let res = if is_move {
-                fops::move_path(
-                    from.to_string_lossy().into_owned(),
-                    dst.to_string_lossy().into_owned(),
-                )
+                fops::move_path(from, dst)
             } else {
-                fops::copy_path(
-                    from.to_string_lossy().into_owned(),
-                    dst.to_string_lossy().into_owned(),
-                )
+                fops::copy_path(from, dst)
             };
             match res {
                 Ok(()) => {
@@ -576,29 +566,21 @@ impl AppState {
         crate::flog!("[undo] start: {} ({} 件)", op.label(), op.count());
 
         let (msg, remainder) = match op {
-            UndoOp::Rename { from, to } => {
-                match fops::rename_path_no_overwrite(
-                    to.to_string_lossy().into_owned(),
-                    from.to_string_lossy().into_owned(),
-                ) {
-                    Ok(()) => (format!("Undo: リネーム取消 ({})", from.display()), None),
-                    Err(e) => {
-                        crate::flog!("[undo] rename failed: {}", e);
-                        (
-                            format!("Undo 失敗 (リネーム): {}", e),
-                            Some(UndoOp::Rename { from, to }),
-                        )
-                    }
+            UndoOp::Rename { from, to } => match fops::rename_path_no_overwrite(&to, &from) {
+                Ok(()) => (format!("Undo: リネーム取消 ({})", from.display()), None),
+                Err(e) => {
+                    crate::flog!("[undo] rename failed: {}", e);
+                    (
+                        format!("Undo 失敗 (リネーム): {}", e),
+                        Some(UndoOp::Rename { from, to }),
+                    )
                 }
-            }
+            },
             UndoOp::Move { items } => {
                 let mut failed: Vec<MoveItem> = Vec::new();
                 let mut ok = 0usize;
                 for it in &items {
-                    match fops::move_path_no_overwrite(
-                        it.to.to_string_lossy().into_owned(),
-                        it.from.to_string_lossy().into_owned(),
-                    ) {
+                    match fops::move_path_no_overwrite(&it.to, &it.from) {
                         Ok(()) => ok += 1,
                         Err(e) => {
                             crate::flog!(
@@ -614,8 +596,6 @@ impl AppState {
                 let total = items.len();
                 let remainder = if failed.is_empty() {
                     None
-                } else if failed.len() == total {
-                    Some(UndoOp::Move { items: failed })
                 } else {
                     Some(UndoOp::Move { items: failed })
                 };

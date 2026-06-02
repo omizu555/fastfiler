@@ -73,8 +73,8 @@ fs watcher の通知で影響範囲のペインは自動 reload される。
 既存実装の `move_path` は `fs::rename` 失敗時に `fs::copy + remove` にフォールバックして
 上書きしてしまうため、Undo 経路では使わない。代わりに:
 
-- `fastfiler-domain::file_ops::rename_path_no_overwrite(from, to) -> AppResult<()>`
-- `fastfiler-domain::file_ops::move_path_no_overwrite(from, to) -> AppResult<()>`
+- `fastfiler-domain::file_ops::rename_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()>`
+- `fastfiler-domain::file_ops::move_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()>`
 
 を新設し、宛先が存在したら `AppError::Other("destination exists: ...")` で失敗扱いにする。
 ゴミ箱復元も同様に「元位置に何かあれば失敗」とし、自動上書きしない。
