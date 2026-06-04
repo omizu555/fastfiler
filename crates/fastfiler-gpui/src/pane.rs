@@ -26,9 +26,9 @@ use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{file_ops, icons, path_util, shell, win_clipboard};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
-    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Pixels, Point,
-    ScrollStrategy, SharedString, UniformListScrollHandle, Window, anchored, deferred, div, img,
-    prelude::*, px, rgb, rgba, uniform_list,
+    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
+    NavigationDirection, Pixels, Point, ScrollStrategy, SharedString, UniformListScrollHandle,
+    Window, anchored, deferred, div, img, prelude::*, px, rgb, rgba, uniform_list,
 };
 
 use crate::sink::ChannelSink;
@@ -182,6 +182,11 @@ pub struct PaneView {
     searcher: Arc<SearchState>,
     /// Undo スタック (リネーム / ごみ箱送りを記録。ADR 0006/0008)。
     undo: UndoManager,
+    /// ナビゲーション履歴 (戻る / 進む)。
+    history_back: Vec<PathBuf>,
+    history_fwd: Vec<PathBuf>,
+    /// アドレスバーの直接入力モード (パス文字列クリックで開始)。
+    path_edit: Option<Entity<TextInput>>,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -236,6 +241,9 @@ impl PaneView {
             search_ui: None,
             searcher: Arc::new(SearchState::default()),
             undo: UndoManager::new(),
+            history_back: Vec::new(),
+            history_fwd: Vec::new(),
+            path_edit: None,
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
@@ -244,12 +252,40 @@ impl PaneView {
             job_status: None,
             active_job: None,
         };
-        this.open(path, cx, true);
+        // 初期表示は履歴に積まない。
+        this.open_inner(path, cx, true);
         this
     }
 
+    /// ユーザー操作による移動: 履歴 (戻る) に積んでから開く。
+    fn navigate(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if path == self.cur_path {
+            return;
+        }
+        self.history_back.push(self.cur_path.clone());
+        self.history_fwd.clear();
+        self.open_inner(path, cx, true);
+    }
+
+    /// 履歴: 戻る (Alt+← / マウス第4ボタン)。
+    fn go_back(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.history_back.pop() {
+            self.history_fwd.push(self.cur_path.clone());
+            self.open_inner(p, cx, true);
+        }
+    }
+
+    /// 履歴: 進む (Alt+→ / マウス第5ボタン)。
+    fn go_forward(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.history_fwd.pop() {
+            self.history_back.push(self.cur_path.clone());
+            self.open_inner(p, cx, true);
+        }
+    }
+
     /// 表示フォルダを切り替える: 旧 watch を外し、新 watch を張り、再読込。
-    fn open(&mut self, path: PathBuf, cx: &mut Context<Self>, reset_view: bool) {
+    /// (履歴は積まない。履歴管理は navigate / go_back / go_forward 側)
+    fn open_inner(&mut self, path: PathBuf, cx: &mut Context<Self>, reset_view: bool) {
         // フォルダ移動したら検索モードは閉じる (結果が古くなるため)。
         if self.search_ui.take().is_some() {
             self.searcher.cancel();
@@ -359,13 +395,13 @@ impl PaneView {
     fn go_up(&mut self, cx: &mut Context<Self>) {
         if let Some(parent) = self.cur_path.parent() {
             let parent = parent.to_path_buf();
-            self.open(parent, cx, true);
+            self.navigate(parent, cx);
         }
     }
 
     /// 外部 (ワークスペースツリー等) からフォルダを開く。
     pub fn open_dir(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.open(path, cx, true);
+        self.navigate(path, cx);
     }
 
     /// タブ見出し用の名前 (表示中フォルダ名。ルートは表示パスそのまま)。
@@ -434,7 +470,7 @@ impl PaneView {
         let Some(entry) = self.entries.get(ix) else { return };
         let path = self.cur_path.join(&entry.name);
         if entry.kind == "dir" {
-            self.open(path, cx, true);
+            self.navigate(path, cx);
         } else {
             self.open_in_shell(path, cx);
         }
@@ -578,6 +614,16 @@ impl PaneView {
             return;
         }
 
+        // アドレスバー編集中: Enter=移動 / Esc=取消 (他キーは入力欄が処理)。
+        if self.path_edit.is_some() {
+            match ks.key.as_str() {
+                "enter" => self.commit_path_edit(window, cx),
+                "escape" => self.cancel_path_edit(window, cx),
+                _ => {}
+            }
+            return;
+        }
+
         // 検索バー表示中: Enter=実行 / Esc=閉じる (他キーは入力欄が処理)。
         if self.search_ui.is_some() {
             match ks.key.as_str() {
@@ -624,6 +670,21 @@ impl PaneView {
                 }
                 "z" => {
                     self.undo_last(cx);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Alt 系: 履歴ナビゲーション
+        if ks.modifiers.alt {
+            match ks.key.as_str() {
+                "left" => {
+                    self.go_back(cx);
+                    return;
+                }
+                "right" => {
+                    self.go_forward(cx);
                     return;
                 }
                 _ => {}
@@ -754,6 +815,45 @@ impl PaneView {
         }
     }
 
+    // ── アドレスバー直接入力 ────────────────────────────────────────
+
+    fn start_path_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx));
+        let text = self.cur_path.display().to_string();
+        let len = text.len();
+        input.update(cx, |i, cx| i.set_text_and_select(text, 0..len, cx));
+        let fh = input.read(cx).focus_handle.clone();
+        self.path_edit = Some(input);
+        fh.focus(window, cx);
+        cx.notify();
+    }
+
+    fn commit_path_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.path_edit.take() else {
+            return;
+        };
+        let text = input.read(cx).text().trim().to_string();
+        self.focus_handle.focus(window, cx);
+        if text.is_empty() {
+            cx.notify();
+            return;
+        }
+        let p = PathBuf::from(&text);
+        if p.is_dir() {
+            self.navigate(p, cx);
+        } else {
+            self.status = format!("フォルダが見つかりません: {text}").into();
+            cx.notify();
+        }
+    }
+
+    fn cancel_path_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.path_edit.take().is_some() {
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
+    }
+
     // ── 検索 (Ctrl+F) ──────────────────────────────────────────────
 
     fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -832,9 +932,9 @@ impl PaneView {
         self.close_search(window, cx);
         let p = PathBuf::from(&path);
         if is_dir {
-            self.open(p, cx, true);
+            self.navigate(p, cx);
         } else if let Some(parent) = p.parent() {
-            self.open(parent.to_path_buf(), cx, true);
+            self.navigate(parent.to_path_buf(), cx);
             if let Some(i) = self.entries.iter().position(|e| e.name == name) {
                 self.select_only(i);
                 self.scroll.scroll_to_item(i, ScrollStrategy::Center);
@@ -1130,7 +1230,7 @@ impl PaneView {
             if let Some(entry) = self.entries.get(ix) {
                 let path = self.cur_path.join(&entry.name);
                 if entry.kind == "dir" {
-                    self.open(path, cx, true);
+                    self.navigate(path, cx);
                     return;
                 } else {
                     self.open_in_shell(path, cx);
@@ -1566,6 +1666,22 @@ impl Render for PaneView {
         }
 
         let path_text = self.cur_path.display().to_string();
+        // アドレスバー: 通常はクリック可能なパス表示 / 編集中は入力欄。
+        let path_area: AnyElement = if let Some(input) = &self.path_edit {
+            div().flex_1().child(input.clone()).into_any_element()
+        } else {
+            div()
+                .id("path")
+                .flex_1()
+                .overflow_hidden()
+                .px_1()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(0x303030)))
+                .child(path_text)
+                .on_click(cx.listener(|this, _e, w, cx| this.start_path_edit(w, cx)))
+                .into_any_element()
+        };
         // 実行中ジョブの進捗があれば status より優先表示。
         let status = self
             .job_status
@@ -1682,6 +1798,15 @@ impl Render for PaneView {
                     this.on_bg_right_click(ev.position, window, cx);
                 }),
             )
+            // マウスの戻る/進むボタン (第4/第5)。
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _ev, _w, cx| this.go_back(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _ev, _w, cx| this.go_forward(cx)),
+            )
             // ドロップ受け入れ: ペイン間 D&D とエクスプローラ等の外部 D&D。
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
             .drag_over::<DraggedFiles>(|style, _, _, _| style.bg(rgb(0x1f2c3a)))
@@ -1715,6 +1840,30 @@ impl Render for PaneView {
                     .bg(rgb(0x252525))
                     .child(
                         div()
+                            .id("nav-back")
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(0x3a3a3a))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .child("←")
+                            .on_click(cx.listener(|this, _e, _w, cx| this.go_back(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("nav-fwd")
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(0x3a3a3a))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .child("→")
+                            .on_click(cx.listener(|this, _e, _w, cx| this.go_forward(cx))),
+                    )
+                    .child(
+                        div()
                             .id("up")
                             .px_2()
                             .py_1()
@@ -1722,10 +1871,10 @@ impl Render for PaneView {
                             .bg(rgb(0x3a3a3a))
                             .cursor_pointer()
                             .hover(|s| s.bg(rgb(0x4a4a4a)))
-                            .child("↑ 上へ")
+                            .child("↑")
                             .on_click(cx.listener(|this, _e, _w, cx| this.go_up(cx))),
                     )
-                    .child(div().flex_1().overflow_hidden().child(path_text))
+                    .child(path_area)
                     // ペイン分割 / 閉じる
                     .child(
                         div()
