@@ -609,6 +609,15 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
 - メニュー項目が動的になったため `MenuAction` を Copy→Clone 化、
   `menu_item` のラベルを動的文字列対応に。
 
+### 2026-06-05 — ユーザーコマンド 完了 ✅ (ADR 0003 の拡張点)
+- 右クリックメニューに `commands.json` のコマンドを表示 (`domain::user_commands`
+  流用、`%APPDATA%\fastfiler\commands` — **floem 時代の設定をそのまま引き継ぐ**)。
+- 絞り込み: 行メニューは `when` (file/dir/any) と `extensions` でフィルタ、
+  背景メニューは `when=="any"` のみ。各 10 件まで。
+- 実行は `run_user_command(id, RunCtx{paths: 選択全件, cwd})` — プレースホルダ
+  ({path}/{paths}/{cwd} 等)・shell 実行・CREATE_NO_WINDOW は domain 側が処理。
+- 「ユーザーコマンドの設定...」でコマンドフォルダを開ける (sample 自動生成あり)。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)

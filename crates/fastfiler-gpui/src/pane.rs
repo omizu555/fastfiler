@@ -23,6 +23,7 @@ use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
+use fastfiler_domain::user_commands::{self, RunCtx};
 use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
@@ -62,6 +63,10 @@ enum MenuAction {
     NewFromTemplate(String),
     /// テンプレートフォルダを開く。
     OpenTemplatesDir,
+    /// ユーザーコマンド実行 (commands.json の id)。
+    RunUserCommand(String),
+    /// ユーザーコマンドの設定フォルダを開く。
+    OpenCommandsDir,
     Refresh,
 }
 
@@ -116,6 +121,8 @@ struct MenuState {
     can_paste: bool,
     /// 新規ファイル用テンプレート一覧 (名前, フルパス)。開いた時点で取得 (先頭10件)。
     templates: Vec<(String, String)>,
+    /// 表示対象のユーザーコマンド (id, ラベル)。when/extensions で絞り込み済み。
+    user_cmds: Vec<(String, String)>,
 }
 
 /// 分割方向。`Row`=左右に並べる / `Column`=上下に積む。
@@ -1004,11 +1011,48 @@ impl PaneView {
         let templates: Vec<(String, String)> = templates::list_templates()
             .map(|v| v.into_iter().take(10).map(|t| (t.name, t.path)).collect())
             .unwrap_or_default();
+        // ユーザーコマンド (commands.json) を when / extensions で絞り込み。
+        let cursor_entry = self.cursor.and_then(|i| self.entries.get(i));
+        let (sel_is_dir, sel_ext) = match cursor_entry {
+            Some(e) => (e.kind == "dir", e.ext.clone()),
+            None => (false, None),
+        };
+        let user_cmds: Vec<(String, String)> = user_commands::list_user_commands()
+            .map(|v| {
+                v.into_iter()
+                    .filter(|c| {
+                        if on_row {
+                            let when_ok = match c.when.as_str() {
+                                "file" => !sel_is_dir,
+                                "dir" => sel_is_dir,
+                                _ => true, // "any"
+                            };
+                            let ext_ok = c.extensions.is_empty()
+                                || sel_ext
+                                    .as_ref()
+                                    .map(|e| {
+                                        c.extensions
+                                            .iter()
+                                            .any(|x| x.trim_start_matches('.').eq_ignore_ascii_case(e))
+                                    })
+                                    .unwrap_or(false);
+                            when_ok && ext_ok
+                        } else {
+                            // 背景メニューは選択非依存のコマンドのみ。
+                            c.when == "any"
+                        }
+                    })
+                    .take(10)
+                    .map(|c| (c.id, c.label))
+                    .collect()
+            })
+            .unwrap_or_default();
         self.context_menu = Some(MenuState {
             position,
             on_row,
             can_paste,
             templates,
+            user_cmds,
         });
         cx.notify();
     }
@@ -1066,6 +1110,20 @@ impl PaneView {
             MenuAction::NewFromTemplate(tpl) => self.create_from_template(tpl, window, cx),
             MenuAction::OpenTemplatesDir => {
                 if let Ok(dir) = templates::templates_dir() {
+                    self.navigate(PathBuf::from(dir), cx);
+                }
+            }
+            MenuAction::RunUserCommand(id) => {
+                let ctx = RunCtx {
+                    paths: self.selected_paths(),
+                    cwd: self.cur_path.to_string_lossy().to_string(),
+                };
+                if let Err(e) = user_commands::run_user_command(id, ctx) {
+                    self.status = format!("コマンド実行に失敗: {e}").into();
+                }
+            }
+            MenuAction::OpenCommandsDir => {
+                if let Ok(dir) = user_commands::user_commands_dir() {
                     self.navigate(PathBuf::from(dir), cx);
                 }
             }
@@ -1184,6 +1242,26 @@ impl PaneView {
             MenuAction::OpenTemplatesDir,
             cx,
         ));
+        // ユーザーコマンド (commands.json — ADR 0003 の拡張点)
+        if !m.user_cmds.is_empty() {
+            items.push(menu_sep());
+            for (id, label) in &m.user_cmds {
+                items.push(self.menu_item(
+                    label.clone(),
+                    "",
+                    true,
+                    MenuAction::RunUserCommand(id.clone()),
+                    cx,
+                ));
+            }
+            items.push(self.menu_item(
+                "ユーザーコマンドの設定...",
+                "",
+                true,
+                MenuAction::OpenCommandsDir,
+                cx,
+            ));
+        }
 
         Some(
             div()
