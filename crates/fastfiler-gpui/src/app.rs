@@ -103,6 +103,8 @@ impl FastFilerApp {
         let tree = cx.new(|_| TreeView::new());
         let sub = cx.subscribe(&tree, |this, _tree, event: &TreeEvent, cx| match event {
             TreeEvent::OpenDir(path) => this.open_in_focused_pane(path.clone(), cx),
+            // UNC 登録の変化 (削除等) はセッション保存。
+            TreeEvent::UncChanged => this.schedule_save(cx),
         });
         (tree, sub)
     }
@@ -129,6 +131,11 @@ impl FastFilerApp {
     /// 保存済みセッション (タブ / 分割構成) から復元する。
     pub fn from_session(data: SessionData, cx: &mut Context<Self>) -> Self {
         let (tree, tree_sub) = Self::make_tree(cx);
+        // 登録済み UNC share を復元 (サーバが落ちていてもツリー UI は壊れない)。
+        if !data.unc_shares.is_empty() {
+            let shares = data.unc_shares.clone();
+            tree.update(cx, |t, _| t.set_unc_shares(shares));
+        }
         let mut this = Self {
             tabs: Vec::new(),
             active: 0,
@@ -239,6 +246,7 @@ impl FastFilerApp {
             show_tree: self.show_tree,
             tree_width: self.tree_width,
             window: self.window_bounds,
+            unc_shares: self.tree.read(cx).unc_shares().to_vec(),
             tabs: self
                 .tabs
                 .iter()
@@ -301,8 +309,15 @@ impl FastFilerApp {
             }
         });
         // ペイン内の変化 (フォルダ移動等) でタブ見出し等を更新 + セッション保存予約。
-        let ob = cx.observe(&pane, |this, _pane, cx| {
+        // UNC パスを開いたらワークスペースツリーへ自動登録 (CONTEXT.md)。
+        let ob = cx.observe(&pane, |this, pane, cx| {
             cx.notify();
+            let p = pane.read(cx).cur_path().to_path_buf();
+            if p.to_string_lossy().starts_with(r"\\") {
+                this.tree.update(cx, |t, cx| {
+                    t.register_unc(&p, cx);
+                });
+            }
             this.schedule_save(cx);
         });
         (pane, ev, ob)

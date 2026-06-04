@@ -19,6 +19,9 @@ pub struct SessionData {
     /// ウィンドウの位置とサイズ [x, y, w, h] (px)。
     #[serde(default)]
     pub window: Option<[f32; 4]>,
+    /// ワークスペースツリーに登録済みの UNC share (`\\server\share`)。
+    #[serde(default)]
+    pub unc_shares: Vec<String>,
     pub tabs: Vec<NodeData>,
 }
 
