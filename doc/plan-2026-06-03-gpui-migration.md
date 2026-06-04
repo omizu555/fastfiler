@@ -548,10 +548,32 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   ユーザーの調査 WIP (未コミット変更) を含むため、削除はパリティ最終確認後に
   ユーザー判断で行う。
 
-### 残タスク (移植完了後の改善候補)
-- ジョブのキャンセル UI / ペイン内ツリー / UNC サーバノード
+### 2026-06-04 — main へマージ & push / floem 版削除 / ジョブキャンセル UI ✅
+- ブランチ `gpui-migration` (3 コミット: WIP保全 → GPUI移植 → floem削除+doc更新) を
+  main へ fast-forward マージし、origin/main へ push (`b6476ff`)。
+- doc/{ARCHITECTURE,STATUS,USAGE,BUILD,RELEASE}.md を GPUI 版へ全面書き直し。
+- **ジョブキャンセル UI**: コピー/移動ジョブ実行中、フッタに
+  「キャンセル (Esc)」ボタン + **Esc キー**で `JobRegistry::cancel(job_id)`。
+  ジョブスレッドがフラグを検知して中断し `fs:job:done (canceled)` → 「キャンセル
+  しました」表示。対象は直近開始のジョブ (active_job)。
+
+### 2026-06-04 — 検索 UI (Ctrl+F) 完了 ✅
+- **Ctrl+F** で検索バー (IME 対応 TextInput 流用)。Enter=検索 / Esc=閉じる / ×ボタン。
+- ペインの表示フォルダ起点。`domain::search::SearchState::start_with_sink` を流用し、
+  **Everything (HTTP port 80) が応答すれば利用、不達なら内蔵検索へ自動フォールバック**。
+  前回検索は domain 側で自動キャンセル。
+- ヒットは `search-hit` でストリーミング受信 (sink ブリッジ共用)、結果リストを
+  **uniform_list で仮想化表示** (検索中は列見出し非表示)。完了時に
+  「N 件 (Everything/内蔵検索)」を表示。max 2000 件。
+- **ダブルクリックでジャンプ**: フォルダ→開く / ファイル→親フォルダを開いて選択+
+  中央スクロール。フォルダ移動時は検索モードを自動クローズ。
+
+### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
+- **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
+- 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)
+- UNC サーバ・share ノード / 新規ファイルテンプレート / Shift+右クリックシェルメニュー /
+  ユーザーコマンド commands.json
 - テーマ・ホットキーのカスタマイズ / exe アイコン埋め込み / 多重起動防止
 - D&D 外部送信 (ADR 0010) / 右ボタン D&D / フォルダ行への直接ドロップ
-- floem 版の削除と doc/{STATUS,ARCHITECTURE,USAGE}.md の GPUI 版への書き直し
 </content>
 </invoke>

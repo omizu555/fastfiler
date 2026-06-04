@@ -20,6 +20,7 @@ use std::sync::Arc;
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
 use fastfiler_domain::fs::{self, FileEntry};
+use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{file_ops, icons, path_util, shell, win_clipboard};
 use gpui::{
@@ -57,6 +58,22 @@ enum MenuAction {
     NewFolder,
     NewFile,
     Refresh,
+}
+
+/// 検索バーの状態 (Ctrl+F)。閉じると入力 Entity ごと drop。
+struct SearchUi {
+    input: Entity<TextInput>,
+    results: Vec<SearchResult>,
+    running: bool,
+    job_id: Option<u64>,
+    /// 状態表示 ("検索中…" / "N 件 (Everything)" 等)。
+    info: SharedString,
+}
+
+struct SearchResult {
+    path: String,
+    name: String,
+    is_dir: bool,
 }
 
 /// ペイン間 D&D のペイロード (ドラッグ中のファイルパス一覧)。
@@ -158,6 +175,10 @@ pub struct PaneView {
     modal: Option<ModalState>,
     /// 右クリックメニュー。
     context_menu: Option<MenuState>,
+    /// 検索バー (Ctrl+F)。開いている間は一覧の代わりに結果を表示。
+    search_ui: Option<SearchUi>,
+    /// 検索の実行状態 (前回検索の自動キャンセルを管理)。
+    searcher: Arc<SearchState>,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -169,6 +190,8 @@ pub struct PaneView {
     next_job_id: u64,
     /// 実行中ジョブの進捗表示 (footer で status より優先)。
     job_status: Option<SharedString>,
+    /// 実行中ジョブの id (Esc / キャンセルボタンの対象。直近開始分)。
+    active_job: Option<u64>,
 }
 
 impl PaneView {
@@ -207,12 +230,15 @@ impl PaneView {
             reload_pending: false,
             modal: None,
             context_menu: None,
+            search_ui: None,
+            searcher: Arc::new(SearchState::default()),
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
             jobs: Arc::new(JobRegistry::default()),
             next_job_id: 1,
             job_status: None,
+            active_job: None,
         };
         this.open(path, cx, true);
         this
@@ -220,6 +246,10 @@ impl PaneView {
 
     /// 表示フォルダを切り替える: 旧 watch を外し、新 watch を張り、再読込。
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>, reset_view: bool) {
+        // フォルダ移動したら検索モードは閉じる (結果が古くなるため)。
+        if self.search_ui.take().is_some() {
+            self.searcher.cancel();
+        }
         if let Some(old) = self.watched.take() {
             self.watcher.unwatch(&old);
         }
@@ -484,6 +514,22 @@ impl PaneView {
             return;
         }
 
+        // 検索バー表示中: Enter=実行 / Esc=閉じる (他キーは入力欄が処理)。
+        if self.search_ui.is_some() {
+            match ks.key.as_str() {
+                "enter" => self.start_search(cx),
+                "escape" => self.close_search(window, cx),
+                _ => {}
+            }
+            return;
+        }
+
+        // 実行中のコピー/移動ジョブは Esc でキャンセル要求。
+        if ks.key.as_str() == "escape" && self.active_job.is_some() {
+            self.cancel_job(cx);
+            return;
+        }
+
         // Ctrl 系: コピー / 切り取り / 貼り付け
         if ks.modifiers.control {
             match ks.key.as_str() {
@@ -506,6 +552,10 @@ impl PaneView {
                 "tab" => {
                     // Ctrl+Tab = 次のタブ / Ctrl+Shift+Tab = 前のタブ
                     cx.emit(PaneEvent::SwitchTab(if ks.modifiers.shift { -1 } else { 1 }));
+                    return;
+                }
+                "f" => {
+                    self.open_search(window, cx);
                     return;
                 }
                 _ => {}
@@ -629,6 +679,138 @@ impl PaneView {
             self.focus_handle.focus(window, cx);
             cx.notify();
         }
+    }
+
+    // ── 検索 (Ctrl+F) ──────────────────────────────────────────────
+
+    fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ui) = &self.search_ui {
+            // 既に開いている → 入力へフォーカスだけ戻す。
+            let fh = ui.input.read(cx).focus_handle.clone();
+            fh.focus(window, cx);
+            return;
+        }
+        let input = cx.new(|cx| TextInput::new(cx));
+        let fh = input.read(cx).focus_handle.clone();
+        self.search_ui = Some(SearchUi {
+            input,
+            results: Vec::new(),
+            running: false,
+            job_id: None,
+            info: "Enter で検索".into(),
+        });
+        fh.focus(window, cx);
+        cx.notify();
+    }
+
+    fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_ui.take().is_some() {
+            self.searcher.cancel();
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// 入力中のパターンで検索開始 (このペインの表示フォルダ起点)。
+    /// Everything (HTTP, port 80) が応答すれば利用し、不達なら内蔵検索へ自動フォールバック。
+    fn start_search(&mut self, cx: &mut Context<Self>) {
+        let root = self.cur_path.to_string_lossy().to_string();
+        let sink = self.sink.clone();
+        let Some(ui) = self.search_ui.as_mut() else {
+            return;
+        };
+        let pattern = ui.input.read(cx).text().trim().to_string();
+        if pattern.is_empty() {
+            return;
+        }
+        ui.results.clear();
+        let opts = SearchOptions {
+            case_sensitive: false,
+            use_regex: false,
+            include_hidden: true,
+            max_results: 2000,
+            backend: "everything".to_string(),
+            everything_port: 80,
+            everything_scope: true,
+        };
+        match self.searcher.start_with_sink(sink, root, pattern, opts) {
+            Ok(id) => {
+                ui.job_id = Some(id);
+                ui.running = true;
+                ui.info = "検索中…".into();
+            }
+            Err(e) => {
+                ui.info = format!("検索エラー: {e}").into();
+            }
+        }
+        cx.notify();
+    }
+
+    /// 検索結果へジャンプ: フォルダ→開く / ファイル→親を開いて選択。
+    fn open_search_result(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, name, is_dir)) = self
+            .search_ui
+            .as_ref()
+            .and_then(|ui| ui.results.get(ix))
+            .map(|r| (r.path.clone(), r.name.clone(), r.is_dir))
+        else {
+            return;
+        };
+        self.close_search(window, cx);
+        let p = PathBuf::from(&path);
+        if is_dir {
+            self.open(p, cx, true);
+        } else if let Some(parent) = p.parent() {
+            self.open(parent.to_path_buf(), cx, true);
+            if let Some(i) = self.entries.iter().position(|e| e.name == name) {
+                self.select_only(i);
+                self.scroll.scroll_to_item(i, ScrollStrategy::Center);
+            }
+        }
+        cx.notify();
+    }
+
+    fn render_search_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(r) = self.search_ui.as_ref().and_then(|ui| ui.results.get(ix)) else {
+            return div().into_any_element();
+        };
+        let name = r.name.clone();
+        let parent = Path::new(&r.path)
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let accent = if r.is_dir { rgb(0x5aa9e6) } else { rgb(0x707070) };
+
+        div()
+            .id(ix)
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(24.0))
+            .px_2()
+            .gap_2()
+            .bg(if ix % 2 == 0 {
+                rgb(0x1e1e1e)
+            } else {
+                rgb(0x232323)
+            })
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(0x33404d)))
+            .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
+                if e.click_count() > 1 {
+                    this.open_search_result(ix, window, cx);
+                }
+            }))
+            .child(div().w(px(6.0)).h(px(14.0)).rounded_sm().bg(accent))
+            .child(div().text_color(rgb(0xe0e0e0)).child(name))
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .text_color(rgb(0x777777))
+                    .child(parent),
+            )
+            .into_any_element()
     }
 
     // ── 右クリックメニュー ─────────────────────────────────────────
@@ -982,7 +1164,18 @@ impl PaneView {
             }
             .into(),
         );
+        self.active_job = Some(job_id);
         cx.notify();
+    }
+
+    /// 実行中ジョブのキャンセル要求 (Esc / フッタのボタン)。
+    /// 実際の停止は job スレッドがフラグを見て行い、`fs:job:done` (canceled) が届く。
+    fn cancel_job(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.active_job {
+            self.jobs.cancel(id);
+            self.job_status = Some("キャンセル中…".into());
+            cx.notify();
+        }
     }
 
     /// 別スレッド由来の domain イベント受信 (UI スレッド上で実行)。
@@ -1025,6 +1218,65 @@ impl PaneView {
                 self.job_status = Some(format!("{kind_jp} {done}/{total}  {cur_name}").into());
                 cx.notify();
             }
+            "search-hit" => {
+                if let Some(ui) = self.search_ui.as_mut() {
+                    let jid = payload.get("job_id").and_then(|v| v.as_u64());
+                    if jid == ui.job_id {
+                        ui.results.push(SearchResult {
+                            path: payload
+                                .get("path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            name: payload
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            is_dir: payload
+                                .get("is_dir")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                        });
+                        cx.notify();
+                    }
+                }
+            }
+            "search-done" => {
+                if let Some(ui) = self.search_ui.as_mut() {
+                    let jid = payload.get("job_id").and_then(|v| v.as_u64());
+                    if jid == ui.job_id {
+                        ui.running = false;
+                        let total = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let backend =
+                            payload.get("backend").and_then(|v| v.as_str()).unwrap_or("");
+                        let fallback = payload
+                            .get("fallback")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let canceled = payload
+                            .get("canceled")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let err = payload.get("error").and_then(|v| v.as_str());
+                        ui.info = if let Some(e) = err {
+                            format!("エラー: {e}").into()
+                        } else if canceled {
+                            "キャンセル".into()
+                        } else {
+                            let tag = if backend == "everything" {
+                                " (Everything)"
+                            } else if fallback {
+                                " (内蔵検索)"
+                            } else {
+                                ""
+                            };
+                            format!("{total} 件{tag}").into()
+                        };
+                        cx.notify();
+                    }
+                }
+            }
             "fs:job:done" => {
                 let ok = payload.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
                 let canceled = payload
@@ -1032,6 +1284,7 @@ impl PaneView {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 self.job_status = None;
+                self.active_job = None;
                 self.status = if canceled {
                     "キャンセルしました".into()
                 } else if ok {
@@ -1223,11 +1476,94 @@ impl Render for PaneView {
         } else {
             String::new()
         };
+        // 実行中ジョブがあればフッタにキャンセルボタンを出す。
+        let cancel_btn = self.active_job.map(|_| {
+            div()
+                .id("job-cancel")
+                .px_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .bg(rgb(0x553333))
+                .hover(|s| s.bg(rgb(0x6a3a3a)).text_color(rgb(0xffffff)))
+                .text_color(rgb(0xdddddd))
+                .child("キャンセル (Esc)")
+                .on_click(cx.listener(|this, _e, _w, cx| this.cancel_job(cx)))
+        });
         let count = self.entries.len();
 
-        let name_hdr = self.header_cell("名前", SortCol::Name, cx);
-        let size_hdr = self.header_cell("サイズ", SortCol::Size, cx);
-        let type_hdr = self.header_cell("種類", SortCol::Type, cx);
+        let searching = self.search_ui.is_some();
+
+        // 検索バー (Ctrl+F で表示)。
+        let search_bar = self.search_ui.as_ref().map(|ui| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .px_2()
+                .h(px(34.0))
+                .bg(rgb(0x1f2730))
+                .child(div().text_color(rgb(0x9a9a9a)).child("検索"))
+                .child(div().flex_1().child(ui.input.clone()))
+                .child(div().text_color(rgb(0x8a8a8a)).child(ui.info.clone()))
+                .child(
+                    div()
+                        .id("search-close")
+                        .px_2()
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0x3a3a3a)))
+                        .child("×")
+                        .on_click(cx.listener(|this, _e, w, cx| this.close_search(w, cx))),
+                )
+        });
+
+        // 列見出し (検索中は結果リストと列が合わないため非表示)。
+        let header = (!searching).then(|| {
+            let name_hdr = self.header_cell("名前", SortCol::Name, cx);
+            let size_hdr = self.header_cell("サイズ", SortCol::Size, cx);
+            let type_hdr = self.header_cell("種類", SortCol::Type, cx);
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .px_2()
+                .h(px(22.0))
+                .bg(rgb(0x202020))
+                .text_color(rgb(0x888888))
+                .child(div().w(px(16.0)))
+                .child(div().flex_1().child(name_hdr))
+                .child(div().w(px(96.0)).flex().justify_end().child(size_hdr))
+                .child(div().w(px(96.0)).child(type_hdr))
+        });
+
+        // 一覧領域: 通常はファイル一覧 / 検索中は検索結果 (どちらも仮想化)。
+        let list_area: AnyElement = if searching {
+            let rcount = self.search_ui.as_ref().map(|u| u.results.len()).unwrap_or(0);
+            uniform_list(
+                "search-results",
+                rcount,
+                cx.processor(|this, range: Range<usize>, _w, cx| {
+                    range
+                        .map(|ix| this.render_search_row(ix, cx))
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .size_full()
+            .into_any_element()
+        } else {
+            uniform_list(
+                "file-list",
+                count,
+                cx.processor(|this, range: Range<usize>, _w, cx| {
+                    range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
+                }),
+            )
+            .track_scroll(&self.scroll)
+            .size_full()
+            .into_any_element()
+        };
 
         div()
             .track_focus(&self.focus_handle)
@@ -1334,36 +1670,12 @@ impl Render for PaneView {
                             })),
                     ),
             )
-            // 列見出し
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .h(px(22.0))
-                    .bg(rgb(0x202020))
-                    .text_color(rgb(0x888888))
-                    .child(div().w(px(16.0)))
-                    .child(div().flex_1().child(name_hdr))
-                    .child(div().w(px(96.0)).flex().justify_end().child(size_hdr))
-                    .child(div().w(px(96.0)).child(type_hdr)),
-            )
-            // 一覧 (仮想化)
-            .child(
-                div().flex_1().overflow_hidden().child(
-                    uniform_list(
-                        "file-list",
-                        count,
-                        cx.processor(|this, range: Range<usize>, _w, cx| {
-                            range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
-                        }),
-                    )
-                    .track_scroll(&self.scroll)
-                    .size_full(),
-                ),
-            )
+            // 検索バー (Ctrl+F・表示中のみ)
+            .children(search_bar)
+            // 列見出し (検索中は非表示)
+            .children(header)
+            // 一覧 (仮想化: 通常 or 検索結果)
+            .child(div().flex_1().overflow_hidden().child(list_area))
             // フッタ (ステータス + 選択数)
             .child(
                 div()
@@ -1376,6 +1688,7 @@ impl Render for PaneView {
                     .bg(rgb(0x252525))
                     .text_color(rgb(0x9a9a9a))
                     .child(div().flex_1().overflow_hidden().child(status))
+                    .children(cancel_btn)
                     .child(sel_text),
             )
             // 入力モーダル (開いている時のみ)
