@@ -14,10 +14,12 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
-    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
-    point, prelude::*, px, relative, rgb, rgba, size,
+    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill,
+    point, prelude::*, px, relative, size,
 };
 use unicode_segmentation::*;
+
+use crate::theme::th;
 
 actions!(
     text_input,
@@ -504,7 +506,7 @@ impl Element for TextElement {
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), hsla(0., 0., 1., 0.2))
+            (input.placeholder.clone(), th().text_disabled.into())
         } else {
             (content, style.color)
         };
@@ -558,7 +560,7 @@ impl Element for TextElement {
                         point(bounds.left() + cursor_pos, bounds.top()),
                         size(px(2.), bounds.bottom() - bounds.top()),
                     ),
-                    rgb(0x5aa9e6),
+                    th().accent,
                 )),
             )
         } else {
@@ -574,7 +576,7 @@ impl Element for TextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    rgba(0x3a6a9a66),
+                    th().sel_translucent,
                 )),
                 None,
             )
@@ -653,13 +655,13 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .bg(rgb(0x141414))
+            .bg(th().input_bg)
             .rounded_md()
             .border_1()
-            .border_color(rgb(0x3a3a3a))
+            .border_color(th().button_bg)
             .line_height(px(22.))
             .text_size(px(14.))
-            .text_color(rgb(0xe6e6e6))
+            .text_color(th().text)
             .child(
                 div()
                     .h(px(22. + 4. * 2.))

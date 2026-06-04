@@ -12,9 +12,11 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use fastfiler_domain::fs;
+
+use crate::theme::th;
 use gpui::{
     AnyElement, Context, EventEmitter, IntoElement, MouseButton, SharedString,
-    UniformListScrollHandle, Window, div, prelude::*, px, rgb, uniform_list,
+    UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
 /// ツリーからコンテナへのイベント。
@@ -199,7 +201,7 @@ impl TreeView {
                 .pl(px(6.0))
                 .pr_1()
                 .gap_1()
-                .text_color(rgb(0x8a9ab0))
+                .text_color(th().text_dim)
                 .child(div().flex_1().overflow_hidden().child(item.name.clone()))
                 .on_mouse_down(
                     MouseButton::Right,
@@ -229,9 +231,9 @@ impl TreeView {
                 div()
                     .id(SharedString::from(format!("ta-{ix}")))
                     .w(px(16.0))
-                    .text_color(rgb(0x777777))
+                    .text_color(th().text_faint)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(rgb(0xcccccc)))
+                    .hover(|s| s.text_color(th().text_soft))
                     .child(arrow)
                     .on_click(cx.listener(move |this, _e, _w, cx| {
                         this.toggle(ix, cx);
@@ -246,7 +248,7 @@ impl TreeView {
                     .rounded_sm()
                     .px_1()
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgb(0x2d3a48)))
+                    .hover(|s| s.bg(th().hover_bg))
                     .child(name)
                     .on_click(cx.listener(move |_this, _e, _w, cx| {
                         cx.emit(TreeEvent::OpenDir(path.clone()));
@@ -264,8 +266,8 @@ impl Render for TreeView {
             .flex()
             .flex_col()
             .size_full()
-            .bg(rgb(0x191919))
-            .text_color(rgb(0xc8c8c8))
+            .bg(th().tree_bg)
+            .text_color(th().text_soft)
             // ヘッダ
             .child(
                 div()
@@ -274,8 +276,8 @@ impl Render for TreeView {
                     .items_center()
                     .px_2()
                     .h(px(28.0))
-                    .bg(rgb(0x202020))
-                    .text_color(rgb(0x9a9a9a))
+                    .bg(th().header_bg)
+                    .text_color(th().text_dim)
                     .child(div().flex_1().child("ツリー"))
                     .child(
                         div()
@@ -283,7 +285,7 @@ impl Render for TreeView {
                             .px_1()
                             .rounded_sm()
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x3a3a3a)).text_color(rgb(0xdddddd)))
+                            .hover(|s| s.bg(th().button_bg).text_color(th().text))
                             .child("⟳")
                             .on_click(cx.listener(|this, _e, _w, cx| this.refresh(cx))),
                     ),

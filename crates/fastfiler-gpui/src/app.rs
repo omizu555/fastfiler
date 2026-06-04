@@ -19,11 +19,12 @@ use std::sync::atomic::Ordering;
 
 use gpui::{
     AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, IntoElement, SharedString,
-    Subscription, Window, div, prelude::*, px, rgb,
+    Subscription, Window, div, prelude::*, px,
 };
 
 use crate::pane::{PANES_ALIVE, PaneEvent, PaneView, SplitDir};
 use crate::session::{self, NodeData, SessionData};
+use crate::theme::th;
 use crate::tree::{TreeEvent, TreeView};
 
 /// ペインの最小サイズ (px)。リサイズ時にこれ未満へは縮めない。
@@ -247,12 +248,33 @@ impl FastFilerApp {
             tree_width: self.tree_width,
             window: self.window_bounds,
             unc_shares: self.tree.read(cx).unc_shares().to_vec(),
+            theme: Some(th().name.to_string()),
             tabs: self
                 .tabs
                 .iter()
                 .map(|t| node_data(&t.root, t.focused, cx))
                 .collect(),
         });
+    }
+
+    /// テーマを次のプリセットへ切替え、全ビューを再描画して保存。
+    fn cycle_theme(&mut self, cx: &mut Context<Self>) {
+        crate::theme::cycle();
+        self.refresh_all(cx);
+        self.schedule_save(cx);
+    }
+
+    /// テーマ変更などで全ペイン + ツリーを再描画する。
+    fn refresh_all(&mut self, cx: &mut Context<Self>) {
+        let mut panes = Vec::new();
+        for t in &self.tabs {
+            collect_pane_entities(&t.root, &mut panes);
+        }
+        for p in panes {
+            p.update(cx, |_, cx| cx.notify());
+        }
+        self.tree.update(cx, |_, cx| cx.notify());
+        cx.notify();
     }
 
     /// アクティブタブのフォーカスペインにフォルダを開く (ツリーからの遷移先)。
@@ -526,9 +548,9 @@ impl FastFilerApp {
                     .size_full()
                     .border_1()
                     .border_color(if is_focused {
-                        rgb(0x5aa9e6)
+                        th().accent
                     } else {
-                        rgb(0x101010)
+                        th().border_dim
                     })
                     .child(pane.clone())
                     .into_any_element()
@@ -633,9 +655,9 @@ impl Render for FastFilerApp {
                             .py_1()
                             .rounded_md()
                             .cursor_pointer()
-                            .bg(if is_active { rgb(0x2d4661) } else { rgb(0x202020) })
-                            .hover(|s| s.bg(rgb(0x33404d)))
-                            .text_color(rgb(0xdddddd))
+                            .bg(if is_active { th().sel_bg } else { th().header_bg })
+                            .hover(|s| s.bg(th().hover_bg))
+                            .text_color(th().text)
                             .child(title)
                             .on_click(cx.listener(move |this, _e, _w, cx| this.select_tab(i, cx))),
                     )
@@ -645,8 +667,8 @@ impl Render for FastFilerApp {
                             .px_1()
                             .rounded_md()
                             .cursor_pointer()
-                            .text_color(rgb(0x9a9a9a))
-                            .hover(|s| s.bg(rgb(0x553333)).text_color(rgb(0xffffff)))
+                            .text_color(th().text_dim)
+                            .hover(|s| s.bg(th().danger_bg).text_color(th().text_bright))
                             .child("×")
                             .on_click(cx.listener(move |this, _e, _w, cx| this.close_tab(i, cx))),
                     )
@@ -662,7 +684,7 @@ impl Render for FastFilerApp {
                     .w(px(self.tree_width))
                     .flex_shrink_0()
                     .h_full()
-                    .bg(rgb(0x191919))
+                    .bg(th().tree_bg)
                     .child(self.tree.clone()),
             )
         } else {
@@ -675,8 +697,8 @@ impl Render for FastFilerApp {
                     .flex_shrink_0()
                     .w(px(5.0))
                     .h_full()
-                    .bg(rgb(0x0a0a0a))
-                    .hover(|s| s.bg(rgb(0x3a6a9a)))
+                    .bg(th().handle_bg)
+                    .hover(|s| s.bg(th().handle_hover))
                     .cursor_col_resize()
                     .on_drag(DraggedTreeHandle, |_, _, _, cx| cx.new(|_| Empty)),
             )
@@ -689,7 +711,7 @@ impl Render for FastFilerApp {
             .flex()
             .flex_row()
             .size_full()
-            .bg(rgb(0x111111))
+            .bg(th().app_bg)
             // 左: 縦タブバー
             .child(
                 div()
@@ -697,7 +719,7 @@ impl Render for FastFilerApp {
                     .flex_col()
                     .w(px(200.0))
                     .h_full()
-                    .bg(rgb(0x161616))
+                    .bg(th().tab_bar_bg)
                     .p_1()
                     .gap_1()
                     .child(
@@ -713,9 +735,9 @@ impl Render for FastFilerApp {
                                     .py_1()
                                     .rounded_md()
                                     .cursor_pointer()
-                                    .bg(rgb(0x2a2a2a))
-                                    .hover(|s| s.bg(rgb(0x3a3a3a)))
-                                    .text_color(rgb(0xcccccc))
+                                    .bg(th().surface_bg)
+                                    .hover(|s| s.bg(th().button_bg))
+                                    .text_color(th().text_soft)
                                     .child("＋ 新規タブ")
                                     .on_click(cx.listener(|this, _e, _w, cx| this.add_tab(cx))),
                             )
@@ -726,21 +748,35 @@ impl Render for FastFilerApp {
                                     .py_1()
                                     .rounded_md()
                                     .cursor_pointer()
-                                    .bg(if show_tree { rgb(0x2d4661) } else { rgb(0x2a2a2a) })
-                                    .hover(|s| s.bg(rgb(0x3a4a5a)))
-                                    .text_color(rgb(0xcccccc))
+                                    .bg(if show_tree { th().sel_bg } else { th().surface_bg })
+                                    .hover(|s| s.bg(th().menu_hover))
+                                    .text_color(th().text_soft)
                                     .child("ツリー")
                                     .on_click(cx.listener(|this, _e, _w, cx| this.toggle_tree(cx))),
                             ),
                     )
                     .children(tab_items)
                     .child(div().flex_1())
+                    // テーマ切替 (クリックでプリセット巡回・セッション保存)
+                    .child(
+                        div()
+                            .id("theme-btn")
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .bg(th().surface_bg)
+                            .hover(|s| s.bg(th().button_bg))
+                            .text_color(th().text_soft)
+                            .child(SharedString::from(format!("テーマ: {}", th().name)))
+                            .on_click(cx.listener(|this, _e, _w, cx| this.cycle_theme(cx))),
+                    )
                     // デバッグ: 生存ペイン数 (タブ/ペイン開閉でベースラインへ戻るかの可視化)
                     .child(
                         div()
                             .px_2()
                             .py_1()
-                            .text_color(rgb(0x6a6a6a))
+                            .text_color(th().text_disabled)
                             .child(SharedString::from(format!("live panes: {alive}"))),
                     ),
             )
@@ -770,8 +806,8 @@ fn render_handle(split_id: u64, ix: usize, dir: SplitDir) -> AnyElement {
     let base = div()
         .id(SharedString::from(format!("rh-{split_id}-{ix}")))
         .flex_shrink_0()
-        .bg(rgb(0x0a0a0a))
-        .hover(|s| s.bg(rgb(0x3a6a9a)))
+        .bg(th().handle_bg)
+        .hover(|s| s.bg(th().handle_hover))
         .on_drag(DraggedHandle { split_id, ix }, |_, _, _, cx| {
             cx.new(|_| Empty)
         });
@@ -828,6 +864,18 @@ fn count_leaves(node: &PaneNode) -> usize {
     match node {
         PaneNode::Leaf(_) => 1,
         PaneNode::Split { children, .. } => children.iter().map(count_leaves).sum(),
+    }
+}
+
+/// ツリー内の全ペイン Entity を集める (テーマ変更時の一括再描画用)。
+fn collect_pane_entities(node: &PaneNode, out: &mut Vec<Entity<PaneView>>) {
+    match node {
+        PaneNode::Leaf(e) => out.push(e.clone()),
+        PaneNode::Split { children, .. } => {
+            for c in children {
+                collect_pane_entities(c, out);
+            }
+        }
     }
 }
 

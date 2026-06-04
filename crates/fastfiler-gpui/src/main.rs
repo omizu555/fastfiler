@@ -10,6 +10,7 @@ mod pane;
 mod session;
 mod sink;
 mod text_input;
+mod theme;
 mod tree;
 #[cfg(windows)]
 mod win32_single_instance;
@@ -35,8 +36,11 @@ fn main() {
         // テキスト入力 ("TextInput" コンテキスト限定) のキーバインドを登録。
         text_input::bind_keys(cx);
 
-        // 前回セッション (タブ / 分割構成 / ウィンドウ位置) があれば復元。
+        // 前回セッション (タブ / 分割構成 / ウィンドウ位置 / テーマ) があれば復元。
         let saved = session::load();
+        if let Some(name) = saved.as_ref().and_then(|s| s.theme.as_deref()) {
+            theme::set_by_name(name);
+        }
 
         let bounds = saved
             .as_ref()

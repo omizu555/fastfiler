@@ -29,11 +29,12 @@ use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
     ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
     NavigationDirection, Pixels, Point, ScrollStrategy, SharedString, UniformListScrollHandle,
-    Window, anchored, deferred, div, img, prelude::*, px, rgb, rgba, uniform_list,
+    Window, anchored, deferred, div, img, prelude::*, px, uniform_list,
 };
 
 use crate::sink::ChannelSink;
 use crate::text_input::TextInput;
+use crate::theme::th;
 
 /// 入力モーダルの種類。
 enum ModalKind {
@@ -102,10 +103,10 @@ impl Render for DragPreview {
             .px_2()
             .py_1()
             .rounded_md()
-            .bg(rgb(0x2d4661))
+            .bg(th().sel_bg)
             .border_1()
-            .border_color(rgb(0x5aa9e6))
-            .text_color(rgb(0xffffff))
+            .border_color(th().accent)
+            .text_color(th().text_bright)
             .text_size(px(12.0))
             .child(self.text.clone())
     }
@@ -965,7 +966,7 @@ impl PaneView {
             .parent()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
-        let accent = if r.is_dir { rgb(0x5aa9e6) } else { rgb(0x707070) };
+        let accent = if r.is_dir { th().accent } else { th().accent_file };
 
         div()
             .id(ix)
@@ -976,24 +977,24 @@ impl PaneView {
             .px_2()
             .gap_2()
             .bg(if ix % 2 == 0 {
-                rgb(0x1e1e1e)
+                th().row_even
             } else {
-                rgb(0x232323)
+                th().row_odd
             })
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(0x33404d)))
+            .hover(|s| s.bg(th().hover_bg))
             .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                 if e.click_count() > 1 {
                     this.open_search_result(ix, window, cx);
                 }
             }))
             .child(div().w(px(6.0)).h(px(14.0)).rounded_sm().bg(accent))
-            .child(div().text_color(rgb(0xe0e0e0)).child(name))
+            .child(div().text_color(th().text).child(name))
             .child(
                 div()
                     .flex_1()
                     .overflow_hidden()
-                    .text_color(rgb(0x777777))
+                    .text_color(th().text_faint)
                     .child(parent),
             )
             .into_any_element()
@@ -1186,17 +1187,17 @@ impl PaneView {
             .rounded_sm();
         if enabled {
             row.cursor_pointer()
-                .hover(|s| s.bg(rgb(0x3a5a7a)))
+                .hover(|s| s.bg(th().menu_hover))
                 .on_click(cx.listener(move |this, _e, w, cx| {
                     this.menu_action(action.clone(), w, cx)
                 }))
                 .child(div().child(label))
-                .child(div().text_color(rgb(0x8a8a8a)).child(shortcut))
+                .child(div().text_color(th().text_faint).child(shortcut))
                 .into_any_element()
         } else {
-            row.text_color(rgb(0x666666))
+            row.text_color(th().text_disabled)
                 .child(div().child(label))
-                .child(div().text_color(rgb(0x555555)).child(shortcut))
+                .child(div().text_color(th().text_disabled).child(shortcut))
                 .into_any_element()
         }
     }
@@ -1300,10 +1301,10 @@ impl PaneView {
                                     .py_1()
                                     .w(px(210.0))
                                     .rounded_md()
-                                    .bg(rgb(0x2a2a2a))
+                                    .bg(th().surface_bg)
                                     .border_1()
-                                    .border_color(rgb(0x4a4a4a))
-                                    .text_color(rgb(0xdddddd))
+                                    .border_color(th().button_hover)
+                                    .text_color(th().text)
                                     .children(items),
                             ),
                     ),
@@ -1330,7 +1331,7 @@ impl PaneView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgba(0x000000aa))
+                .bg(th().overlay_bg)
                 // 背景クリックでキャンセル。
                 .on_mouse_down(
                     MouseButton::Left,
@@ -1347,15 +1348,15 @@ impl PaneView {
                         .w(px(420.0))
                         .p_3()
                         .rounded_md()
-                        .bg(rgb(0x2a2a2a))
+                        .bg(th().surface_bg)
                         .border_1()
-                        .border_color(rgb(0x5aa9e6))
-                        .text_color(rgb(0xe0e0e0))
+                        .border_color(th().accent)
+                        .text_color(th().text)
                         .child(title)
                         .child(m.input.clone())
                         .child(
                             div()
-                                .text_color(rgb(0x8a8a8a))
+                                .text_color(th().text_faint)
                                 .child("Enter: 実行 / Esc: キャンセル"),
                         ),
                 )
@@ -1662,22 +1663,22 @@ impl PaneView {
 
         // 選択=青地 / カーソル=明るめ (選択+カーソルが最も明るい)。
         let row_bg = if is_selected && is_cursor {
-            rgb(0x33506e)
+            th().sel_cursor_bg
         } else if is_selected {
-            rgb(0x2d4661)
+            th().sel_bg
         } else if is_cursor {
-            rgb(0x2a3340)
+            th().cursor_bg
         } else if ix % 2 == 0 {
-            rgb(0x1e1e1e)
+            th().row_even
         } else {
-            rgb(0x232323)
+            th().row_odd
         };
 
         // アイコン: 取得できれば実アイコン、失敗時は種別アクセントの代替。
         let icon_el: AnyElement = match self.row_icons.get(ix).cloned().flatten() {
             Some(handle) => img(handle).w(px(16.0)).h(px(16.0)).into_any_element(),
             None => {
-                let accent = if is_dir { rgb(0x5aa9e6) } else { rgb(0x707070) };
+                let accent = if is_dir { th().accent } else { th().accent_file };
                 div()
                     .w(px(6.0))
                     .h(px(14.0))
@@ -1697,7 +1698,7 @@ impl PaneView {
             .gap_2()
             .bg(row_bg)
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(0x33404d)))
+            .hover(|s| s.bg(th().hover_bg))
             .on_click(cx.listener(move |this, event, window, cx| {
                 this.on_row_click(ix, event, window, cx);
             }))
@@ -1737,20 +1738,20 @@ impl PaneView {
                 div()
                     .flex_1()
                     .overflow_hidden()
-                    .text_color(rgb(0xe0e0e0))
+                    .text_color(th().text)
                     .child(name),
             )
             .child(
                 div()
                     .w(px(96.0))
                     .text_right()
-                    .text_color(rgb(0x9a9a9a))
+                    .text_color(th().text_dim)
                     .child(size_text),
             )
             .child(
                 div()
                     .w(px(96.0))
-                    .text_color(rgb(0x9a9a9a))
+                    .text_color(th().text_dim)
                     .child(kind_text),
             );
 
@@ -1758,14 +1759,14 @@ impl PaneView {
         if is_dir {
             let name1 = entry.name.clone();
             let name2 = entry.name.clone();
-            row.drag_over::<DraggedFiles>(|s, _, _, _| s.bg(rgb(0x2a4a6a)))
+            row.drag_over::<DraggedFiles>(|s, _, _, _| s.bg(th().drop_row_bg))
                 .on_drop(cx.listener(move |this, files: &DraggedFiles, _w, cx| {
                     let dst = this.cur_path.join(&name1);
                     this.drop_paths_into(dst, files.paths.clone(), cx);
                     // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
                     cx.stop_propagation();
                 }))
-                .drag_over::<ExternalPaths>(|s, _, _, _| s.bg(rgb(0x2a4a6a)))
+                .drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_row_bg))
                 .on_drop(cx.listener(move |this, files: &ExternalPaths, _w, cx| {
                     let dst = this.cur_path.join(&name2);
                     let paths: Vec<String> = files
@@ -1792,7 +1793,7 @@ impl PaneView {
         div()
             .id(SharedString::from(format!("hdr-{label}")))
             .cursor_pointer()
-            .hover(|s| s.text_color(rgb(0xcccccc)))
+            .hover(|s| s.text_color(th().text_soft))
             .on_click(cx.listener(move |this, _e, _w, cx| this.set_sort(col, cx)))
             .child(text)
             .into_any_element()
@@ -1827,7 +1828,7 @@ impl Render for PaneView {
                 .px_1()
                 .rounded_sm()
                 .cursor_pointer()
-                .hover(|s| s.bg(rgb(0x303030)))
+                .hover(|s| s.bg(th().surface_hover))
                 .child(path_text)
                 .on_click(cx.listener(|this, _e, w, cx| this.start_path_edit(w, cx)))
                 .into_any_element()
@@ -1849,9 +1850,9 @@ impl Render for PaneView {
                 .px_2()
                 .rounded_sm()
                 .cursor_pointer()
-                .bg(rgb(0x553333))
-                .hover(|s| s.bg(rgb(0x6a3a3a)).text_color(rgb(0xffffff)))
-                .text_color(rgb(0xdddddd))
+                .bg(th().danger_bg)
+                .hover(|s| s.bg(th().danger_hover).text_color(th().text_bright))
+                .text_color(th().text)
                 .child("キャンセル (Esc)")
                 .on_click(cx.listener(|this, _e, _w, cx| this.cancel_job(cx)))
         });
@@ -1868,17 +1869,17 @@ impl Render for PaneView {
                 .gap_2()
                 .px_2()
                 .h(px(34.0))
-                .bg(rgb(0x1f2730))
-                .child(div().text_color(rgb(0x9a9a9a)).child("検索"))
+                .bg(th().search_bar_bg)
+                .child(div().text_color(th().text_dim).child("検索"))
                 .child(div().flex_1().child(ui.input.clone()))
-                .child(div().text_color(rgb(0x8a8a8a)).child(ui.info.clone()))
+                .child(div().text_color(th().text_faint).child(ui.info.clone()))
                 .child(
                     div()
                         .id("search-close")
                         .px_2()
                         .rounded_sm()
                         .cursor_pointer()
-                        .hover(|s| s.bg(rgb(0x3a3a3a)))
+                        .hover(|s| s.bg(th().button_bg))
                         .child("×")
                         .on_click(cx.listener(|this, _e, w, cx| this.close_search(w, cx))),
                 )
@@ -1896,8 +1897,8 @@ impl Render for PaneView {
                 .gap_2()
                 .px_2()
                 .h(px(22.0))
-                .bg(rgb(0x202020))
-                .text_color(rgb(0x888888))
+                .bg(th().header_bg)
+                .text_color(th().text_faint)
                 .child(div().w(px(16.0)))
                 .child(div().flex_1().child(name_hdr))
                 .child(div().w(px(96.0)).flex().justify_end().child(size_hdr))
@@ -1959,11 +1960,11 @@ impl Render for PaneView {
             )
             // ドロップ受け入れ: ペイン間 D&D とエクスプローラ等の外部 D&D。
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
-            .drag_over::<DraggedFiles>(|style, _, _, _| style.bg(rgb(0x1f2c3a)))
+            .drag_over::<DraggedFiles>(|style, _, _, _| style.bg(th().drop_bg))
             .on_drop(cx.listener(|this, files: &DraggedFiles, _w, cx| {
                 this.drop_paths_into(this.cur_path.clone(), files.paths.clone(), cx);
             }))
-            .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(0x1f2c3a)))
+            .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(th().drop_bg))
             .on_drop(cx.listener(|this, files: &ExternalPaths, _w, cx| {
                 let paths: Vec<String> = files
                     .paths()
@@ -1976,8 +1977,8 @@ impl Render for PaneView {
             .flex_col()
             .size_full()
             .relative()
-            .bg(rgb(0x1a1a1a))
-            .text_color(rgb(0xdddddd))
+            .bg(th().pane_bg)
+            .text_color(th().text)
             // 上部パスバー
             .child(
                 div()
@@ -1987,16 +1988,16 @@ impl Render for PaneView {
                     .gap_2()
                     .px_2()
                     .h(px(34.0))
-                    .bg(rgb(0x252525))
+                    .bg(th().bar_bg)
                     .child(
                         div()
                             .id("nav-back")
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .hover(|s| s.bg(th().button_hover))
                             .child("←")
                             .on_click(cx.listener(|this, _e, _w, cx| this.go_back(cx))),
                     )
@@ -2006,9 +2007,9 @@ impl Render for PaneView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .hover(|s| s.bg(th().button_hover))
                             .child("→")
                             .on_click(cx.listener(|this, _e, _w, cx| this.go_forward(cx))),
                     )
@@ -2018,9 +2019,9 @@ impl Render for PaneView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .hover(|s| s.bg(th().button_hover))
                             .child("↑")
                             .on_click(cx.listener(|this, _e, _w, cx| this.go_up(cx))),
                     )
@@ -2032,9 +2033,9 @@ impl Render for PaneView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .hover(|s| s.bg(th().button_hover))
                             .child("↔")
                             .on_click(cx.listener(|_t, _e, _w, cx| {
                                 cx.emit(PaneEvent::SplitRequested(SplitDir::Row))
@@ -2046,9 +2047,9 @@ impl Render for PaneView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x4a4a4a)))
+                            .hover(|s| s.bg(th().button_hover))
                             .child("↕")
                             .on_click(cx.listener(|_t, _e, _w, cx| {
                                 cx.emit(PaneEvent::SplitRequested(SplitDir::Column))
@@ -2060,9 +2061,9 @@ impl Render for PaneView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x3a3a3a))
+                            .bg(th().button_bg)
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0x5a3a3a)))
+                            .hover(|s| s.bg(th().danger_hover))
                             .child("×")
                             .on_click(cx.listener(|_t, _e, _w, cx| {
                                 cx.emit(PaneEvent::CloseRequested)
@@ -2084,8 +2085,8 @@ impl Render for PaneView {
                     .gap_2()
                     .px_2()
                     .h(px(24.0))
-                    .bg(rgb(0x252525))
-                    .text_color(rgb(0x9a9a9a))
+                    .bg(th().bar_bg)
+                    .text_color(th().text_dim)
                     .child(div().flex_1().overflow_hidden().child(status))
                     .children(cancel_btn)
                     .child(sel_text),
@@ -2157,7 +2158,7 @@ fn menu_sep() -> AnyElement {
         .h(px(1.0))
         .mx_1()
         .my_1()
-        .bg(rgb(0x3f3f3f))
+        .bg(th().separator)
         .into_any_element()
 }
 

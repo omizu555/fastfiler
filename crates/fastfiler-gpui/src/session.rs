@@ -22,6 +22,9 @@ pub struct SessionData {
     /// ワークスペースツリーに登録済みの UNC share (`\\server\share`)。
     #[serde(default)]
     pub unc_shares: Vec<String>,
+    /// テーマ名 (プリセット)。
+    #[serde(default)]
+    pub theme: Option<String>,
     pub tabs: Vec<NodeData>,
 }
 
