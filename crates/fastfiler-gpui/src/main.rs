@@ -11,13 +11,26 @@ mod session;
 mod sink;
 mod text_input;
 mod tree;
+#[cfg(windows)]
+mod win32_single_instance;
 
-use gpui::{App, AppContext, Bounds, WindowBounds, WindowOptions, point, px, size};
+use gpui::{
+    App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
+};
 use gpui_platform::application;
 
 use crate::app::{FastFilerApp, default_start};
 
 fn main() {
+    // 多重起動防止: 既に起動中なら既存ウィンドウを前面化して静かに終了。
+    #[cfg(windows)]
+    {
+        if !win32_single_instance::acquire_single_instance() {
+            win32_single_instance::activate_existing_window();
+            return;
+        }
+    }
+
     application().run(|cx: &mut App| {
         // テキスト入力 ("TextInput" コンテキスト限定) のキーバインドを登録。
         text_input::bind_keys(cx);
@@ -37,6 +50,11 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // タイトルは多重起動防止の FindWindowW ("FastFiler") とも対応。
+                titlebar: Some(TitlebarOptions {
+                    title: Some("FastFiler".into()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             |_window, cx| {

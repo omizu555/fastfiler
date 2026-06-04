@@ -583,6 +583,15 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   ドロップ (表示中フォルダへ) と二重処理しない。自分自身への転送は既存ガードで防止。
 - `drop_paths` は `drop_paths_into(dst_dir, ..)` に一般化。
 
+### 2026-06-04 — exe アイコン埋め込み + 多重起動防止 完了 ✅
+- **アイコン**: 旧 floem 版の `assets/icon.{ico,rc}` を git 履歴 (`7a2f11c`) から復元し
+  `crates/fastfiler-gpui/assets/` へ。build.rs + embed-resource(2) で exe へ埋め込み。
+- **多重起動防止**: 旧 `win32/single_instance.rs` を**そのまま移植**
+  (`win32_single_instance.rs`)。Named Mutex (`Local\FastFiler-...`) で判定し、
+  二重起動時は `FindWindowW(NULL, "FastFiler")` → 復元 + `SetForegroundWindow`
+  して静かに終了。**ウィンドウタイトルを "FastFiler" に設定** (TitlebarOptions)。
+- 実機テスト: 2 プロセス起動 → 1 個目生存 / 2 個目即終了を確認。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)
