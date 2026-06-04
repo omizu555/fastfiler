@@ -568,6 +568,21 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
 - **ダブルクリックでジャンプ**: フォルダ→開く / ファイル→親フォルダを開いて選択+
   中央スクロール。フォルダ移動時は検索モードを自動クローズ。
 
+### 2026-06-04 — Undo (Ctrl+Z) 完了 ✅
+- `domain::undo::UndoManager` (スタック N=20) をペイン毎に保持。
+- 記録: **リネーム** (`UndoOp::Rename`) と **ごみ箱送り** (`UndoOp::Trash` —
+  削除前に FileEntry から `TrashedItem` メタデータを構築し restore 照合に使う)。
+- **Ctrl+Z** で逆実行: rename は `rename_path_no_overwrite(to→from)`、trash は
+  `restore_from_trash` (IFileOperation)。成功で「元に戻しました: ラベル」+ reload。
+- Move (貼り付け/D&D) の記録は未対応 (ジョブが非同期のため部分失敗の扱いが課題。今後)。
+
+### 2026-06-04 — フォルダ行への直接ドロップ 完了 ✅
+- ペイン内一覧の**フォルダ行**が D&D のドロップ先になった (内部 `DraggedFiles` /
+  外部 `ExternalPaths` 両対応)。行ハイライトで受け入れ表示。
+- ドロップ先はその行のフォルダ。行側で `stop_propagation` し、ペイン全体の
+  ドロップ (表示中フォルダへ) と二重処理しない。自分自身への転送は既存ガードで防止。
+- `drop_paths` は `drop_paths_into(dst_dir, ..)` に一般化。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)

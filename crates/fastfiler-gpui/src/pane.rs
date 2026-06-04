@@ -21,6 +21,7 @@ use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
 use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
+use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{file_ops, icons, path_util, shell, win_clipboard};
 use gpui::{
@@ -179,6 +180,8 @@ pub struct PaneView {
     search_ui: Option<SearchUi>,
     /// 検索の実行状態 (前回検索の自動キャンセルを管理)。
     searcher: Arc<SearchState>,
+    /// Undo スタック (リネーム / ごみ箱送りを記録。ADR 0006/0008)。
+    undo: UndoManager,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -232,6 +235,7 @@ impl PaneView {
             context_menu: None,
             search_ui: None,
             searcher: Arc::new(SearchState::default()),
+            undo: UndoManager::new(),
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
@@ -449,9 +453,26 @@ impl PaneView {
         if paths.is_empty() {
             return;
         }
+        // Undo 用に削除前のメタデータを記録 (restore_from_trash がこれで照合する)。
+        let now = std::time::SystemTime::now();
+        let trashed: Vec<TrashedItem> = self
+            .selected
+            .iter()
+            .filter_map(|&i| self.entries.get(i))
+            .map(|e| TrashedItem {
+                original_path: self.cur_path.join(&e.name),
+                file_name: std::ffi::OsString::from(e.name.as_str()),
+                size: e.size,
+                modified: std::time::UNIX_EPOCH
+                    + std::time::Duration::from_secs(e.modified.max(0) as u64),
+                is_dir: e.kind == "dir",
+                deleted_at: now,
+            })
+            .collect();
         let n = paths.len();
         match file_ops::delete_to_trash(paths) {
             Ok(()) => {
+                self.undo.push(UndoOp::Trash { items: trashed });
                 if n > 1 {
                     self.status = format!("{n} 個をごみ箱へ移動しました").into();
                 }
@@ -459,6 +480,49 @@ impl PaneView {
             }
             Err(e) => {
                 self.status = format!("削除に失敗: {e}").into();
+                cx.notify();
+            }
+        }
+    }
+
+    /// 直近の操作を元に戻す (Ctrl+Z)。リネーム / ごみ箱送り対象 (ADR 0008)。
+    fn undo_last(&mut self, cx: &mut Context<Self>) {
+        let Some(op) = self.undo.pop() else {
+            self.status = "元に戻す操作はありません".into();
+            cx.notify();
+            return;
+        };
+        let label = op.label();
+        let result: Result<(), String> = match &op {
+            UndoOp::Rename { from, to } => {
+                file_ops::rename_path_no_overwrite(to, from).map_err(|e| e.to_string())
+            }
+            UndoOp::Move { items } => {
+                let mut err = None;
+                for it in items {
+                    if let Err(e) = file_ops::move_path_no_overwrite(&it.to, &it.from) {
+                        err = Some(e.to_string());
+                    }
+                }
+                err.map_or(Ok(()), Err)
+            }
+            UndoOp::Trash { items } => {
+                let mut err = None;
+                for it in items {
+                    if let Err(e) = file_ops::restore_from_trash(it) {
+                        err = Some(e.to_string());
+                    }
+                }
+                err.map_or(Ok(()), Err)
+            }
+        };
+        match result {
+            Ok(()) => {
+                self.status = format!("元に戻しました: {label}").into();
+                self.reload(cx, false);
+            }
+            Err(e) => {
+                self.status = format!("元に戻せませんでした: {e}").into();
                 cx.notify();
             }
         }
@@ -558,6 +622,10 @@ impl PaneView {
                     self.open_search(window, cx);
                     return;
                 }
+                "z" => {
+                    self.undo_last(cx);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -641,11 +709,16 @@ impl PaneView {
                 if *original == text {
                     Ok(())
                 } else {
-                    file_ops::rename_path_no_overwrite(
-                        &self.cur_path.join(original),
-                        &self.cur_path.join(&text),
-                    )
-                    .map_err(|e| e.to_string())
+                    let from = self.cur_path.join(original);
+                    let to = self.cur_path.join(&text);
+                    match file_ops::rename_path_no_overwrite(&from, &to) {
+                        Ok(()) => {
+                            // Undo 用に記録 (Ctrl+Z で to → from へ戻す)。
+                            self.undo.push(UndoOp::Rename { from, to });
+                            Ok(())
+                        }
+                        Err(e) => Err(e.to_string()),
+                    }
                 }
             }
             ModalKind::NewFolder => {
@@ -1131,14 +1204,15 @@ impl PaneView {
         self.run_transfer(items, clip.op == "cut", cx);
     }
 
-    /// ペイン間 / 外部からのドロップ。同一ボリューム=移動 / 異なる=コピー (エクスプローラ準拠)。
-    fn drop_paths(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
-        let items = build_job_items(&paths, &self.cur_path);
+    /// ペイン間 / 外部からのドロップを dst_dir へ転送。
+    /// 同一ボリューム=移動 / 異なる=コピー (エクスプローラ準拠)。
+    fn drop_paths_into(&mut self, dst_dir: PathBuf, paths: Vec<String>, cx: &mut Context<Self>) {
+        let items = build_job_items(&paths, &dst_dir);
         if items.is_empty() {
             return;
         }
         let src_vol = path_util::volume_key(Path::new(&items[0].from));
-        let dst_vol = path_util::volume_key(&self.cur_path);
+        let dst_vol = path_util::volume_key(&dst_dir);
         let is_move = src_vol.is_some() && src_vol == dst_vol;
         self.run_transfer(items, is_move, cx);
     }
@@ -1363,7 +1437,7 @@ impl PaneView {
             }
         };
 
-        div()
+        let row = div()
             .id(ix)
             .flex()
             .flex_row()
@@ -1428,8 +1502,34 @@ impl PaneView {
                     .w(px(96.0))
                     .text_color(rgb(0x9a9a9a))
                     .child(kind_text),
-            )
-            .into_any_element()
+            );
+
+        // フォルダ行は直接ドロップ先になる (その行のフォルダへ転送)。
+        if is_dir {
+            let name1 = entry.name.clone();
+            let name2 = entry.name.clone();
+            row.drag_over::<DraggedFiles>(|s, _, _, _| s.bg(rgb(0x2a4a6a)))
+                .on_drop(cx.listener(move |this, files: &DraggedFiles, _w, cx| {
+                    let dst = this.cur_path.join(&name1);
+                    this.drop_paths_into(dst, files.paths.clone(), cx);
+                    // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
+                    cx.stop_propagation();
+                }))
+                .drag_over::<ExternalPaths>(|s, _, _, _| s.bg(rgb(0x2a4a6a)))
+                .on_drop(cx.listener(move |this, files: &ExternalPaths, _w, cx| {
+                    let dst = this.cur_path.join(&name2);
+                    let paths: Vec<String> = files
+                        .paths()
+                        .iter()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect();
+                    this.drop_paths_into(dst, paths, cx);
+                    cx.stop_propagation();
+                }))
+                .into_any_element()
+        } else {
+            row.into_any_element()
+        }
     }
 
     /// 列見出しセル (クリックでその列ソート / 再クリックで昇降反転)。
@@ -1586,7 +1686,7 @@ impl Render for PaneView {
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
             .drag_over::<DraggedFiles>(|style, _, _, _| style.bg(rgb(0x1f2c3a)))
             .on_drop(cx.listener(|this, files: &DraggedFiles, _w, cx| {
-                this.drop_paths(files.paths.clone(), cx);
+                this.drop_paths_into(this.cur_path.clone(), files.paths.clone(), cx);
             }))
             .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(rgb(0x1f2c3a)))
             .on_drop(cx.listener(|this, files: &ExternalPaths, _w, cx| {
@@ -1595,7 +1695,7 @@ impl Render for PaneView {
                     .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                this.drop_paths(paths, cx);
+                this.drop_paths_into(this.cur_path.clone(), paths, cx);
             }))
             .flex()
             .flex_col()
