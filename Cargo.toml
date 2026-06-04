@@ -3,9 +3,12 @@ resolver = "2"
 members = [
     "crates/fastfiler-domain",
     "crates/fastfiler-native",
+    "crates/fastfiler-gpui",
 ]
 exclude = [
     "experimental/floem-filelist-poc",
+    # GPUI の vendor は独立サブワークスペース。main workspace のメンバーにはしない。
+    "vendor",
 ]
 
 [profile.release]
@@ -13,4 +16,13 @@ panic = "abort"
 codegen-units = 1
 lto = true
 opt-level = "s"
+# メモリ増殖は GPUI 移植 (crates/fastfiler-gpui) で構造的に解決したため strip を復帰。
+# (旧 floem 版の調査用に strip=false / debug=1 にしていた)
 strip = true
+
+# vendor/ の gpui が直接使う async-task を、移植元と同じ git fork に固定する。
+# 移植元の [patch.crates-io] のうち Windows・最小 gpui グラフに効くのはこれだけ
+# (notify/livekit/calloop 等は当アプリのグラフに現れないため不要)。
+# このパッチはビルドルート (本 workspace) で適用され、vendor 内 gpui にも及ぶ。
+[patch.crates-io]
+async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }

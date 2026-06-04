@@ -1,0 +1,29 @@
+[package]
+name = "fastfiler-gpui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "FastFiler GUI (GPUI-based) — Zed の GPUI への移植"
+
+[[bin]]
+name = "fastfiler-gpui"
+path = "src/main.rs"
+
+[dependencies]
+# GPUI は Files 内 vendor/ に完全移植 (zed フォルダは参照しない)。
+# vendor/ は独立サブワークスペースで、gpui の workspace=true 継承を自前で解決する。
+# 取り込み済みクレート一覧と更新手順は vendor/README.md を参照。
+gpui = { path = "../../vendor/crates/gpui" }
+gpui_platform = { path = "../../vendor/crates/gpui_platform" }
+
+# GUI 非依存のロジック層をそのまま流用 (fs / file_ops / watcher / search / icons …)
+fastfiler-domain = { path = "../fastfiler-domain" }
+
+# domain の EventSink (別スレッド) → UI スレッドへの橋渡し用チャネル。
+# バージョンは vendor gpui と揃える (重複コンパイル回避)。
+async-channel = "2.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# テキスト入力ウィジェット (text_input.rs) の書記素境界処理。
+unicode-segmentation = "1"

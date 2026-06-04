@@ -1,0 +1,6 @@
+# Windows の schannel が証明書失効サーバへ到達できない環境向けの回避策。
+# エラー: CRYPT_E_NO_REVOCATION_CHECK (0x80092012)。
+# GPUI の git 依存 (font-kit fork 等) と crates.io sparse index 取得に必要。
+# ネットワークが失効チェック可能な環境ではこの行を削除してよい。
+[http]
+check-revoke = false
