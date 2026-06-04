@@ -232,8 +232,9 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
     // ここでは空の roots でも OK (起動直後は空でも UI は壊れない)。
     let roots_sig = app.tree_roots;
     // スクロール先 Y 座標 (フォローエフェクトが set、scroll が読む)
+    // create_rw_signal() で現在スコープに置く（Scope::new() の untethered は不要）
     let scroll_target: RwSignal<Option<floem::kurbo::Point>> =
-        floem::reactive::Scope::new().create_rw_signal(None);
+        floem::reactive::create_rw_signal(None);
 
     // tree_tick を track し、展開済みノードを再帰的に reload する単一 effect。
     // tree_pane の scope に置くことで、レンダリング再生成で破棄されないようにする。
@@ -252,30 +253,37 @@ pub fn tree_pane(app: AppState) -> impl IntoView {
     });
 
     // アクティブペインの cur_path に追従してツリーを自動展開する effect。
-    // active タブ → そのタブの active_pane → そのペインの cur_path を全て track。
+    // track: active タブ id / active_pane id / cur_path / tree_roots
+    // untracked: tabs 構造・root 構造（split/close/dyn_container 再構築でループしないよう除外）
     let app_for_follow = app.clone();
     let roots_for_follow = roots_sig;
     floem::reactive::create_effect(move |_| {
         // tree_roots 自体の変化 (UNC 登録等) でも再走する
         let _ = roots_for_follow.get();
-        // active タブ id を track
+        // active タブ id を track（タブ切替に追従）
         let id = app_for_follow.active.get();
-        let tabs = app_for_follow.tabs.get();
+        // tabs は untracked：tabs 構造変化（分割/閉鎖/dyn_container 再構築）で
+        // 再走させると dyn_container → root 変化 → follow の無限ループになる
+        let tabs = app_for_follow.tabs.get_untracked();
         let Some(tab) = tabs.iter().find(|t| t.id == id).cloned() else {
             return;
         };
-        // active_pane id を track
+        // active_pane id を track（ペイン切替に追従）
         let active_pane_id = tab.active_pane.get();
-        // root を track して再描画にも追従
-        tab.root.with(|_| {});
-        let panes = tab.all_panes();
+        // root は untracked：split/close/dyn_container 再構築でのループを防ぐ。
+        // cur_path のトラッキングでナビゲーション追従は維持できる。
+        let panes = tab.root.with_untracked(|r| {
+            let mut out = Vec::new();
+            r.collect_leaves(&mut out);
+            out
+        });
         let pane = panes
             .iter()
             .find(|p| p.id == active_pane_id)
             .cloned()
             .or_else(|| panes.first().cloned());
         let Some(pane) = pane else { return };
-        // cur_path を track
+        // cur_path を track（ナビゲーション追従）
         let path = pane.cur_path.get();
         let roots = roots_for_follow.get_untracked();
         let depth = expand_to_path(&roots, &path);

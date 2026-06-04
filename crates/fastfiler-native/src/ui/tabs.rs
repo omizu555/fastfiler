@@ -178,7 +178,10 @@ pub fn tabs_panel(app: AppState) -> impl IntoView {
                 .border_color(theme::border_default())
                 .font_bold()
         })
-        .on_click_stop(move |_| app_for_add.add_tab(initial_path()));
+        .on_click_stop(move |_| {
+            crate::flog!("[plus-click] add-tab button clicked");
+            app_for_add.add_tab(initial_path());
+        });
 
     let tabs_width_sig = app.settings.tabs_width;
     let app_for_grid = app.clone();

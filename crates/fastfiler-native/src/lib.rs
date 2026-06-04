@@ -14,6 +14,19 @@
 #[macro_use]
 pub mod logger;
 
+/// メモリ調査用の counting global allocator (feature `mem-debug` のみ)。
+/// 通常ビルドでは差し替えない (System のまま)。
+/// `dhat-heap` 有効時は dhat 側のアロケータを使うため無効化する。
+#[cfg(all(feature = "mem-debug", not(feature = "dhat-heap")))]
+#[global_allocator]
+static GLOBAL_ALLOC: core::debug_mem::TrackingAlloc = core::debug_mem::TrackingAlloc;
+
+/// dhat ヒーププロファイラ用 global allocator (feature `dhat-heap` のみ)。
+/// アロケーションのコールスタックを記録し、終了時に dhat-heap.json を出力する。
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static DHAT_ALLOC: dhat::Alloc = dhat::Alloc;
+
 pub mod core;
 pub mod hotkeys;
 pub mod search;
@@ -35,6 +48,19 @@ pub fn run_app() {
     use floem::kurbo::{Point as KPoint, Size as KSize};
     use floem::window::WindowConfig;
     use settings::PersistedSettings;
+
+    // dhat ヒーププロファイラを起動 (feature `dhat-heap` のみ)。
+    // run_app の戻り (ウィンドウ閉鎖で event loop が return) まで保持し、
+    // Drop 時に dhat-heap.json (アロケーション元のコールスタック付き) を出力する。
+    #[cfg(feature = "dhat-heap")]
+    let _dhat_profiler = dhat::Profiler::new_heap();
+
+    // wgpu バックエンドを GL に固定してメモリ使用量を抑える (DX12/Vulkan 比で実測 ~45% 減)。
+    // ユーザーが環境変数で明示指定している場合はそちらを尊重する。
+    // floem (wgpu) 初期化より前に設定する必要がある。
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        std::env::set_var("WGPU_BACKEND", "gl");
+    }
 
     logger::init();
     flog!("[main] settings load start");
@@ -83,6 +109,17 @@ pub fn run_app() {
     }
     if let (Some(x), Some(y)) = (p.window_x, p.window_y) {
         cfg = cfg.position(KPoint::new(x as f64, y as f64));
+    }
+
+    // メモリ調査用: 2 秒周期でスナップショットをログに出す (feature `mem-debug` のみ)。
+    // floem タイマーに依存しない独立スレッドで、atomic と Win32 のみを読む。
+    #[cfg(feature = "mem-debug")]
+    {
+        crate::core::debug_mem::log_snapshot("startup");
+        std::thread::spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            crate::core::debug_mem::log_snapshot("tick");
+        });
     }
 
     floem::Application::new()

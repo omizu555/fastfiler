@@ -33,9 +33,10 @@ fn render_split_node(node: SplitNode, app: AppState) -> floem::AnyView {
             ratios,
         } => {
             let count = children.len();
-            // Split コンテナのピクセルサイズ (該当軸) を追跡
+            // Split コンテナのピクセルサイズ (該当軸) を追跡。
+            // view 寿命 (現在の dyn_container 子 scope) に紐づけ、再構築で破棄させる。
             let container_size: floem::reactive::RwSignal<f32> =
-                floem::reactive::Scope::new().create_rw_signal(0.0_f32);
+                floem::reactive::create_rw_signal(0.0_f32);
             let mut items: Vec<floem::AnyView> = Vec::with_capacity(count.saturating_mul(2));
             for (i, child) in children.into_iter().enumerate() {
                 // 子の前にスプリッタ (i > 0)
@@ -362,7 +363,9 @@ pub fn app_view() -> impl IntoView {
                         let active_panes = dyn_container(
                             move || {
                                 let id = active.get();
-                                let tabs_v = tabs.get();
+                                // tabs は untracked: 他タブの追加/削除でペインビューを
+                                // 再構築しないようにする。active タブや root 変化のみ追従。
+                                let tabs_v = tabs.get_untracked();
                                 let active_tab = tabs_v
                                     .iter()
                                     .find(|t| t.id == id)

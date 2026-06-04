@@ -1,14 +1,14 @@
 // Pane view (1 タブ内 1 ペインの表示・操作・D&D・モーダル)
 // main.rs から抽出 — UI ロジックの本体
 
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use floem::event::{Event, EventListener};
 use floem::keyboard::{Key, NamedKey};
 use floem::kurbo::{Point, Rect};
 use floem::menu::{Menu, MenuItem};
 use floem::prelude::*;
-use floem::reactive::{SignalGet, SignalUpdate, SignalWith};
+use floem::reactive::{Scope, SignalGet, SignalUpdate, SignalWith};
 use floem::style::CursorStyle;
 use floem::views::{
     button, container, dyn_container, h_stack, img, label, scroll, text, text_input, v_stack,
@@ -105,45 +105,34 @@ type ColResizeState = (ColumnResizeTarget, f64, f32, f32, f32);
 // Effect attachment
 // ────────────────────────────────────────────────────────────────
 
-/// FS 監視・ナビゲーションクリア・フィルタ計測の各エフェクトと
-/// Everything 検索エフェクトをペインに登録する。
+/// FS 監視・フィルタ計測・Everything 検索の各エフェクトをペインに登録する。
+///
+/// 重要: `pane_view` は `active_panes` の `dyn_container` 再構築 (タブ開閉・切替) の
+/// たびに、生存している全ペイン分が再実行される。そのため pane 寿命の effect を
+/// ここで毎回張ると、`create_signal_from_channel` が監視スレッドを再構築のたびに
+/// spawn し続け、スレッドと scope がリークする (タブ開閉でメモリが増え続ける原因)。
+/// pane 寿命の effect は [`PaneState::effects_attached`] で「ペインにつき 1 回だけ」
+/// `pane.scope` 配下に張り、ペイン close 時の scope dispose でまとめて解放する。
 fn attach_pane_effects(
     pane: PaneState,
     app: AppState,
     drag_candidate: RwSignal<Option<DragCandidate>>,
 ) {
-    let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
-    let fs_change_tick = pane.fs_change_tick;
-
-    // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
+    // pane 寿命の effect 群 (fs 監視 / 検索 / フィルタ計測) は 1 回だけ張る。
+    if !pane
+        .effects_attached
+        .swap(true, std::sync::atomic::Ordering::Relaxed)
     {
-        let pane_for_fs = pane.clone();
-        let app_for_fs = app.clone();
-        let pane_id = pane.id;
-        floem::reactive::create_effect(move |prev: Option<u32>| {
-            let v = fs_event_signal.get();
-            let cur = fs_change_tick.get_untracked();
-            if v.is_some() {
-                let next = cur.wrapping_add(1);
-                fs_change_tick.set(next);
-                crate::flog!(
-                    "[fs] pane={} event received, tick {}->{}",
-                    pane_id,
-                    cur,
-                    next
-                );
-                pane_for_fs.refresh_rows_only();
-                // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
-                app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
-            }
-            prev.unwrap_or(0).wrapping_add(1)
-        });
+        attach_pane_lifetime_effects(pane.clone(), app.clone());
     }
 
     // cur_path 変化を監視: ナビゲーション発生時に drag 関連状態を必ず掃除する。
     // ダブルクリックで子フォルダに入った場合などは、対応する PointerUp が
     // 元の view 破棄により発火しないので、drag_candidate / dragging が残留する
     // ことがある (戻った後にドラッグ状態が継続する症状の原因)。
+    // drag_candidate は view ローカル signal なので、この effect は view 寿命
+    // (現在の dyn_container 子 scope) に紐づけ、再構築のたびに張り直す
+    // (古いものは子 scope dispose で破棄されるためリークしない)。
     {
         let app_for_nav = app.clone();
         let pane_id = pane.id;
@@ -172,38 +161,72 @@ fn attach_pane_effects(
             cur
         });
     }
+}
 
-    // Everything 検索 effect (search/mod.rs に分離)
-    crate::search::attach_everything_effect(&pane, &app);
+/// ペインの寿命中ずっと走る effect 群 (fs 監視 / Everything 検索 / フィルタ計測) を、
+/// `pane.scope` 配下で 1 回だけ張る。view 再構築では再実行されない。
+fn attach_pane_lifetime_effects(pane: PaneState, app: AppState) {
+    floem::reactive::with_scope(pane.scope, move || {
+        let fs_event_signal = floem::ext_event::create_signal_from_channel(pane.fs_rx.clone());
+        let fs_change_tick = pane.fs_change_tick;
 
-    // フィルタ計測 effect: search_query が変化したときのフィルタコストを計測する。
-    // filtered_rows closure 内で計測すると毎描画ごとに二重計測されるので独立 effect に置く。
-    {
-        let p_filter = pane.clone();
-        floem::reactive::create_effect(move |prev: Option<String>| {
-            let q = p_filter.search_query.get();
-            if prev.as_ref() == Some(&q) {
-                return q;
-            }
-            if prev.is_none() {
-                return q;
-            }
-            let lq = q.to_lowercase();
-            let rs = p_filter.rows.get_untracked();
-            let t = std::time::Instant::now();
-            let matched = rs
-                .iter()
-                .filter(|r| lq.is_empty() || r.name.to_lowercase().contains(&lq))
-                .count();
-            let ms = t.elapsed().as_secs_f64() * 1000.0;
-            crate::core::perf::record_manual(
-                crate::core::perf::MetricKind::Filter,
-                format!("q='{}' rows={} matched={}", q, rs.len(), matched),
-                ms,
-            );
-            q
-        });
-    }
+        // ファイル監視 → 自動 reload (軽量版: rows のみ差分更新)
+        {
+            let pane_for_fs = pane.clone();
+            let app_for_fs = app.clone();
+            let pane_id = pane.id;
+            floem::reactive::create_effect(move |prev: Option<u32>| {
+                let v = fs_event_signal.get();
+                let cur = fs_change_tick.get_untracked();
+                if v.is_some() {
+                    let next = cur.wrapping_add(1);
+                    fs_change_tick.set(next);
+                    crate::flog!(
+                        "[fs] pane={} event received, tick {}->{}",
+                        pane_id,
+                        cur,
+                        next
+                    );
+                    pane_for_fs.refresh_rows_only();
+                    // ツリーペインにも変化を通知 (展開済みノードが再ロードされる)
+                    app_for_fs.tree_tick.update(|n| *n = n.wrapping_add(1));
+                }
+                prev.unwrap_or(0).wrapping_add(1)
+            });
+        }
+
+        // Everything 検索 effect (search/mod.rs に分離)
+        crate::search::attach_everything_effect(&pane, &app);
+
+        // フィルタ計測 effect: search_query が変化したときのフィルタコストを計測する。
+        // filtered_rows closure 内で計測すると毎描画ごとに二重計測されるので独立 effect に置く。
+        {
+            let p_filter = pane.clone();
+            floem::reactive::create_effect(move |prev: Option<String>| {
+                let q = p_filter.search_query.get();
+                if prev.as_ref() == Some(&q) {
+                    return q;
+                }
+                if prev.is_none() {
+                    return q;
+                }
+                let lq = q.to_lowercase();
+                let rs = p_filter.rows.get_untracked();
+                let t = std::time::Instant::now();
+                let matched = rs
+                    .iter()
+                    .filter(|r| lq.is_empty() || r.name.to_lowercase().contains(&lq))
+                    .count();
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                crate::core::perf::record_manual(
+                    crate::core::perf::MetricKind::Filter,
+                    format!("q='{}' rows={} matched={}", q, rs.len(), matched),
+                    ms,
+                );
+                q
+            });
+        }
+    });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -317,8 +340,9 @@ fn pane_search_bar(pane: PaneState) -> impl IntoView {
 fn pane_breadcrumb(pane: PaneState) -> impl IntoView {
     let cur_path = pane.cur_path;
     let path_input = pane.path_input;
-    // edit_mode はこのビュー内でのみ使用するローカル signal
-    let edit_mode = floem::reactive::Scope::new().create_rw_signal(false);
+    // edit_mode はこのビュー内でのみ使用するローカル signal。
+    // view 寿命 (現在の dyn_container 子 scope) に紐づけ、再構築でリークさせない。
+    let edit_mode = floem::reactive::create_rw_signal(false);
     let pane_for_crumb = pane.clone();
     let pane_for_enter = pane.clone();
     dyn_container(
@@ -1119,10 +1143,12 @@ fn pane_row_item(
 // ────────────────────────────────────────────────────────────────
 
 pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
-    // ローカル signal 群（ペインに閉じたドラッグ・リサイズ状態）
-    let col_resize_drag = floem::reactive::Scope::new().create_rw_signal(None::<ColResizeState>);
-    let drag_candidate = floem::reactive::Scope::new().create_rw_signal(None::<DragCandidate>);
-    let pane_width_sig = floem::reactive::Scope::new().create_rw_signal(0.0f32);
+    // ローカル signal 群（ペインに閉じたドラッグ・リサイズ状態）。
+    // view 寿命 (現在の dyn_container 子 scope) に紐づけ、再構築で破棄させる
+    // (untethered な Scope::new() だと再構築のたびに leak していた)。
+    let col_resize_drag = floem::reactive::create_rw_signal(None::<ColResizeState>);
+    let drag_candidate = floem::reactive::create_rw_signal(None::<DragCandidate>);
+    let pane_width_sig = floem::reactive::create_rw_signal(0.0f32);
 
     // エフェクト登録
     attach_pane_effects(pane.clone(), app.clone(), drag_candidate);
@@ -1159,12 +1185,21 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
         }
         out
     };
+    // virtual_stack の各アイテムは as_child_of_current_scope() でルートスコープ配下に
+    // スコープが作られる。dyn_container 切り替え時に old_child_scope.dispose() では
+    // ルートスコープ配下は辿られないため、on_cleanup() で明示的に dispose する。
+    let item_scopes: Rc<RefCell<Vec<Scope>>> = Rc::new(RefCell::new(Vec::new()));
+    let item_scopes_for_fn = item_scopes.clone();
+    let item_scopes_for_cleanup = item_scopes;
     let list = virtual_stack(
         VirtualDirection::Vertical,
         VirtualItemSize::Fixed(Box::new(|| 22.0_f64)),
         filtered_rows,
         |(idx, row): &(usize, FileRow)| (*idx, row.name.clone(), row.is_dir),
         move |(idx, row): (usize, FileRow)| {
+            // as_child_of_current_scope() がこのクロージャを item_scope で囲んで呼ぶため、
+            // Scope::current() が当該アイテムのスコープを返す。
+            item_scopes_for_fn.borrow_mut().push(Scope::current());
             pane_row_item(
                 idx,
                 row,
@@ -1174,6 +1209,14 @@ pub fn pane_view(pane: PaneState, app: AppState) -> impl IntoView {
             )
         },
     )
+    .on_cleanup(move || {
+        // スクロールで既に remove_index → scope.dispose() 済みのものは no-op で安全。
+        // 現在表示中のアイテムスコープを確実に解放する。
+        let scopes = item_scopes_for_cleanup.take();
+        for scope in scopes {
+            scope.dispose();
+        }
+    })
     .style(|s| s.flex_col().width_full());
 
     let scrollable = scroll(list).style(|s| s.width_full().flex_grow(1.0).min_height(0));

@@ -12,12 +12,13 @@
 //! 値は `RwSignal` / `Arc` で Clone 可能なので、ビュー間で安全に共有できる。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::watcher::WatcherCore;
+use floem::action::exec_after;
 use floem::kurbo::{Point, Rect};
 use floem::reactive::{RwSignal, Scope, SignalGet, SignalUpdate, SignalWith};
 use parking_lot::Mutex;
@@ -93,6 +94,11 @@ pub struct PaneState {
     pub sink: Arc<CounterSink>,
     /// 監視スレッドからのイベント受信用 (UI 側で signal 化)
     pub fs_rx: crossbeam_channel::Receiver<()>,
+    /// pane 寿命の effect 群 (fs 監視 / 検索 / フィルタ計測) を既に張ったか。
+    /// `pane_view` は dyn_container 再構築のたびに再実行されるため、
+    /// このフラグで「ペインにつき 1 回だけ」effect を張り、監視スレッドや
+    /// effect が再構築ごとに増殖するのを防ぐ。clone 間で共有する。
+    pub effects_attached: Arc<AtomicBool>,
     pub watched: Arc<Mutex<Option<String>>>,
     pub fs_change_tick: RwSignal<u32>,
     pub show_hidden: RwSignal<bool>,
@@ -112,6 +118,13 @@ pub struct PaneState {
     pub name_col_width: RwSignal<f32>,
     pub size_col_width: RwSignal<f32>,
     pub mtime_col_width: RwSignal<f32>,
+    /// このペインの全シグナルを保持する owning scope。
+    /// タブ/ペインを閉じる際に [`PaneState::dispose`] で解放する。
+    /// 通常はタブ親 scope の子 scope (cascade dispose 対象)。
+    pub scope: Scope,
+    /// メモリ調査用 live トークン (feature `mem-debug` OFF 時は ZST)。
+    /// clone 間で共有され、最後の clone drop でカウンタが減る。
+    pub _alive: crate::core::debug_mem::AliveHandle,
 }
 
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
@@ -127,7 +140,30 @@ impl PaneState {
         )
     }
 
+    /// standalone (テスト / 親 scope を持たない呼出) 用。
+    /// 独立した untethered scope を 1 つ作り、それを owning scope とする。
     pub fn new_with_columns(
+        start: PathBuf,
+        show_hidden: RwSignal<bool>,
+        name_col_width: f32,
+        size_col_width: f32,
+        mtime_col_width: f32,
+    ) -> Self {
+        Self::new_in(
+            Scope::new(),
+            start,
+            show_hidden,
+            name_col_width,
+            size_col_width,
+            mtime_col_width,
+        )
+    }
+
+    /// 指定した親 scope の子 scope を owning scope として生成する。
+    /// タブ配下のペインはタブ親 scope を渡すことで、タブ close 時に
+    /// cascade dispose される。
+    pub fn new_in(
+        parent: Scope,
         start: PathBuf,
         show_hidden: RwSignal<bool>,
         name_col_width: f32,
@@ -137,13 +173,14 @@ impl PaneState {
         let mut initial_rows = read_folder(&start, show_hidden.get()).unwrap_or_default();
         sort_rows(&mut initial_rows, SortKey::Name, false);
         let initial_count = initial_rows.len();
+        let new_id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        crate::flog!("[pane-new] id={} start={}", new_id, start.display());
         let (fs_tx, fs_rx) = crossbeam_channel::unbounded::<()>();
-        // 全シグナルを untethered な Scope で生成する。これは
-        // PaneState が click ハンドラやエフェクト内でも生成され得るため、
-        // 親 scope の dispose に巻き込まれて signal が死ぬのを防ぐ目的。
-        let s = Scope::new();
+        // owning scope はタブ親 scope の子。タブ close 時に dispose されて
+        // 全シグナル (rows 等) と PaneState 自身 (→ watcher スレッド) を解放する。
+        let s = parent.create_child();
         Self {
-            id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
+            id: new_id,
             title: s.create_rw_signal(pretty_title(&start)),
             cur_path: s.create_rw_signal(start.clone()),
             path_input: s.create_rw_signal(start.to_string_lossy().into_owned()),
@@ -162,6 +199,7 @@ impl PaneState {
                 tx: fs_tx,
             }),
             fs_rx,
+            effects_attached: Arc::new(AtomicBool::new(false)),
             watched: Arc::new(Mutex::new(None)),
             fs_change_tick: s.create_rw_signal(0),
             show_hidden,
@@ -176,7 +214,17 @@ impl PaneState {
             name_col_width: s.create_rw_signal(name_col_width.clamp(120.0, 1200.0)),
             size_col_width: s.create_rw_signal(size_col_width.clamp(70.0, 600.0)),
             mtime_col_width: s.create_rw_signal(mtime_col_width.clamp(90.0, 600.0)),
+            scope: s,
+            _alive: crate::core::debug_mem::pane_token(),
         }
+    }
+
+    /// このペインの owning scope を破棄し、全シグナルを解放する。
+    /// 呼び出し後はシグナルへアクセスしないこと。
+    pub fn dispose(&self) {
+        crate::flog!("[pane] dispose id={}", self.id);
+        self.scope.dispose();
+        crate::flog!("[pane] dispose done id={}", self.id);
     }
 
     /// 別フォルダへナビゲーションする。push_history=true で現在パスを back に積む。
@@ -344,6 +392,9 @@ pub struct PaneSplitterDrag {
 }
 
 /// BSP ペイン木。Leaf が個別ペイン、Split が分割ノード。
+// Leaf(PaneState) が大きい variant だが、Box 化すると全パターンマッチに波及するため許容。
+// (mem-debug feature ON 時に PaneState が閾値を超えるため明示的に許可)
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum SplitNode {
     Leaf(PaneState),
@@ -355,15 +406,16 @@ pub enum SplitNode {
     },
 }
 
-/// children 数に応じた均等 ratios を生成 (untethered スコープで生成して自動 dispose 回避)
-fn make_equal_ratios(n: usize) -> RwSignal<Vec<f32>> {
+/// children 数に応じた均等 ratios を、指定 scope 配下で生成する。
+/// scope はタブ親 scope を渡すこと (タブ close 時に cascade dispose される)。
+fn make_equal_ratios(scope: Scope, n: usize) -> RwSignal<Vec<f32>> {
     let v = if n == 0 {
         Vec::new()
     } else {
         let r = 1.0 / n as f32;
         vec![r; n]
     };
-    floem::reactive::Scope::new().create_rw_signal(v)
+    scope.create_rw_signal(v)
 }
 
 /// ratios を合計 1.0 に正規化
@@ -440,7 +492,9 @@ impl SplitNode {
     }
 
     /// SavedSplit から SplitNode を構築。各 Leaf に新規 PaneState を作成する。
-    pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>) -> Self {
+    /// 全シグナル (pane / ratios) は `scope` 配下で生成し、タブ close 時に
+    /// cascade dispose されるようにする。
+    pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>, scope: Scope) -> Self {
         match saved {
             SavedSplit::Leaf {
                 path,
@@ -450,7 +504,8 @@ impl SplitNode {
             } => {
                 let p = PathBuf::from(path);
                 let p = if p.exists() { p } else { PathBuf::from("C:\\") };
-                SplitNode::Leaf(PaneState::new_with_columns(
+                SplitNode::Leaf(PaneState::new_in(
+                    scope,
                     p,
                     show_hidden,
                     *name_col_width,
@@ -470,10 +525,17 @@ impl SplitNode {
                 };
                 let mut kids = Vec::with_capacity(children.len());
                 for c in children {
-                    kids.push(SplitNode::from_saved(c, show_hidden));
+                    kids.push(SplitNode::from_saved(c, show_hidden, scope));
                 }
                 if kids.is_empty() {
-                    SplitNode::Leaf(PaneState::new(PathBuf::from("C:\\"), show_hidden))
+                    SplitNode::Leaf(PaneState::new_in(
+                        scope,
+                        PathBuf::from("C:\\"),
+                        show_hidden,
+                        def_name_col_width(),
+                        def_size_col_width(),
+                        def_mtime_col_width(),
+                    ))
                 } else {
                     // ratios の長さが children と一致しない/空なら均等配分。
                     let mut r = if ratios.len() == kids.len() && !ratios.is_empty() {
@@ -485,7 +547,7 @@ impl SplitNode {
                     SplitNode::Split {
                         dir,
                         children: kids,
-                        ratios: floem::reactive::Scope::new().create_rw_signal(r),
+                        ratios: scope.create_rw_signal(r),
                     }
                 }
             }
@@ -515,8 +577,15 @@ impl SplitNode {
 
     /// 指定 pane を含む Leaf を、同方向 Split に置換 (BSP分割)。
     /// 既に同方向の親 Split に属している場合は、その親の children に追加する (細切れ防止)。
+    /// 新規 ratios は `scope` (タブ親 scope) 配下で生成する。
     /// 戻り値: 分割成功なら true。
-    pub fn split_leaf(&mut self, pane_id: u64, dir: SplitDir, new_pane: PaneState) -> bool {
+    pub fn split_leaf(
+        &mut self,
+        pane_id: u64,
+        dir: SplitDir,
+        new_pane: PaneState,
+        scope: Scope,
+    ) -> bool {
         // 1. 自身が Split で、その子に対象 Leaf があり同方向なら子に追加
         if let SplitNode::Split {
             dir: my_dir,
@@ -545,7 +614,7 @@ impl SplitNode {
             }
             // 子の中を再帰
             for c in children.iter_mut() {
-                if c.split_leaf(pane_id, dir, new_pane.clone()) {
+                if c.split_leaf(pane_id, dir, new_pane.clone(), scope) {
                     return true;
                 }
             }
@@ -558,7 +627,7 @@ impl SplitNode {
                 *self = SplitNode::Split {
                     dir,
                     children: vec![SplitNode::Leaf(original), SplitNode::Leaf(new_pane)],
-                    ratios: make_equal_ratios(2),
+                    ratios: make_equal_ratios(scope, 2),
                 };
                 return true;
             }
@@ -636,35 +705,59 @@ pub struct Tab {
     pub active_pane: RwSignal<u64>,
     /// ロック中 (true) は Ctrl+W / × ボタンで閉じない (中クリックでトグル)
     pub locked: RwSignal<bool>,
+    /// このタブの owning scope。配下の全ペイン scope / ratios / tab signal の親。
+    /// タブ close 時に [`Tab::dispose`] で破棄すると cascade で全て解放される。
+    pub scope: Scope,
+    /// メモリ調査用 live トークン (feature `mem-debug` OFF 時は ZST)。
+    pub _alive: crate::core::debug_mem::AliveHandle,
 }
 
 impl Tab {
     pub fn new(start: PathBuf, show_hidden: RwSignal<bool>) -> Self {
-        let p = PaneState::new(start, show_hidden);
-        let pid = p.id;
-        // Tab の signal も untethered scope に置く (click ハンドラから生成されることがあるため)
+        // Tab の owning scope。pane / ratios / tab signal を全てこの配下に置く。
         let s = Scope::new();
+        let p = PaneState::new_in(
+            s,
+            start,
+            show_hidden,
+            def_name_col_width(),
+            def_size_col_width(),
+            def_mtime_col_width(),
+        );
+        let pid = p.id;
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             root: s.create_rw_signal(SplitNode::Leaf(p)),
             active_pane: s.create_rw_signal(pid),
             locked: s.create_rw_signal(false),
+            scope: s,
+            _alive: crate::core::debug_mem::tab_token(),
         }
     }
 
     /// 永続化された SplitNode から Tab を復元
     pub fn from_saved(saved: &SavedSplit, show_hidden: RwSignal<bool>) -> Self {
-        let node = SplitNode::from_saved(saved, show_hidden);
+        let s = Scope::new();
+        let node = SplitNode::from_saved(saved, show_hidden, s);
         let mut leaves = Vec::new();
         node.collect_leaves(&mut leaves);
         let pid = leaves.first().map(|p| p.id).unwrap_or(0);
-        let s = Scope::new();
         Self {
             id: NEXT_TAB_ID.fetch_add(1, Ordering::Relaxed),
             root: s.create_rw_signal(node),
             active_pane: s.create_rw_signal(pid),
             locked: s.create_rw_signal(false),
+            scope: s,
+            _alive: crate::core::debug_mem::tab_token(),
         }
+    }
+
+    /// このタブの owning scope を破棄し、配下の全ペイン scope (signal / watcher) を
+    /// cascade 解放する。呼び出し後はこのタブのシグナルへアクセスしないこと。
+    pub fn dispose(&self) {
+        crate::flog!("[tab] Tab::dispose id={}", self.id);
+        self.scope.dispose();
+        crate::flog!("[tab] Tab::dispose done id={}", self.id);
     }
 
     pub fn primary(&self) -> PaneState {
@@ -915,6 +1008,8 @@ impl AppState {
         if self.active.get_untracked() != id {
             self.active.set(id);
         }
+        #[cfg(feature = "mem-debug")]
+        crate::core::debug_mem::log_snapshot("after-add-tab");
     }
 
     /// active タブを delta 個分シフトする (-1=上/左, +1=下/右)。範囲外ならクランプ。
@@ -933,6 +1028,7 @@ impl AppState {
 
     /// ロック中のタブは Ctrl+W / × からの close を無視する (中クリックで解除)。
     pub fn close_tab(&self, id: u64) {
+        crate::flog!("[tab] close_tab called id={}", id);
         let locked = self.tabs.with_untracked(|v| {
             v.iter()
                 .find(|t| t.id == id)
@@ -943,11 +1039,26 @@ impl AppState {
             return;
         }
         let prev_active = self.active.get_untracked();
+        let mut removed: Option<Tab> = None;
         self.tabs.update(|t| {
             if let Some(idx) = t.iter().position(|x| x.id == id) {
-                t.remove(idx);
+                removed = Some(t.remove(idx));
             }
         });
+        // view tear-down 後に scope を破棄する (破棄済み signal の late read を防ぐ)。
+        if let Some(tab) = removed {
+            let tab_id = tab.id;
+            crate::flog!("[tab] scheduling dispose tab={}", tab_id);
+            exec_after(Duration::ZERO, move |_| {
+                crate::flog!("[tab] exec_after: calling tab.dispose tab={}", tab_id);
+                tab.dispose();
+            });
+            // dispose 後に live 数が減ったかを確認する (mem-debug ON 時のみ実体)。
+            #[cfg(feature = "mem-debug")]
+            exec_after(Duration::from_millis(50), |_| {
+                crate::core::debug_mem::log_snapshot("after-close-tab");
+            });
+        }
         let remaining = self.tabs.get_untracked();
         if remaining.is_empty() {
             self.add_tab(initial_path());
@@ -1016,13 +1127,20 @@ impl AppState {
                     def_mtime_col_width(),
                 ));
             let show_hidden = self.settings.show_hidden;
-            let new_pane =
-                PaneState::new_with_columns(base, show_hidden, name_col_w, size_col_w, mtime_col_w);
+            // 新ペインの signal は tab.scope 配下に置く (タブ close 時に cascade dispose)。
+            let new_pane = PaneState::new_in(
+                tab.scope,
+                base,
+                show_hidden,
+                name_col_w,
+                size_col_w,
+                mtime_col_w,
+            );
             let new_id = new_pane.id;
 
             let mut ok = false;
             tab.root.update(|r| {
-                ok = r.split_leaf(active_id, dir, new_pane.clone());
+                ok = r.split_leaf(active_id, dir, new_pane.clone(), tab.scope);
             });
             crate::flog!(
                 "[split] dir={:?} active={} ok={} new_id={}",
@@ -1044,6 +1162,12 @@ impl AppState {
                 if t.pane_count() <= 1 {
                     continue;
                 }
+                // 削除対象ペインの scope を、木から外す前に捕捉しておく。
+                let removed_scope = t
+                    .all_panes()
+                    .into_iter()
+                    .find(|p| p.id == pane_id)
+                    .map(|p| p.scope);
                 let mut found = false;
                 t.root.update(|r| {
                     found = r.remove_leaf(pane_id);
@@ -1053,6 +1177,14 @@ impl AppState {
                         if t.active_pane.get_untracked() == pane_id {
                             t.active_pane.set(first.id);
                         }
+                    }
+                    // view tear-down 後に個別ペイン scope を破棄 (signal + watcher 解放)。
+                    if let Some(scope) = removed_scope {
+                        exec_after(Duration::ZERO, move |_| scope.dispose());
+                        #[cfg(feature = "mem-debug")]
+                        exec_after(Duration::from_millis(50), |_| {
+                            crate::core::debug_mem::log_snapshot("after-close-pane");
+                        });
                     }
                     return;
                 }

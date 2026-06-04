@@ -8,6 +8,7 @@
 //! 側で `use core::{state, actions, fs_model};` を入れて、既存パスも引き続き使えるようにしている。
 
 pub mod actions;
+pub mod debug_mem;
 pub mod fs_model;
 pub mod jobs;
 pub mod perf;

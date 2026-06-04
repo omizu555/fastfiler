@@ -3,7 +3,7 @@
 //
 // - large=true で 32x32 / false で 16x16
 // - ext_only=true なら実ファイル不要 (拡張子だけからアイコン解決, FILE_ATTRIBUTE_NORMAL)
-// - 結果は LRU(1024) でキャッシュ。ext_only モードでは拡張子をキーに共通化する。
+// - 結果は LRU(256) でキャッシュ。ext_only モードでは拡張子をキーに共通化する。
 
 use crate::error::{AppError, AppResult};
 use std::path::Path;
@@ -32,7 +32,7 @@ mod sys {
     use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 
     static CACHE: Lazy<Mutex<LruCache<String, std::sync::Arc<Vec<u8>>>>> =
-        Lazy::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap())));
+        Lazy::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(256).unwrap())));
 
     fn cache_key(path: &str, ext_only: bool, large: bool) -> String {
         let mut k = String::new();
