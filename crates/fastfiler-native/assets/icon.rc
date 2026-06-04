@@ -1,3 +1,0 @@
-// Windows Resource Script — exe アイコン埋め込み用
-// embed-resource (build.rs) から rc.exe / windres でコンパイルされる
-IDI_ICON1 ICON "icon.ico"

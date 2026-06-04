@@ -2,11 +2,9 @@
 resolver = "2"
 members = [
     "crates/fastfiler-domain",
-    "crates/fastfiler-native",
     "crates/fastfiler-gpui",
 ]
 exclude = [
-    "experimental/floem-filelist-poc",
     # GPUI の vendor は独立サブワークスペース。main workspace のメンバーにはしない。
     "vendor",
 ]

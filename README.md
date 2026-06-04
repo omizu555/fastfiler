@@ -7,7 +7,7 @@ Windows エクスプローラの遅さに耐えられず AI に作ってもら�
 > - 旧 Tauri 2 + Solid.js 実装は 2026-05 のリファクタで削除。
 > - 旧 floem 実装はタブ/ペイン開閉でメモリが増殖する構造問題があり、
 >   2026-06 に GPUI へ全面移植した ([ADR 0012](./doc/adr/0012-migrate-floem-to-gpui.md))。
->   floem 版 (`crates/fastfiler-native`) はパリティ最終確認まで残置。
+>   floem 版は削除済み (git 履歴 `wip(floem): メモリ増殖調査の計装を保全` 以前を参照)。
 
 ## 中核アイデンティティ
 
@@ -30,9 +30,11 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [doc/adr/](./doc/adr/) | アーキテクチャ意思決定記録 (ADR) — 何を捨てたか・なぜか |
 | [doc/plan-2026-06-03-gpui-migration.md](./doc/plan-2026-06-03-gpui-migration.md) | GPUI 移植計画と進捗ログ (§11) |
 | [vendor/README.md](./vendor/README.md) | GPUI vendor の構成・改変点・更新手順 |
-| [doc/STATUS.md](./doc/STATUS.md) | (floem 版時点の) 実装ステータス |
-| [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | (floem 版時点の) クレート構成 |
-| [doc/USAGE.md](./doc/USAGE.md) | (floem 版時点の) 使い方ガイド |
+| [doc/STATUS.md](./doc/STATUS.md) | 実装ステータス (実装済 / 採用予定 / 不採用) |
+| [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
+| [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作リファレンス) |
+| [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 |
+| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順 (ZIP 配布) |
 
 ## ディレクトリ構成
 
@@ -42,13 +44,11 @@ fastfiler/
 ├ CONTEXT.md             # 中核アイデンティティ + 用語
 ├ rust-toolchain.toml    # 1.95.0 (GPUI 要求)
 ├ crates/
-│  ├ fastfiler-domain/   # OS/ファイル操作ライブラリ (GUI 非依存・GPUI 版でも全面再利用)
-│  ├ fastfiler-gpui/     # GPUI GUI バイナリ (現行)
-│  └ fastfiler-native/   # 旧 floem GUI バイナリ (残置・削除予定)
+│  ├ fastfiler-domain/   # OS/ファイル操作ライブラリ (GUI 非依存)
+│  └ fastfiler-gpui/     # GPUI GUI バイナリ
 ├ vendor/                # GPUI とその依存 18 クレート (zed から完全移植・自己完結)
-├ doc/                   # ドキュメント
-│  └ adr/                # ADR (意思決定記録)
-└ experimental/          # POC
+└ doc/                   # ドキュメント
+   └ adr/                # ADR (意思決定記録)
 ```
 
 ## ビルドと起動
@@ -84,4 +84,4 @@ cargo build -p fastfiler-gpui --release
 
 - **GPUI 版**: floem 版 v0.1.0 の中核機能パリティ + メモリ問題の構造的解決
   (タブ/ペイン開閉で `live panes` がベースラインへ戻ることを実機確認可能)。
-- 旧 floem 版: v0.1.0 (リリース候補のまま凍結)。
+- 旧 floem 版: v0.1.0 で凍結 → 削除済み (git 履歴参照)。
