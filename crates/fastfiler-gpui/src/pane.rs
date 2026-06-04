@@ -23,7 +23,7 @@ use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
-use fastfiler_domain::{file_ops, icons, path_util, shell, win_clipboard};
+use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
     ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
@@ -48,7 +48,7 @@ struct ModalState {
 }
 
 /// 右クリックメニューの項目アクション。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum MenuAction {
     Open,
     Copy,
@@ -58,6 +58,10 @@ enum MenuAction {
     Delete,
     NewFolder,
     NewFile,
+    /// テンプレートから新規ファイル (テンプレのフルパス)。
+    NewFromTemplate(String),
+    /// テンプレートフォルダを開く。
+    OpenTemplatesDir,
     Refresh,
 }
 
@@ -110,6 +114,8 @@ struct MenuState {
     on_row: bool,
     /// 開いた時点でクリップボードに貼り付け可能なファイルがあるか。
     can_paste: bool,
+    /// 新規ファイル用テンプレート一覧 (名前, フルパス)。開いた時点で取得 (先頭10件)。
+    templates: Vec<(String, String)>,
 }
 
 /// 分割方向。`Row`=左右に並べる / `Column`=上下に積む。
@@ -994,10 +1000,15 @@ impl PaneView {
             .flatten()
             .map(|c| !c.paths.is_empty())
             .unwrap_or(false);
+        // 新規ファイル用テンプレート (%APPDATA%\fastfiler\templates、先頭10件)。
+        let templates: Vec<(String, String)> = templates::list_templates()
+            .map(|v| v.into_iter().take(10).map(|t| (t.name, t.path)).collect())
+            .unwrap_or_default();
         self.context_menu = Some(MenuState {
             position,
             on_row,
             can_paste,
+            templates,
         });
         cx.notify();
     }
@@ -1052,19 +1063,58 @@ impl PaneView {
             MenuAction::NewFile => {
                 self.open_modal(ModalKind::NewFile, String::new(), 0..0, window, cx)
             }
+            MenuAction::NewFromTemplate(tpl) => self.create_from_template(tpl, window, cx),
+            MenuAction::OpenTemplatesDir => {
+                if let Ok(dir) = templates::templates_dir() {
+                    self.navigate(PathBuf::from(dir), cx);
+                }
+            }
             MenuAction::Refresh => self.reload(cx, false),
         }
         cx.notify();
     }
 
+    /// テンプレートから新規ファイルを作成 (一意名)。作成後は選択してリネームへ。
+    fn create_from_template(
+        &mut self,
+        template_path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match templates::create_file_from_template(
+            template_path,
+            self.cur_path.to_string_lossy().to_string(),
+            None,
+        ) {
+            Ok(created) => {
+                self.reload(cx, false);
+                let name = Path::new(&created)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if let Some(ix) = self.entries.iter().position(|e| e.name == name) {
+                    self.select_only(ix);
+                    self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+                }
+                // エクスプローラ同様、作成直後にリネームモードへ。
+                self.start_rename(window, cx);
+            }
+            Err(e) => {
+                self.status = format!("作成に失敗: {e}").into();
+                cx.notify();
+            }
+        }
+    }
+
     fn menu_item(
         &self,
-        label: &'static str,
+        label: impl Into<String>,
         shortcut: &'static str,
         enabled: bool,
         action: MenuAction,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let label: String = label.into();
         let row = div()
             .id(SharedString::from(format!("mi-{label}")))
             .flex()
@@ -1079,7 +1129,9 @@ impl PaneView {
         if enabled {
             row.cursor_pointer()
                 .hover(|s| s.bg(rgb(0x3a5a7a)))
-                .on_click(cx.listener(move |this, _e, w, cx| this.menu_action(action, w, cx)))
+                .on_click(cx.listener(move |this, _e, w, cx| {
+                    this.menu_action(action.clone(), w, cx)
+                }))
                 .child(div().child(label))
                 .child(div().text_color(rgb(0x8a8a8a)).child(shortcut))
                 .into_any_element()
@@ -1112,6 +1164,26 @@ impl PaneView {
         }
         items.push(self.menu_item("新しいフォルダ", "F7", true, MenuAction::NewFolder, cx));
         items.push(self.menu_item("新しいファイル", "F8", true, MenuAction::NewFile, cx));
+        // テンプレートから新規ファイル (%APPDATA%\fastfiler\templates)
+        if !m.templates.is_empty() {
+            items.push(menu_sep());
+            for (name, path) in &m.templates {
+                items.push(self.menu_item(
+                    format!("新規: {name}"),
+                    "",
+                    true,
+                    MenuAction::NewFromTemplate(path.clone()),
+                    cx,
+                ));
+            }
+        }
+        items.push(self.menu_item(
+            "テンプレートフォルダを開く",
+            "",
+            true,
+            MenuAction::OpenTemplatesDir,
+            cx,
+        ));
 
         Some(
             div()
