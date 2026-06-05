@@ -32,6 +32,7 @@ use gpui::{
     Window, anchored, deferred, div, img, prelude::*, px, uniform_list,
 };
 
+use crate::hotkeys;
 use crate::sink::ChannelSink;
 use crate::text_input::TextInput;
 use crate::theme::th;
@@ -68,6 +69,10 @@ enum MenuAction {
     RunUserCommand(String),
     /// ユーザーコマンドの設定フォルダを開く。
     OpenCommandsDir,
+    /// ホットキー設定 (gpui_hotkeys.json) を既定エディタで開く。
+    OpenHotkeys,
+    /// ホットキー設定を再読み込み。
+    ReloadHotkeys,
     Refresh,
 }
 
@@ -654,57 +659,37 @@ impl PaneView {
             return;
         }
 
-        // Ctrl 系: コピー / 切り取り / 貼り付け
-        if ks.modifiers.control {
-            match ks.key.as_str() {
-                "c" => {
-                    self.clipboard_copy("copy", cx);
-                    return;
+        // コマンド系: カスタマイズ可能なホットキー (gpui_hotkeys.json)。
+        if let Some(act) = hotkeys::lookup(ks) {
+            use hotkeys::HotAction as A;
+            match act {
+                A::Open => self.activate_selected(cx),
+                A::Parent => self.go_up(cx),
+                A::Delete => self.delete_selected(cx),
+                A::Rename => self.start_rename(window, cx),
+                A::NewFolder => {
+                    self.open_modal(ModalKind::NewFolder, String::new(), 0..0, window, cx)
                 }
-                "x" => {
-                    self.clipboard_copy("cut", cx);
-                    return;
+                A::NewFile => {
+                    self.open_modal(ModalKind::NewFile, String::new(), 0..0, window, cx)
                 }
-                "v" => {
-                    self.paste(cx);
-                    return;
-                }
-                "a" => {
-                    self.select_all(cx);
-                    return;
-                }
-                "tab" => {
-                    // Ctrl+Tab = 次のタブ / Ctrl+Shift+Tab = 前のタブ
-                    cx.emit(PaneEvent::SwitchTab(if ks.modifiers.shift { -1 } else { 1 }));
-                    return;
-                }
-                "f" => {
-                    self.open_search(window, cx);
-                    return;
-                }
-                "z" => {
-                    self.undo_last(cx);
-                    return;
-                }
-                _ => {}
+                A::Refresh => self.reload(cx, false),
+                A::Search => self.open_search(window, cx),
+                A::Undo => self.undo_last(cx),
+                A::Copy => self.clipboard_copy("copy", cx),
+                A::Cut => self.clipboard_copy("cut", cx),
+                A::Paste => self.paste(cx),
+                A::SelectAll => self.select_all(cx),
+                A::Back => self.go_back(cx),
+                A::Forward => self.go_forward(cx),
+                A::NextPane => cx.emit(PaneEvent::FocusNextPane),
+                A::NextTab => cx.emit(PaneEvent::SwitchTab(1)),
+                A::PrevTab => cx.emit(PaneEvent::SwitchTab(-1)),
             }
+            return;
         }
 
-        // Alt 系: 履歴ナビゲーション
-        if ks.modifiers.alt {
-            match ks.key.as_str() {
-                "left" => {
-                    self.go_back(cx);
-                    return;
-                }
-                "right" => {
-                    self.go_forward(cx);
-                    return;
-                }
-                _ => {}
-            }
-        }
-
+        // 移動系は固定 (Shift で範囲選択拡張)。
         let shift = ks.modifiers.shift;
         match ks.key.as_str() {
             "up" => self.move_cursor(-1, shift, cx),
@@ -717,14 +702,6 @@ impl PaneView {
                     self.jump_to(self.entries.len() - 1, shift, cx);
                 }
             }
-            "enter" => self.activate_selected(cx),
-            "backspace" => self.go_up(cx),
-            "delete" => self.delete_selected(cx),
-            "f5" => self.reload(cx, false),
-            "f6" => cx.emit(PaneEvent::FocusNextPane),
-            "f2" => self.start_rename(window, cx),
-            "f7" => self.open_modal(ModalKind::NewFolder, String::new(), 0..0, window, cx),
-            "f8" => self.open_modal(ModalKind::NewFile, String::new(), 0..0, window, cx),
             _ => {}
         }
     }
@@ -1128,6 +1105,15 @@ impl PaneView {
                     self.navigate(PathBuf::from(dir), cx);
                 }
             }
+            MenuAction::OpenHotkeys => {
+                if let Some(file) = hotkeys::config_file() {
+                    let _ = shell::open_with_shell(file);
+                }
+            }
+            MenuAction::ReloadHotkeys => {
+                hotkeys::load();
+                self.status = "ホットキーを再読み込みしました".into();
+            }
             MenuAction::Refresh => self.reload(cx, false),
         }
         cx.notify();
@@ -1260,6 +1246,24 @@ impl PaneView {
                 "",
                 true,
                 MenuAction::OpenCommandsDir,
+                cx,
+            ));
+        }
+        // ホットキー設定 (背景メニューのみ)
+        if !m.on_row {
+            items.push(menu_sep());
+            items.push(self.menu_item(
+                "ホットキー設定を開く",
+                "",
+                true,
+                MenuAction::OpenHotkeys,
+                cx,
+            ));
+            items.push(self.menu_item(
+                "ホットキーを再読み込み",
+                "",
+                true,
+                MenuAction::ReloadHotkeys,
                 cx,
             ));
         }

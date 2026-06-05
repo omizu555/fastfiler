@@ -637,6 +637,17 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   次回起動時に復元 (描画前に `set_by_name` するためフラッシュ無し)。
 - 既存 48 種の色リテラルを意味名へ一括置換 (pane/app/tree/text_input)。
 
+### 2026-06-05 — ホットキー設定 完了 ✅
+- `hotkeys.rs`: **コマンド系 18 アクション** (open/parent/delete/rename/new-folder/
+  new-file/refresh/search/undo/copy/cut/paste/select-all/back/forward/next-pane/
+  next-tab/prev-tab) のキー割り当てを **`%APPDATA%\FastFiler\gpui_hotkeys.json`**
+  でカスタマイズ可能に (`"action": "ctrl+shift+n"` 形式)。
+- 初回起動時に既定値 + `_help` 付きで自動生成。不正な combo はそのアクションだけ
+  既定値へフォールバック。static (RwLock) 方式で `on_key` から `lookup(ks)` 1 発。
+- 背景右クリックに **「ホットキー設定を開く」(既定エディタ)** と
+  **「ホットキーを再読み込み」(再起動不要)** を追加。
+- 移動系 (矢印/PageUp/Dn/Home/End + Shift 範囲拡張) とモーダル内 Enter/Esc は固定。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)

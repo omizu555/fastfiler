@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod hotkeys;
 mod pane;
 mod session;
 mod sink;
@@ -31,6 +32,9 @@ fn main() {
             return;
         }
     }
+
+    // ホットキー設定を読み込み (無ければ既定値で生成)。
+    hotkeys::load();
 
     application().run(|cx: &mut App| {
         // テキスト入力 ("TextInput" コンテキスト限定) のキーバインドを登録。
