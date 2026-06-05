@@ -121,6 +121,15 @@ struct DropMenu {
     paths: Vec<String>,
 }
 
+/// 同名衝突の確認待ち転送 (上書き / 別名で保存 / キャンセル)。
+struct PendingTransfer {
+    items: Vec<JobItem>,
+    is_move: bool,
+    /// 衝突しているファイル名 (表示用、先頭数件)。
+    conflict_names: Vec<String>,
+    conflict_count: usize,
+}
+
 /// 右クリックメニューの状態。
 struct MenuState {
     /// ウィンドウ座標 (anchored で配置)。
@@ -214,6 +223,8 @@ pub struct PaneView {
     drag_candidate: Option<DragCand>,
     /// 右ボタン D&D のドロップチューザー。
     drop_menu: Option<DropMenu>,
+    /// 同名衝突の確認待ち転送。
+    pending_transfer: Option<PendingTransfer>,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -273,6 +284,7 @@ impl PaneView {
             path_edit: None,
             drag_candidate: None,
             drop_menu: None,
+            pending_transfer: None,
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
@@ -647,6 +659,14 @@ impl PaneView {
         if self.drop_menu.is_some() {
             if ks.key.as_str() == "escape" {
                 self.drop_menu_action(None, cx);
+            }
+            return;
+        }
+
+        // 同名衝突の確認モーダル表示中: Esc でキャンセル、他キーは無視。
+        if self.pending_transfer.is_some() {
+            if ks.key.as_str() == "escape" {
+                self.resolve_transfer(None, cx);
             }
             return;
         }
@@ -1509,16 +1529,37 @@ impl PaneView {
     }
 
     /// ペイン間 / 外部からのドロップを dst_dir へ転送。
-    /// 同一ボリューム=移動 / 異なる=コピー (エクスプローラ準拠)。
-    fn drop_paths_into(&mut self, dst_dir: PathBuf, paths: Vec<String>, cx: &mut Context<Self>) {
+    /// 効果は修飾キー優先 (Ctrl=コピー / Shift=移動)、なしはエクスプローラ準拠
+    /// (同一ボリューム=移動 / 異なる=コピー)。
+    fn drop_paths_into(
+        &mut self,
+        dst_dir: PathBuf,
+        paths: Vec<String>,
+        forced_move: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
         let items = build_job_items(&paths, &dst_dir);
         if items.is_empty() {
             return;
         }
-        let src_vol = path_util::volume_key(Path::new(&items[0].from));
-        let dst_vol = path_util::volume_key(&dst_dir);
-        let is_move = src_vol.is_some() && src_vol == dst_vol;
+        let is_move = forced_move.unwrap_or_else(|| {
+            let src_vol = path_util::volume_key(Path::new(&items[0].from));
+            let dst_vol = path_util::volume_key(&dst_dir);
+            src_vol.is_some() && src_vol == dst_vol
+        });
         self.run_transfer(items, is_move, cx);
+    }
+
+    /// ドロップ時の修飾キー → 強制効果 (Ctrl=コピー / Shift=移動 / なし=既定)。
+    fn drop_effect_override(window: &Window) -> Option<bool> {
+        let mods = window.modifiers();
+        if mods.control {
+            Some(false) // コピー
+        } else if mods.shift {
+            Some(true) // 移動
+        } else {
+            None
+        }
     }
 
     /// 行で押下した左ボタンが 5px 以上動いたら OLE ドラッグ (DoDragDrop) を開始。
@@ -1804,8 +1845,142 @@ impl PaneView {
         }
     }
 
-    /// copy/move ジョブを別スレッドで開始する (進捗は sink 経由で届く)。
+    /// copy/move 転送の入口。宛先に同名が存在する場合は確認モーダルを出す。
+    /// (全転送経路 — 貼り付け / 内部D&D / 外部D&D / フォルダ行 / 右ドラッグ — が通る)
     fn run_transfer(&mut self, items: Vec<JobItem>, is_move: bool, cx: &mut Context<Self>) {
+        let conflicts: Vec<String> = items
+            .iter()
+            .filter(|it| Path::new(&it.to).exists())
+            .filter_map(|it| {
+                Path::new(&it.to)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+            })
+            .collect();
+        if conflicts.is_empty() {
+            self.run_transfer_now(items, is_move, cx);
+            return;
+        }
+        let conflict_count = conflicts.len();
+        self.pending_transfer = Some(PendingTransfer {
+            items,
+            is_move,
+            conflict_names: conflicts.into_iter().take(5).collect(),
+            conflict_count,
+        });
+        cx.notify();
+    }
+
+    /// 衝突確認モーダルの選択。
+    /// overwrite: Some(true)=上書き / Some(false)=別名で保存 / None=キャンセル。
+    fn resolve_transfer(&mut self, overwrite: Option<bool>, cx: &mut Context<Self>) {
+        let Some(mut pending) = self.pending_transfer.take() else {
+            return;
+        };
+        match overwrite {
+            Some(true) => {
+                self.run_transfer_now(pending.items, pending.is_move, cx);
+            }
+            Some(false) => {
+                // 衝突分だけ "name (2).ext" 式の一意名へ振り替える。
+                for it in pending.items.iter_mut() {
+                    let dst = Path::new(&it.to);
+                    if dst.exists() {
+                        it.to = unique_dest(dst).to_string_lossy().to_string();
+                    }
+                }
+                self.run_transfer_now(pending.items, pending.is_move, cx);
+            }
+            None => {
+                self.status = "転送をキャンセルしました".into();
+                cx.notify();
+            }
+        }
+    }
+
+    /// 衝突確認モーダルのオーバーレイ。
+    fn render_conflict_modal(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let p = self.pending_transfer.as_ref()?;
+        let verb = if p.is_move { "移動" } else { "コピー" };
+        let mut names = p.conflict_names.join("、");
+        if p.conflict_count > p.conflict_names.len() {
+            names.push_str(&format!(" ほか {} 件", p.conflict_count - p.conflict_names.len()));
+        }
+        let btn = |id: &'static str, label: &'static str, bg, ov: Option<bool>| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .bg(bg)
+                .hover(|s| s.bg(th().button_hover))
+                .child(label)
+                .on_click(cx.listener(move |this, _e, _w, cx| this.resolve_transfer(ov, cx)))
+                .into_any_element()
+        };
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .occlude()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(th().overlay_bg)
+                .child(
+                    div()
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, |_e, _w, cx| cx.stop_propagation())
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .w(px(460.0))
+                        .p_3()
+                        .rounded_md()
+                        .bg(th().surface_bg)
+                        .border_1()
+                        .border_color(th().accent)
+                        .text_color(th().text)
+                        .child(format!(
+                            "{verb}先に同じ名前の項目が {} 件あります",
+                            p.conflict_count
+                        ))
+                        .child(
+                            div()
+                                .text_color(th().text_dim)
+                                .overflow_hidden()
+                                .child(names),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .justify_end()
+                                .child(btn("ct-ow", "上書き", th().danger_bg, Some(true)))
+                                .child(btn(
+                                    "ct-rn",
+                                    "別名で保存",
+                                    th().button_bg,
+                                    Some(false),
+                                ))
+                                .child(btn("ct-cancel", "キャンセル", th().button_bg, None)),
+                        )
+                        .child(
+                            div()
+                                .text_color(th().text_faint)
+                                .child("別名で保存: 衝突する項目だけ「名前 (2)」形式になります / Esc: キャンセル"),
+                        ),
+                ),
+        )
+        .map(|d| d.into_any_element())
+    }
+
+    /// copy/move ジョブを別スレッドで開始する (進捗は sink 経由で届く)。
+    fn run_transfer_now(&mut self, items: Vec<JobItem>, is_move: bool, cx: &mut Context<Self>) {
         let job_id = self.next_job_id;
         self.next_job_id += 1;
         let registry = self.jobs.clone();
@@ -2107,7 +2282,8 @@ impl PaneView {
                     if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
                         this.open_drop_menu(dst, paths, window, cx);
                     } else {
-                        this.drop_paths_into(dst, paths, cx);
+                        let forced = Self::drop_effect_override(window);
+                        this.drop_paths_into(dst, paths, forced, cx);
                     }
                     // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
                     cx.stop_propagation();
@@ -2308,7 +2484,8 @@ impl Render for PaneView {
                     // 右ボタン D&D: 効果をユーザーに選ばせる (ADR 0010)。
                     this.open_drop_menu(dst, paths, window, cx);
                 } else {
-                    this.drop_paths_into(dst, paths, cx);
+                    let forced = Self::drop_effect_override(window);
+                    this.drop_paths_into(dst, paths, forced, cx);
                 }
             }))
             // OLE ドラッグの開始判定 / 候補クリア。
@@ -2452,6 +2629,8 @@ impl Render for PaneView {
             .children(self.render_context_menu(cx))
             // 右ボタン D&D チューザー (開いている時のみ)
             .children(self.render_drop_menu(cx))
+            // 同名衝突の確認モーダル (確認待ちのみ)
+            .children(self.render_conflict_modal(cx))
     }
 }
 
@@ -2519,6 +2698,30 @@ fn hwnd_of(window: &Window) -> Option<isize> {
         RawWindowHandle::Win32(h) => Some(h.hwnd.get()),
         _ => None,
     }
+}
+
+/// 既存と衝突しない宛先パスを生成する ("name (2).ext" 式の連番)。
+fn unique_dest(p: &Path) -> PathBuf {
+    if !p.exists() {
+        return p.to_path_buf();
+    }
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = p.extension().map(|s| s.to_string_lossy().to_string());
+    let parent = p.parent().unwrap_or_else(|| Path::new(""));
+    for i in 2..10_000 {
+        let name = match &ext {
+            Some(e) => format!("{stem} ({i}).{e}"),
+            None => format!("{stem} ({i})"),
+        };
+        let cand = parent.join(name);
+        if !cand.exists() {
+            return cand;
+        }
+    }
+    p.to_path_buf()
 }
 
 /// メニューの区切り線。
