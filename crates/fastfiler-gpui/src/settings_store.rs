@@ -20,6 +20,13 @@ pub struct AppSettings {
     /// タブバーの列数 (1〜4)。並びは行優先 (1,2 / 3,4 / …)。
     #[serde(default = "default_tab_columns")]
     pub tab_columns: u8,
+    /// タブバーに「ツリー」トグルボタンを表示するか。
+    #[serde(default = "default_true")]
+    pub show_tree_button: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_port() -> u16 {
@@ -36,6 +43,7 @@ impl Default for AppSettings {
             theme: None,
             everything_port: default_port(),
             tab_columns: default_tab_columns(),
+            show_tree_button: true,
         }
     }
 }

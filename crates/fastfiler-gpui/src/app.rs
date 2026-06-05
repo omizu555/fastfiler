@@ -231,10 +231,19 @@ impl FastFilerApp {
         cx: &mut Context<Self>,
     ) -> PaneNode {
         match nd {
-            NodeData::Leaf { path, focused: f } => {
+            NodeData::Leaf {
+                path,
+                focused: f,
+                cols,
+            } => {
                 let p = PathBuf::from(path);
                 let start = if p.is_dir() { p } else { default_start() };
                 let (pane, ev, ob) = Self::make_pane(start, cx);
+                // ペイン個別の列幅を復元。
+                if let Some(c) = cols {
+                    let c = *c;
+                    pane.update(cx, |p, _| p.set_col_widths(c));
+                }
                 let id = pane.entity_id();
                 subs.insert(id, (ev, ob));
                 if *f && focused.is_none() {
@@ -524,6 +533,39 @@ impl FastFilerApp {
                         // タブバー
                         .child(section("タブバー — 列数"))
                         .child(div().flex().flex_row().gap_2().children(col_btns))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .items_center()
+                                .child(div().text_color(th().text_dim).child("ツリーボタン:"))
+                                .child(
+                                    div()
+                                        .id("tree-btn-toggle")
+                                        .px_3()
+                                        .py_1()
+                                        .rounded_md()
+                                        .cursor_pointer()
+                                        .bg(if settings_store::get().show_tree_button {
+                                            th().sel_bg
+                                        } else {
+                                            th().button_bg
+                                        })
+                                        .hover(|s| s.bg(th().button_hover))
+                                        .child(if settings_store::get().show_tree_button {
+                                            "表示"
+                                        } else {
+                                            "非表示"
+                                        })
+                                        .on_click(cx.listener(|_this, _e, _w, cx| {
+                                            settings_store::update(|s| {
+                                                s.show_tree_button = !s.show_tree_button
+                                            });
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
                         .child(sep())
                         // ホットキー
                         .child(section("ホットキー (gpui_hotkeys.json)"))
@@ -1032,8 +1074,11 @@ impl Render for FastFilerApp {
             .map(|(i, t)| (i, t.title(cx)))
             .collect();
 
+        let settings = settings_store::get();
+        // タブバーに「ツリー」トグルを出すか (設定)。
+        let show_tree_button = settings.show_tree_button;
         // タブバー列数 (設定 1〜4)。並びは行優先 (1,2 / 3,4 / …)。
-        let tab_cols = settings_store::get().tab_columns.clamp(1, 4) as usize;
+        let tab_cols = settings.tab_columns.clamp(1, 4) as usize;
         // 幅はドラッグで可変 (保存値)。1 列あたり最低 80px は確保。
         let tab_bar_width = px(self.tab_width.max(80.0 * tab_cols as f32));
 
@@ -1210,10 +1255,11 @@ impl Render for FastFilerApp {
                                     .bg(th().surface_bg)
                                     .hover(|s| s.bg(th().button_bg))
                                     .text_color(th().text_soft)
-                                    .child("＋ 新規タブ")
+                                    .child("＋")
                                     .on_click(cx.listener(|this, _e, _w, cx| this.add_tab(cx))),
                             )
-                            .child(
+                            // ツリートグルは設定で非表示にできる。
+                            .children(show_tree_button.then(|| {
                                 div()
                                     .id("toggle-tree")
                                     .px_2()
@@ -1224,8 +1270,8 @@ impl Render for FastFilerApp {
                                     .hover(|s| s.bg(th().menu_hover))
                                     .text_color(th().text_soft)
                                     .child("ツリー")
-                                    .on_click(cx.listener(|this, _e, _w, cx| this.toggle_tree(cx))),
-                            ),
+                                    .on_click(cx.listener(|this, _e, _w, cx| this.toggle_tree(cx)))
+                            })),
                     )
                     .children(tab_rows)
                     .child(div().flex_1())
@@ -1298,6 +1344,7 @@ fn node_data(node: &PaneNode, focused: Option<EntityId>, cx: &App) -> NodeData {
         PaneNode::Leaf(p) => NodeData::Leaf {
             path: p.read(cx).cur_path().to_string_lossy().to_string(),
             focused: focused == Some(p.entity_id()),
+            cols: Some(p.read(cx).col_widths()),
         },
         PaneNode::Split {
             dir,

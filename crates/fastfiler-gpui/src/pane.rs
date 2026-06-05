@@ -27,10 +27,11 @@ use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::user_commands::{self, RunCtx};
 use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
-    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    NavigationDirection, Pixels, Point, ScrollStrategy, SharedString, UniformListScrollHandle,
-    Window, anchored, deferred, div, img, prelude::*, px, uniform_list,
+    AnyElement, ClickEvent, Context, DragMoveEvent, Empty, Entity, EventEmitter, ExternalPaths,
+    FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, Point,
+    ScrollStrategy, SharedString, UniformListScrollHandle, Window, anchored, deferred, div, img,
+    prelude::*, px, uniform_list,
 };
 
 use crate::hotkeys;
@@ -85,6 +86,9 @@ struct SearchUi {
     job_id: Option<u64>,
     /// 状態表示 ("検索中…" / "N 件 (Everything)" 等)。
     info: SharedString,
+    /// Enter で検索を実行済みか。false の間はファイル一覧を表示したまま
+    /// (検索バーだけ出る)。true で結果リストに切り替わる。
+    executed: bool,
 }
 
 struct SearchResult {
@@ -112,6 +116,14 @@ struct DragCand {
     row_ix: usize,
     /// 右ボタン用: 押下時に Shift が押されていたか (シェルメニュー)。
     shift: bool,
+}
+
+/// 列幅リサイズのドラッグペイロード (見出しの仕切り)。対象は固定幅列のみ。
+/// on_drag_move は全ペインで発火するため、ドラッグ元ペインの id を持たせて
+/// 他ペインは無視する (複数ペインが互いの右端基準で書き換え合うと幅が暴れる)。
+struct ColHandle {
+    col: SortCol,
+    pane: gpui::EntityId,
 }
 
 /// 右ボタン D&D のドロップ先チューザー (ここにコピー / ここに移動 / キャンセル)。
@@ -176,6 +188,7 @@ pub static PANES_ALIVE: std::sync::atomic::AtomicI64 = std::sync::atomic::Atomic
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SortCol {
     Name,
+    Modified,
     Size,
     Type,
 }
@@ -197,6 +210,10 @@ pub struct PaneView {
 
     sort_col: SortCol,
     sort_asc: bool,
+
+    /// 列幅 [更新日時, サイズ, 種類] (px)。ペイン個別 — 見出しの仕切りドラッグで
+    /// 変更し、セッションにペイン単位で保存・復元される。
+    col_widths: [f32; 3],
 
     /// app 側 (ペイン切替) からも focus できるよう crate 公開。
     pub(crate) focus_handle: FocusHandle,
@@ -271,6 +288,7 @@ impl PaneView {
             status: SharedString::default(),
             sort_col: SortCol::Name,
             sort_asc: true,
+            col_widths: [132.0, 96.0, 96.0],
             focus_handle: cx.focus_handle(),
             focused_once: false,
             reload_pending: false,
@@ -413,6 +431,7 @@ impl PaneView {
             }
             let ord = match col {
                 SortCol::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                SortCol::Modified => a.modified.cmp(&b.modified),
                 SortCol::Size => a.size.cmp(&b.size),
                 SortCol::Type => a
                     .ext
@@ -421,6 +440,35 @@ impl PaneView {
             };
             if asc { ord } else { ord.reverse() }
         });
+    }
+
+    /// 列見出しの仕切りドラッグ → このペインの列幅を更新。
+    /// 仕切りは各列の左端にあり、右端基準で幅を逆算する。
+    /// (notify → app の observe → セッション保存、でペイン単位に永続化される)
+    fn on_col_handle_drag(&mut self, e: &DragMoveEvent<ColHandle>, cx: &mut Context<Self>) {
+        // ドラッグ元のペインだけが処理する (他ペインの右端で計算すると幅が暴れる)。
+        if e.drag(cx).pane != cx.entity_id() {
+            return;
+        }
+        let [dw, sw, tw] = self.col_widths;
+        let gap = 8.0; // 行の gap_2
+        // ペイン右端 - px_2 の右パディング = 種類列の右端。
+        let right = e.bounds.right() / px(1.0) - 8.0;
+        let x = e.event.position.x / px(1.0);
+        match e.drag(cx).col {
+            SortCol::Type => {
+                self.col_widths[2] = (right - x).clamp(40.0, 400.0);
+            }
+            SortCol::Size => {
+                self.col_widths[1] = (right - tw - gap - x).clamp(40.0, 400.0);
+            }
+            SortCol::Modified => {
+                self.col_widths[0] = (right - tw - gap - sw - gap - x).clamp(40.0, 400.0);
+            }
+            SortCol::Name => {}
+        }
+        let _ = dw;
+        cx.notify();
     }
 
     fn set_sort(&mut self, col: SortCol, cx: &mut Context<Self>) {
@@ -455,6 +503,16 @@ impl PaneView {
 
     pub fn cur_path(&self) -> &Path {
         &self.cur_path
+    }
+
+    /// 列幅 [更新日時, サイズ, 種類] (セッション保存用)。
+    pub fn col_widths(&self) -> [f32; 3] {
+        self.col_widths
+    }
+
+    /// 列幅を復元 (セッション復元用)。不正値は clamp。
+    pub fn set_col_widths(&mut self, w: [f32; 3]) {
+        self.col_widths = w.map(|v| v.clamp(40.0, 400.0));
     }
 
     // ── 選択モデル (cursor + selected set + anchor) ─────────────────
@@ -900,6 +958,7 @@ impl PaneView {
             running: false,
             job_id: None,
             info: "Enter で検索".into(),
+            executed: false,
         });
         fh.focus(window, cx);
         cx.notify();
@@ -939,6 +998,8 @@ impl PaneView {
             Ok(id) => {
                 ui.job_id = Some(id);
                 ui.running = true;
+                // 実行して初めて結果リストへ切り替える (それまでは一覧のまま)。
+                ui.executed = true;
                 ui.info = "検索中…".into();
             }
             Err(e) => {
@@ -2144,6 +2205,12 @@ impl PaneView {
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let entry = &self.entries[ix];
+        // 列幅 (更新日時 / サイズ / 種類) — ペイン個別、見出しの仕切りドラッグで可変。
+        let col_w = (
+            self.col_widths[0],
+            self.col_widths[1],
+            self.col_widths[2],
+        );
         let is_dir = entry.kind == "dir";
         let is_selected = self.selected.contains(&ix);
         let is_cursor = self.cursor == Some(ix);
@@ -2264,16 +2331,28 @@ impl PaneView {
             )
             .child(
                 div()
-                    .w(px(96.0))
+                    .w(px(col_w.0))
                     .flex_shrink_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_color(th().text_dim)
+                    .child(format_modified(entry.modified)),
+            )
+            .child(
+                div()
+                    .w(px(col_w.1))
+                    .flex_shrink_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .text_right()
                     .text_color(th().text_dim)
                     .child(size_text),
             )
             .child(
                 div()
-                    .w(px(96.0))
+                    .w(px(col_w.2))
                     .flex_shrink_0()
+                    .overflow_hidden()
                     .truncate()
                     .text_color(th().text_dim)
                     .child(kind_text),
@@ -2390,7 +2469,8 @@ impl Render for PaneView {
         });
         let count = self.entries.len();
 
-        let searching = self.search_ui.is_some();
+        // 検索を「実行」するまではファイル一覧を表示したまま (バーだけ出す)。
+        let searching = self.search_ui.as_ref().is_some_and(|u| u.executed);
 
         // 検索バー (Ctrl+F で表示)。
         let search_bar = self.search_ui.as_ref().map(|ui| {
@@ -2418,10 +2498,28 @@ impl Render for PaneView {
         });
 
         // 列見出し (検索中は結果リストと列が合わないため非表示)。
+        // 固定幅列 (更新日時/サイズ/種類) の左端に仕切りハンドル — ドラッグで列幅変更。
         let header = (!searching).then(|| {
+            let [col_mod, col_size, col_type] = self.col_widths;
             let name_hdr = self.header_cell("名前", SortCol::Name, cx);
+            let mod_hdr = self.header_cell("更新日時", SortCol::Modified, cx);
             let size_hdr = self.header_cell("サイズ", SortCol::Size, cx);
             let type_hdr = self.header_cell("種類", SortCol::Type, cx);
+            let pane_id = cx.entity_id();
+            let col_handle = move |id: &'static str, col: SortCol| {
+                div()
+                    .id(id)
+                    .absolute()
+                    .left(px(-7.0))
+                    .top_0()
+                    .h_full()
+                    .w(px(6.0))
+                    .cursor_col_resize()
+                    .hover(|st| st.bg(th().handle_hover))
+                    .on_drag(ColHandle { col, pane: pane_id }, |_, _, _, cx| {
+                        cx.new(|_| Empty)
+                    })
+            };
             div()
                 .flex()
                 .flex_row()
@@ -2435,13 +2533,48 @@ impl Render for PaneView {
                 .child(div().flex_1().min_w_0().overflow_hidden().child(name_hdr))
                 .child(
                     div()
-                        .w(px(96.0))
+                        .w(px(col_mod))
                         .flex_shrink_0()
-                        .flex()
-                        .justify_end()
-                        .child(size_hdr),
+                        .relative()
+                        .child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(mod_hdr),
+                        )
+                        .child(col_handle("ch-mod", SortCol::Modified)),
                 )
-                .child(div().w(px(96.0)).flex_shrink_0().child(type_hdr))
+                .child(
+                    div()
+                        .w(px(col_size))
+                        .flex_shrink_0()
+                        .relative()
+                        .child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .flex()
+                                .justify_end()
+                                .child(size_hdr),
+                        )
+                        .child(col_handle("ch-size", SortCol::Size)),
+                )
+                .child(
+                    div()
+                        .w(px(col_type))
+                        .flex_shrink_0()
+                        .relative()
+                        .child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .child(type_hdr),
+                        )
+                        .child(col_handle("ch-type", SortCol::Type)),
+                )
         });
 
         // 一覧領域: 通常はファイル一覧 / 検索中は検索結果 (どちらも仮想化)。
@@ -2533,6 +2666,10 @@ impl Render for PaneView {
                     this.on_right_up(ev, window, cx);
                 }),
             )
+            // 列見出しの仕切りドラッグ (ペイン全域で追跡)。
+            .on_drag_move(cx.listener(|this, e: &DragMoveEvent<ColHandle>, _w, cx| {
+                this.on_col_handle_drag(e, cx);
+            }))
             .flex()
             .flex_col()
             .size_full()
@@ -2737,6 +2874,38 @@ fn menu_sep() -> AnyElement {
         .my_1()
         .bg(th().separator)
         .into_any_element()
+}
+
+/// unix 秒 → ローカル時刻 "YYYY/MM/DD HH:MM"。0 (取得失敗) は空文字。
+fn format_modified(unix: i64) -> String {
+    if unix <= 0 {
+        return String::new();
+    }
+    use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows::Win32::System::Time::SystemTimeToTzSpecificLocalTime;
+    use windows::Win32::System::Time::FileTimeToSystemTime;
+    // unix 秒 → FILETIME (1601-01-01 起点の 100ns 単位)。
+    let ticks = (unix as u64)
+        .wrapping_mul(10_000_000)
+        .wrapping_add(116_444_736_000_000_000);
+    let ft = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let mut utc = SYSTEMTIME::default();
+    let mut local = SYSTEMTIME::default();
+    unsafe {
+        if FileTimeToSystemTime(&ft, &mut utc).is_err() {
+            return String::new();
+        }
+        if SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_err() {
+            return String::new();
+        }
+    }
+    format!(
+        "{:04}/{:02}/{:02} {:02}:{:02}",
+        local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute
+    )
 }
 
 /// バイト数を人間可読に整形 (B/KB/MB/GB/TB)。

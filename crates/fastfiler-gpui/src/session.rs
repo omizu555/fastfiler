@@ -51,6 +51,9 @@ pub enum NodeData {
         path: String,
         #[serde(default)]
         focused: bool,
+        /// 列幅 [更新日時, サイズ, 種類] (px)。ペイン個別。
+        #[serde(default)]
+        cols: Option<[f32; 3]>,
     },
     Split {
         /// "row" | "column"
