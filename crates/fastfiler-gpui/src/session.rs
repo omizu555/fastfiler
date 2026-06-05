@@ -28,6 +28,9 @@ pub struct SessionData {
     /// テーマ名 (プリセット)。
     #[serde(default)]
     pub theme: Option<String>,
+    /// 各タブのロック状態 (tabs と同じ並び)。
+    #[serde(default)]
+    pub locked: Vec<bool>,
     pub tabs: Vec<NodeData>,
 }
 

@@ -88,6 +88,9 @@ struct TabState {
     focused: Option<EntityId>,
     /// ペイン id → (イベント購読, 変化観測)。閉じる際に drop して解放する。
     subs: HashMap<EntityId, (Subscription, Subscription)>,
+    /// ロック中か (タブの中ボタンクリックで切替)。ロック中は × で閉じられず、
+    /// フォルダ移動は新しいタブで開く。
+    locked: bool,
 }
 
 impl TabState {
@@ -200,15 +203,25 @@ impl FastFilerApp {
             theme_menu_open: false,
         };
         this.register_quit_hook(cx);
-        for tab in &data.tabs {
+        for (i, tab) in data.tabs.iter().enumerate() {
             let mut subs = HashMap::new();
             let mut focused = None;
             let root = this.build_node(tab, &mut subs, &mut focused, cx);
             let focused = focused.or_else(|| first_pane(&root).map(|p| p.entity_id()));
+            // タブロックを復元し、所属ペインへも反映。
+            let locked = data.locked.get(i).copied().unwrap_or(false);
+            if locked {
+                let mut panes = Vec::new();
+                collect_pane_entities(&root, &mut panes);
+                for p in panes {
+                    p.update(cx, |p, _| p.set_locked(true));
+                }
+            }
             this.tabs.push(TabState {
                 root,
                 focused,
                 subs,
+                locked,
             });
         }
         if this.tabs.is_empty() {
@@ -311,6 +324,7 @@ impl FastFilerApp {
             unc_shares: self.tree.read(cx).unc_shares().to_vec(),
             // テーマは gpui_settings.json へ移行済み (読み込み時の互換用に残置)。
             theme: None,
+            locked: self.tabs.iter().map(|t| t.locked).collect(),
             tabs: self
                 .tabs
                 .iter()
@@ -708,6 +722,8 @@ impl FastFilerApp {
                 PaneEvent::CloseRequested => this.close_pane(id, cx),
                 PaneEvent::FocusNextPane => this.cycle_focus(cx),
                 PaneEvent::SwitchTab(delta) => this.switch_tab_relative(*delta, cx),
+                // ロック中タブでの移動要求 → 新しいタブで開く。
+                PaneEvent::OpenInNewTab(path) => this.add_tab_at(path.clone(), cx),
             }
         });
         // ペイン内の変化 (フォルダ移動等) でタブ見出し等を更新 + セッション保存予約。
@@ -736,6 +752,7 @@ impl FastFilerApp {
             root: PaneNode::Leaf(pane),
             focused: Some(id),
             subs,
+            locked: false,
         });
         self.active = self.tabs.len() - 1;
         cx.notify();
@@ -756,6 +773,9 @@ impl FastFilerApp {
         if ix >= self.tabs.len() || self.tabs.len() <= 1 {
             return; // 最後の 1 枚は残す
         }
+        if self.tabs[ix].locked {
+            return; // ロック中は閉じられない
+        }
         // TabState を drop → ツリー内の全 Entity<PaneView> と購読が連鎖 drop。
         self.tabs.remove(ix);
         if self.active >= self.tabs.len() {
@@ -764,6 +784,22 @@ impl FastFilerApp {
         cx.notify();
         self.schedule_save(cx);
         self.reveal_in_tree(cx);
+    }
+
+    /// タブのロックを切替 (中ボタンクリック)。所属する全ペインへ反映する。
+    fn toggle_tab_lock(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get_mut(ix) else {
+            return;
+        };
+        tab.locked = !tab.locked;
+        let locked = tab.locked;
+        let mut panes = Vec::new();
+        collect_pane_entities(&tab.root, &mut panes);
+        for p in panes {
+            p.update(cx, |p, _| p.set_locked(locked));
+        }
+        cx.notify();
+        self.schedule_save(cx);
     }
 
     fn select_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -892,6 +928,10 @@ impl FastFilerApp {
             .map(|p| p.read(cx).cur_path().to_path_buf())
             .unwrap_or_else(default_start);
         let (pane, ev, ob) = Self::make_pane(start, cx);
+        // ロック中タブ内の新ペインはロックを引き継ぐ。
+        if self.tabs[ti].locked {
+            pane.update(cx, |p, _| p.set_locked(true));
+        }
         let new_id = pane.entity_id();
         let split_id = self.next_split_id;
         self.next_split_id += 1;
@@ -1067,11 +1107,11 @@ impl Render for FastFilerApp {
         let active = self.active;
         let alive = PANES_ALIVE.load(Ordering::Relaxed);
 
-        let titles: Vec<(usize, String)> = self
+        let titles: Vec<(usize, String, bool)> = self
             .tabs
             .iter()
             .enumerate()
-            .map(|(i, t)| (i, t.title(cx)))
+            .map(|(i, t)| (i, t.title(cx), t.locked))
             .collect();
 
         let settings = settings_store::get();
@@ -1084,10 +1124,35 @@ impl Render for FastFilerApp {
 
         let tab_items: Vec<_> = titles
             .into_iter()
-            .map(|(i, title)| {
+            .map(|(i, title, locked)| {
                 let is_active = i == active;
                 let title = SharedString::from(title);
                 let preview_title = title.clone();
+                // 右端: ロック中は 🔒 (中ボタンで解除)、通常は × (閉じる)。
+                let corner = if locked {
+                    div()
+                        .id(SharedString::from(format!("lock-{i}")))
+                        .px_1()
+                        .rounded_md()
+                        .text_color(th().text_dim)
+                        .child("🔒")
+                        .on_mouse_down(
+                            MouseButton::Middle,
+                            cx.listener(move |this, _e: &MouseDownEvent, _w, cx| {
+                                this.toggle_tab_lock(i, cx)
+                            }),
+                        )
+                } else {
+                    div()
+                        .id(SharedString::from(format!("close-{i}")))
+                        .px_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_color(th().text_dim)
+                        .hover(|s| s.bg(th().danger_bg).text_color(th().text_bright))
+                        .child("×")
+                        .on_click(cx.listener(move |this, _e, _w, cx| this.close_tab(i, cx)))
+                };
                 div()
                     .flex()
                     .flex_row()
@@ -1109,6 +1174,13 @@ impl Render for FastFilerApp {
                             .text_color(th().text)
                             .child(title)
                             .on_click(cx.listener(move |this, _e, _w, cx| this.select_tab(i, cx)))
+                            // 中ボタンクリックでロック切替。
+                            .on_mouse_down(
+                                MouseButton::Middle,
+                                cx.listener(move |this, _e: &MouseDownEvent, _w, cx| {
+                                    this.toggle_tab_lock(i, cx)
+                                }),
+                            )
                             // D&D 並べ替え: タブをドラッグして別タブへドロップ。
                             .on_drag(DraggedTab { ix: i }, move |_, _, _, cx| {
                                 cx.new(|_| TabDragPreview(preview_title.clone()))
@@ -1118,17 +1190,7 @@ impl Render for FastFilerApp {
                                 this.move_tab(d.ix, i, cx)
                             })),
                     )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("close-{i}")))
-                            .px_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .text_color(th().text_dim)
-                            .hover(|s| s.bg(th().danger_bg).text_color(th().text_bright))
-                            .child("×")
-                            .on_click(cx.listener(move |this, _e, _w, cx| this.close_tab(i, cx))),
-                    )
+                    .child(corner)
             })
             .collect();
 

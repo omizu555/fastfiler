@@ -41,6 +41,17 @@ cargo build -p fastfiler-gpui --release
 
 約 2 分 (LTO + codegen-units=1)。生成物は約 6MB・単体動作・コンソール非表示。
 
+### クリーンリビルド
+
+依存やビルドキャッシュ起因の問題を疑うとき:
+
+```powershell
+cargo clean
+cargo build -p fastfiler-gpui --release
+```
+
+vendor (GPUI) を含むフルビルドになるため数分かかる。
+
 ---
 
 ## 3. ワークスペース構成
@@ -59,7 +70,11 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 ## 4. 開発メモ
 
 - デバッグ起動でコンソールにパニックが出る (`RUST_BACKTRACE=1` 推奨)。
-- セッションは `%APPDATA%\FastFiler\gpui_session.json`。壊れた場合は削除すれば初期化。
+- ユーザーデータは `%APPDATA%\FastFiler\` 配下:
+  - `gpui_session.json` — セッション (タブ / 分割 / 列幅 / ロック / ウィンドウ位置)
+  - `gpui_settings.json` — 設定 (テーマ / タブ列数 / Everything ポート 等)
+  - `gpui_hotkeys.json` — ホットキー割り当て
+  - 壊れた場合は該当ファイルを削除すれば既定値で再生成される。
 - メモリ健全性はタブバー下部の `live panes: N` で確認できる
   (タブ/ペインを開閉してベースラインへ戻れば OK)。
 - GPUI の API を調べるときは `vendor/crates/gpui/examples/` が最短

@@ -175,6 +175,8 @@ pub enum PaneEvent {
     FocusNextPane,
     /// タブを相対移動してほしい (Ctrl+Tab = +1 / Ctrl+Shift+Tab = -1)。
     SwitchTab(i32),
+    /// ロック中タブでの移動要求 → このパスを新しいタブで開いてほしい。
+    OpenInNewTab(PathBuf),
 }
 
 impl EventEmitter<PaneEvent> for PaneView {}
@@ -214,6 +216,10 @@ pub struct PaneView {
     /// 列幅 [更新日時, サイズ, 種類] (px)。ペイン個別 — 見出しの仕切りドラッグで
     /// 変更し、セッションにペイン単位で保存・復元される。
     col_widths: [f32; 3],
+
+    /// タブロック中か (タブの中ボタンクリックで切替)。ロック中は移動できず、
+    /// フォルダへ入ろうとすると新しいタブで開く (OpenInNewTab を emit)。
+    locked: bool,
 
     /// app 側 (ペイン切替) からも focus できるよう crate 公開。
     pub(crate) focus_handle: FocusHandle,
@@ -289,6 +295,7 @@ impl PaneView {
             sort_col: SortCol::Name,
             sort_asc: true,
             col_widths: [132.0, 96.0, 96.0],
+            locked: false,
             focus_handle: cx.focus_handle(),
             focused_once: false,
             reload_pending: false,
@@ -317,8 +324,13 @@ impl PaneView {
     }
 
     /// ユーザー操作による移動: 履歴 (戻る) に積んでから開く。
+    /// タブロック中は移動せず、新しいタブで開くようコンテナへ依頼する。
     fn navigate(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if path == self.cur_path {
+            return;
+        }
+        if self.locked {
+            cx.emit(PaneEvent::OpenInNewTab(path));
             return;
         }
         self.history_back.push(self.cur_path.clone());
@@ -326,16 +338,26 @@ impl PaneView {
         self.open_inner(path, cx, true);
     }
 
-    /// 履歴: 戻る (Alt+← / マウス第4ボタン)。
+    /// 履歴: 戻る (Alt+← / マウス第4ボタン)。ロック中は不可。
     fn go_back(&mut self, cx: &mut Context<Self>) {
+        if self.locked {
+            self.status = "タブはロックされています".into();
+            cx.notify();
+            return;
+        }
         if let Some(p) = self.history_back.pop() {
             self.history_fwd.push(self.cur_path.clone());
             self.open_inner(p, cx, true);
         }
     }
 
-    /// 履歴: 進む (Alt+→ / マウス第5ボタン)。
+    /// 履歴: 進む (Alt+→ / マウス第5ボタン)。ロック中は不可。
     fn go_forward(&mut self, cx: &mut Context<Self>) {
+        if self.locked {
+            self.status = "タブはロックされています".into();
+            cx.notify();
+            return;
+        }
         if let Some(p) = self.history_fwd.pop() {
             self.history_back.push(self.cur_path.clone());
             self.open_inner(p, cx, true);
@@ -493,12 +515,34 @@ impl PaneView {
         self.navigate(path, cx);
     }
 
-    /// タブ見出し用の名前 (表示中フォルダ名。ルートは表示パスそのまま)。
+    /// タブ見出し用の名前。どのドライブか常に分かるよう、ローカルは「C: 名前」、
+    /// ネットワーク (UNC) は「🌐 名前」を必ず前置する。
     pub fn title(&self) -> String {
-        self.cur_path
+        let s = self.cur_path.to_string_lossy();
+        let name = self
+            .cur_path
             .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| self.cur_path.display().to_string())
+            .map(|n| n.to_string_lossy().to_string());
+        if s.starts_with(r"\\") {
+            // UNC: share ルート (file_name なし) はパス全体を出す。
+            match name {
+                Some(n) => format!("🌐 {n}"),
+                None => format!("🌐 {s}"),
+            }
+        } else {
+            let drive = s
+                .chars()
+                .next()
+                .filter(|c| c.is_ascii_alphabetic() && s.chars().nth(1) == Some(':'))
+                .map(|c| c.to_ascii_uppercase());
+            match (drive, name) {
+                (Some(d), Some(n)) => format!("{d}: {n}"),
+                // ドライブルート ("C:\") はそのまま。
+                (Some(d), None) => format!("{d}:\\"),
+                (None, Some(n)) => n,
+                (None, None) => s.to_string(),
+            }
+        }
     }
 
     pub fn cur_path(&self) -> &Path {
@@ -513,6 +557,11 @@ impl PaneView {
     /// 列幅を復元 (セッション復元用)。不正値は clamp。
     pub fn set_col_widths(&mut self, w: [f32; 3]) {
         self.col_widths = w.map(|v| v.clamp(40.0, 400.0));
+    }
+
+    /// タブロック状態を設定 (タブ単位 — 所属する全ペインに app 側が反映する)。
+    pub fn set_locked(&mut self, v: bool) {
+        self.locked = v;
     }
 
     // ── 選択モデル (cursor + selected set + anchor) ─────────────────
