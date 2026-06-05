@@ -15,7 +15,7 @@ use fastfiler_domain::fs;
 
 use crate::theme::th;
 use gpui::{
-    AnyElement, Context, EventEmitter, IntoElement, MouseButton, SharedString,
+    AnyElement, Context, EventEmitter, IntoElement, MouseButton, ScrollStrategy, SharedString,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
@@ -49,6 +49,8 @@ pub struct TreeView {
     children: HashMap<PathBuf, Vec<String>>,
     /// 表示用の平坦化リスト。
     items: Vec<TreeItem>,
+    /// 追従ハイライト中のパス (reveal で設定)。
+    selected: Option<PathBuf>,
     scroll: UniformListScrollHandle,
 }
 
@@ -60,6 +62,7 @@ impl TreeView {
             expanded: HashSet::new(),
             children: HashMap::new(),
             items: Vec::new(),
+            selected: None,
             scroll: UniformListScrollHandle::new(),
         };
         this.rebuild();
@@ -178,6 +181,65 @@ impl TreeView {
         cx.notify();
     }
 
+    /// 指定パスの祖先を展開し、その行を選択ハイライト + 中央へスクロールする
+    /// (タブ切替やペインのフォルダ移動でツリーを追従させる)。
+    /// パス照合は大文字小文字を無視し、ツリー側の表記でノードを辿る。
+    /// 子に見つからない階層 (隠しフォルダ等) は、辿れた最深の祖先で止める。
+    pub fn reveal(&mut self, target: &std::path::Path, cx: &mut Context<Self>) {
+        // ルート → target の祖先チェーン。
+        let mut chain: Vec<PathBuf> = target.ancestors().map(|p| p.to_path_buf()).collect();
+        chain.reverse();
+        chain.retain(|p| !p.as_os_str().is_empty());
+        let Some(root_want) = chain.first() else {
+            return;
+        };
+
+        // 末尾 `\` の有無と大文字小文字を無視したパス比較。
+        let eq = |a: &std::path::Path, b: &std::path::Path| {
+            let a = a.to_string_lossy().to_ascii_lowercase();
+            let b = b.to_string_lossy().to_ascii_lowercase();
+            a.trim_end_matches('\\') == b.trim_end_matches('\\')
+        };
+
+        // ルートノード (ドライブ / UNC share) を解決。無ければ何もしない。
+        let root = self
+            .drives
+            .iter()
+            .map(|(letter, _)| PathBuf::from(letter))
+            .chain(self.unc_shares.iter().map(PathBuf::from))
+            .find(|p| eq(p, root_want));
+        let Some(mut cur) = root else {
+            return;
+        };
+
+        // 子へ降りながら親を展開していく (名前は大文字小文字無視で照合)。
+        for want in &chain[1..] {
+            let Some(want_name) = want
+                .file_name()
+                .map(|s| s.to_string_lossy().to_ascii_lowercase())
+            else {
+                break;
+            };
+            self.expanded.insert(cur.clone());
+            let kids = self.children_of(&cur);
+            let Some(k) = kids.iter().find(|k| k.to_ascii_lowercase() == want_name) else {
+                break;
+            };
+            cur = cur.join(k);
+        }
+
+        self.rebuild();
+        if let Some(ix) = self
+            .items
+            .iter()
+            .position(|it| !it.is_server && it.path == cur)
+        {
+            self.selected = Some(cur);
+            self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            cx.notify();
+        }
+    }
+
     /// ドライブ一覧と子キャッシュを更新して再構築。
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.drives = load_drives();
@@ -216,6 +278,8 @@ impl TreeView {
         let indent = px(6.0 + item.depth as f32 * 14.0);
         let path = item.path.clone();
         let name = item.name.clone();
+        // 追従ハイライト (reveal で設定された現在地)。
+        let is_sel = self.selected.as_ref() == Some(&item.path);
 
         div()
             .id(ix)
@@ -245,9 +309,11 @@ impl TreeView {
                     .id(SharedString::from(format!("tn-{ix}")))
                     .flex_1()
                     .overflow_hidden()
+                    .truncate()
                     .rounded_sm()
                     .px_1()
                     .cursor_pointer()
+                    .when(is_sel, |d| d.bg(th().sel_bg).text_color(th().text))
                     .hover(|s| s.bg(th().hover_bg))
                     .child(name)
                     .on_click(cx.listener(move |_this, _e, _w, cx| {

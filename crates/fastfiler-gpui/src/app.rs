@@ -19,8 +19,8 @@ use std::sync::atomic::Ordering;
 
 use gpui::{
     AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, Window, div, prelude::*,
-    px,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, Window, deferred, div,
+    prelude::*, px,
 };
 
 use crate::pane::{PANES_ALIVE, PaneEvent, PaneView, SplitDir};
@@ -127,10 +127,14 @@ pub struct FastFilerApp {
     window_bounds: Option<[f32; 4]>,
     /// 次の render でこのペインへキーボードフォーカスを移す (F6/タブ切替)。
     pending_focus: Option<EntityId>,
+    /// ツリー追従 (reveal) 済みのパス。同じ場所への重複 reveal を抑止。
+    last_revealed: Option<PathBuf>,
     /// 設定画面 (⚙)。Some = 表示中 (Everything ポート入力欄を保持)。
     settings_open: Option<Entity<TextInput>>,
     /// 設定画面の Esc/Enter 用フォーカス。
     settings_focus: FocusHandle,
+    /// 設定画面のテーマコンボボックス (ドロップダウン展開中か)。
+    theme_menu_open: bool,
 }
 
 impl FastFilerApp {
@@ -159,11 +163,14 @@ impl FastFilerApp {
             tab_width: 200.0,
             window_bounds: None,
             pending_focus: None,
+            last_revealed: None,
             settings_open: None,
             settings_focus: cx.focus_handle(),
+            theme_menu_open: false,
         };
         this.register_quit_hook(cx);
         this.add_tab_at(start, cx);
+        this.reveal_in_tree(cx);
         this
     }
 
@@ -187,8 +194,10 @@ impl FastFilerApp {
             tab_width: data.tab_width.clamp(100.0, 600.0),
             window_bounds: None,
             pending_focus: None,
+            last_revealed: None,
             settings_open: None,
             settings_focus: cx.focus_handle(),
+            theme_menu_open: false,
         };
         this.register_quit_hook(cx);
         for tab in &data.tabs {
@@ -207,6 +216,7 @@ impl FastFilerApp {
         } else {
             this.active = data.active.min(this.tabs.len() - 1);
         }
+        this.reveal_in_tree(cx);
         cx.notify();
         this
     }
@@ -308,11 +318,13 @@ impl FastFilerApp {
         let len = port.len();
         input.update(cx, |i, cx| i.set_text_and_select(port, 0..len, cx));
         self.settings_open = Some(input);
+        self.theme_menu_open = false;
         self.settings_focus.focus(window, cx);
         cx.notify();
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.theme_menu_open = false;
         if self.settings_open.take().is_some() {
             cx.notify();
         }
@@ -343,8 +355,9 @@ impl FastFilerApp {
     fn render_settings(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let input = self.settings_open.as_ref()?;
 
+        // テーマ選択 (コンボボックス)。ボタンで開閉し、ドロップダウンから選択。
         let current_theme = th().name;
-        let theme_btns: Vec<AnyElement> = theme::presets()
+        let theme_items: Vec<AnyElement> = theme::presets()
             .iter()
             .map(|t| {
                 let name = t.name;
@@ -353,15 +366,60 @@ impl FastFilerApp {
                     .id(SharedString::from(format!("th-{name}")))
                     .px_3()
                     .py_1()
-                    .rounded_md()
+                    .mx_1()
+                    .rounded_sm()
                     .cursor_pointer()
-                    .bg(if active { th().sel_bg } else { th().button_bg })
-                    .hover(|s| s.bg(th().button_hover))
+                    .when(active, |d| d.bg(th().sel_bg))
+                    .hover(|s| s.bg(th().menu_hover))
                     .child(name)
-                    .on_click(cx.listener(move |this, _e, _w, cx| this.set_theme(name, cx)))
+                    .on_click(cx.listener(move |this, _e, _w, cx| {
+                        this.theme_menu_open = false;
+                        this.set_theme(name, cx);
+                    }))
                     .into_any_element()
             })
             .collect();
+        let theme_combo = div()
+            .relative()
+            .w(px(220.0))
+            .child(
+                div()
+                    .id("theme-combo")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(th().button_bg)
+                    .hover(|s| s.bg(th().button_hover))
+                    .child(div().flex_1().child(current_theme))
+                    .child(div().text_color(th().text_dim).child("▼"))
+                    .on_click(cx.listener(|this, _e, _w, cx| {
+                        this.theme_menu_open = !this.theme_menu_open;
+                        cx.notify();
+                    })),
+            )
+            .when(self.theme_menu_open, |el| {
+                el.child(deferred(
+                    div()
+                        .occlude()
+                        .absolute()
+                        .top(px(32.0))
+                        .left_0()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .py_1()
+                        .rounded_md()
+                        .bg(th().surface_bg)
+                        .border_1()
+                        .border_color(th().button_hover)
+                        .children(theme_items),
+                ))
+            });
 
         // タブバー列数 (1〜4) ボタン。
         let current_cols = settings_store::get().tab_columns.clamp(1, 4);
@@ -461,7 +519,7 @@ impl FastFilerApp {
                         )
                         // 外観
                         .child(section("外観 — テーマ"))
-                        .child(div().flex().flex_row().gap_2().children(theme_btns))
+                        .child(theme_combo)
                         .child(sep())
                         // タブバー
                         .child(section("タブバー — 列数"))
@@ -569,6 +627,11 @@ impl FastFilerApp {
         self.show_tree = !self.show_tree;
         cx.notify();
         self.schedule_save(cx);
+        // 再表示時は現在地まで追従し直す。
+        if self.show_tree {
+            self.last_revealed = None;
+            self.reveal_in_tree(cx);
+        }
     }
 
     /// 800ms デバウンス付きでセッション保存を予約する。
@@ -616,6 +679,8 @@ impl FastFilerApp {
                 });
             }
             this.schedule_save(cx);
+            // フォルダ移動にツリーを追従させる。
+            this.reveal_in_tree(cx);
         });
         (pane, ev, ob)
     }
@@ -656,6 +721,7 @@ impl FastFilerApp {
         }
         cx.notify();
         self.schedule_save(cx);
+        self.reveal_in_tree(cx);
     }
 
     fn select_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -665,6 +731,7 @@ impl FastFilerApp {
             self.pending_focus = self.tabs[ix].focused;
             cx.notify();
             self.schedule_save(cx);
+            self.reveal_in_tree(cx);
         }
     }
 
@@ -696,6 +763,28 @@ impl FastFilerApp {
         tab.focused = Some(next);
         self.pending_focus = Some(next);
         cx.notify();
+        self.reveal_in_tree(cx);
+    }
+
+    /// アクティブタブのフォーカスペインの現在地をツリーへ反映 (展開 + スクロール)。
+    /// 同じ場所への重複 reveal は last_revealed で抑止。
+    fn reveal_in_tree(&mut self, cx: &mut Context<Self>) {
+        if !self.show_tree {
+            return;
+        }
+        let Some(path) = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.focused_pane())
+            .map(|p| p.read(cx).cur_path().to_path_buf())
+        else {
+            return;
+        };
+        if self.last_revealed.as_ref() == Some(&path) {
+            return;
+        }
+        self.last_revealed = Some(path.clone());
+        self.tree.update(cx, |t, cx| t.reveal(&path, cx));
     }
 
     /// ツリーパネル幅のドラッグ。
@@ -747,6 +836,7 @@ impl FastFilerApp {
             if self.tabs[ti].focused != Some(pane) {
                 self.tabs[ti].focused = Some(pane);
                 cx.notify();
+                self.reveal_in_tree(cx);
             }
         }
     }
@@ -963,6 +1053,8 @@ impl Render for FastFilerApp {
                             .id(SharedString::from(format!("tab-{i}")))
                             .flex_1()
                             .overflow_hidden()
+                            // タブ名は 1 行固定 (折返さず、はみ出しは … で省略)。
+                            .truncate()
                             .px_2()
                             .py_1()
                             .rounded_md()
