@@ -988,6 +988,7 @@ impl PaneView {
             .flex()
             .flex_row()
             .items_center()
+            .w_full()
             .h(px(24.0))
             .px_2()
             .gap_2()
@@ -1003,12 +1004,14 @@ impl PaneView {
                     this.open_search_result(ix, window, cx);
                 }
             }))
-            .child(div().w(px(6.0)).h(px(14.0)).rounded_sm().bg(accent))
-            .child(div().text_color(th().text).child(name))
+            .child(div().w(px(6.0)).flex_shrink_0().h(px(14.0)).rounded_sm().bg(accent))
+            .child(div().flex_shrink_0().text_color(th().text).child(name))
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
+                    .truncate()
                     .text_color(th().text_faint)
                     .child(parent),
             )
@@ -2205,6 +2208,8 @@ impl PaneView {
             .flex()
             .flex_row()
             .items_center()
+            // 行は常に全幅 (内容幅で縮むと サイズ/種類 列が行ごとにずれる)。
+            .w_full()
             .h(px(24.0))
             .px_2()
             .gap_2()
@@ -2241,21 +2246,26 @@ impl PaneView {
             .child(
                 div()
                     .w(px(16.0))
+                    .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_center()
                     .child(icon_el),
             )
+            // 名前: 長くても折返さず … 省略 (サイズ/種類列を押し出さない)。
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
+                    .truncate()
                     .text_color(th().text)
                     .child(name),
             )
             .child(
                 div()
                     .w(px(96.0))
+                    .flex_shrink_0()
                     .text_right()
                     .text_color(th().text_dim)
                     .child(size_text),
@@ -2263,6 +2273,8 @@ impl PaneView {
             .child(
                 div()
                     .w(px(96.0))
+                    .flex_shrink_0()
+                    .truncate()
                     .text_color(th().text_dim)
                     .child(kind_text),
             );
@@ -2330,12 +2342,21 @@ impl Render for PaneView {
         let path_text = self.cur_path.display().to_string();
         // アドレスバー: 通常はクリック可能なパス表示 / 編集中は入力欄。
         let path_area: AnyElement = if let Some(input) = &self.path_edit {
-            div().flex_1().child(input.clone()).into_any_element()
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(input.clone())
+                .into_any_element()
         } else {
             div()
                 .id("path")
                 .flex_1()
+                .min_w_0()
                 .overflow_hidden()
+                // 長いパスは折返さず … 省略 (右側のボタンへはみ出さない)。
+                // クリックで入力欄になり、マウスドラッグで部分選択できる。
+                .truncate()
                 .px_1()
                 .rounded_sm()
                 .cursor_pointer()
@@ -2410,10 +2431,17 @@ impl Render for PaneView {
                 .h(px(22.0))
                 .bg(th().header_bg)
                 .text_color(th().text_faint)
-                .child(div().w(px(16.0)))
-                .child(div().flex_1().child(name_hdr))
-                .child(div().w(px(96.0)).flex().justify_end().child(size_hdr))
-                .child(div().w(px(96.0)).child(type_hdr))
+                .child(div().w(px(16.0)).flex_shrink_0())
+                .child(div().flex_1().min_w_0().overflow_hidden().child(name_hdr))
+                .child(
+                    div()
+                        .w(px(96.0))
+                        .flex_shrink_0()
+                        .flex()
+                        .justify_end()
+                        .child(size_hdr),
+                )
+                .child(div().w(px(96.0)).flex_shrink_0().child(type_hdr))
         });
 
         // 一覧領域: 通常はファイル一覧 / 検索中は検索結果 (どちらも仮想化)。
@@ -2521,30 +2549,7 @@ impl Render for PaneView {
                     .px_2()
                     .h(px(34.0))
                     .bg(th().bar_bg)
-                    .child(
-                        div()
-                            .id("nav-back")
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .bg(th().button_bg)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(th().button_hover))
-                            .child("←")
-                            .on_click(cx.listener(|this, _e, _w, cx| this.go_back(cx))),
-                    )
-                    .child(
-                        div()
-                            .id("nav-fwd")
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .bg(th().button_bg)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(th().button_hover))
-                            .child("→")
-                            .on_click(cx.listener(|this, _e, _w, cx| this.go_forward(cx))),
-                    )
+                    // 戻る/進むはボタン非表示 (マウス第4/5ボタン・Alt+←→ で操作)。
                     .child(
                         div()
                             .id("up")
