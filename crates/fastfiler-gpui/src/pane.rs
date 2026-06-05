@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
-use fastfiler_domain::ole_dnd::{self, DragOutcome, DragRequest, PreferredEffect};
+use fastfiler_domain::ole_dnd::{self, DragButton, DragOutcome, DragRequest, PreferredEffect};
 use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
@@ -28,7 +28,7 @@ use fastfiler_domain::user_commands::{self, RunCtx};
 use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
-    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     NavigationDirection, Pixels, Point, ScrollStrategy, SharedString, UniformListScrollHandle,
     Window, anchored, deferred, div, img, prelude::*, px, uniform_list,
 };
@@ -98,6 +98,28 @@ struct SearchResult {
 /// IDropTarget (→ ExternalPaths on_drop) を呼ぶため、ドロップ処理側で立てて
 /// `start_drag` 戻り後に「内部で処理済み → 元削除等をスキップ」を判定する。
 static SELF_DROP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 現在の OLE ドラッグが右ボタンか (自アプリ内ドロップでチューザーを出す判定)。
+static RIGHT_DRAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// OLE ドラッグの開始候補 (ボタン押下時に記録、5px 移動で発動)。
+struct DragCand {
+    pos: Point<Pixels>,
+    paths: Vec<String>,
+    /// 右ボタンドラッグか。
+    right: bool,
+    /// 右ボタン用: 動かず離した場合にメニューを出す対象行。
+    row_ix: usize,
+    /// 右ボタン用: 押下時に Shift が押されていたか (シェルメニュー)。
+    shift: bool,
+}
+
+/// 右ボタン D&D のドロップ先チューザー (ここにコピー / ここに移動 / キャンセル)。
+struct DropMenu {
+    position: Point<Pixels>,
+    dst: PathBuf,
+    paths: Vec<String>,
+}
 
 /// 右クリックメニューの状態。
 struct MenuState {
@@ -188,8 +210,10 @@ pub struct PaneView {
     history_fwd: Vec<PathBuf>,
     /// アドレスバーの直接入力モード (パス文字列クリックで開始)。
     path_edit: Option<Entity<TextInput>>,
-    /// OLE ドラッグ開始候補 (行で左ボタン押下時に記録、5px 移動で発動)。
-    drag_candidate: Option<(Point<Pixels>, Vec<String>)>,
+    /// OLE ドラッグ開始候補 (行でボタン押下時に記録、5px 移動で発動)。
+    drag_candidate: Option<DragCand>,
+    /// 右ボタン D&D のドロップチューザー。
+    drop_menu: Option<DropMenu>,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -248,6 +272,7 @@ impl PaneView {
             history_fwd: Vec::new(),
             path_edit: None,
             drag_candidate: None,
+            drop_menu: None,
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
@@ -614,6 +639,14 @@ impl PaneView {
             if ks.key.as_str() == "escape" {
                 self.context_menu = None;
                 cx.notify();
+            }
+            return;
+        }
+
+        // 右ボタン D&D チューザー表示中: Esc でキャンセル、他キーは無視。
+        if self.drop_menu.is_some() {
+            if ks.key.as_str() == "escape" {
+                self.drop_menu_action(None, cx);
             }
             return;
         }
@@ -1496,26 +1529,33 @@ impl PaneView {
     /// → **専用 STA ワーカースレッド**で実行し (OleInitialize はスレッド単位)、
     /// 結果は sink (既存チャネル) 経由で `ole-drag-done` として UI へ戻す。
     fn maybe_start_ole_drag(&mut self, ev: &MouseMoveEvent, _cx: &mut Context<Self>) {
-        let Some((start, _)) = &self.drag_candidate else {
+        let Some(cand) = &self.drag_candidate else {
             return;
         };
-        if ev.pressed_button != Some(MouseButton::Left) {
+        let want = if cand.right {
+            MouseButton::Right
+        } else {
+            MouseButton::Left
+        };
+        if ev.pressed_button != Some(want) {
             self.drag_candidate = None;
             return;
         }
-        let dx = (ev.position.x - start.x) / px(1.0);
-        let dy = (ev.position.y - start.y) / px(1.0);
+        let dx = (ev.position.x - cand.pos.x) / px(1.0);
+        let dy = (ev.position.y - cand.pos.y) / px(1.0);
         if dx.abs() < 5.0 && dy.abs() < 5.0 {
             return;
         }
-        let Some((_, paths)) = self.drag_candidate.take() else {
+        let Some(cand) = self.drag_candidate.take() else {
             return;
         };
+        let (paths, right) = (cand.paths, cand.right);
         if paths.is_empty() {
             return;
         }
 
         SELF_DROP.store(false, std::sync::atomic::Ordering::SeqCst);
+        RIGHT_DRAG.store(right, std::sync::atomic::Ordering::SeqCst);
         let sink = self.sink.clone();
         // UI スレッド (= マウスを押下したスレッド) の id。ワーカーの入力状態を
         // これに接続しないと DoDragDrop が「ボタン非押下」と誤判定して即終了する。
@@ -1534,6 +1574,11 @@ impl PaneView {
             let req = DragRequest {
                 paths: paths.iter().map(PathBuf::from).collect(),
                 preferred: PreferredEffect::Move,
+                button: if right {
+                    DragButton::Right
+                } else {
+                    DragButton::Left
+                },
             };
             // ブロッキング (ドロップ or ESC まで戻らない)。UI スレッドは自由なので
             // 自ウィンドウへのドロップ受信・再描画は通常どおり動く。
@@ -1565,9 +1610,147 @@ impl PaneView {
         });
     }
 
+    /// 行の右ボタン押下: 選択を更新して D&D / メニューの候補を記録する。
+    /// (メニューを出すかドラッグかは mouse_move / mouse_up 側で確定)
+    fn on_row_right_down(
+        &mut self,
+        ix: usize,
+        ev: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.modal.is_some() {
+            return;
+        }
+        self.focus_handle.focus(window, cx);
+        cx.emit(PaneEvent::Activated);
+        if !self.selected.contains(&ix) {
+            self.select_only(ix);
+        } else {
+            self.cursor = Some(ix);
+        }
+        cx.notify();
+        let paths = self.selected_paths();
+        self.drag_candidate = Some(DragCand {
+            pos: ev.position,
+            paths,
+            right: true,
+            row_ix: ix,
+            shift: ev.modifiers.shift,
+        });
+    }
+
+    /// 右ボタンを離した: ドラッグに発展していなければメニューを出す。
+    fn on_right_up(&mut self, ev: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cand) = self.drag_candidate.take() else {
+            return;
+        };
+        if !cand.right {
+            // 左ボタン候補はそのまま戻す (右 up とは無関係)。
+            self.drag_candidate = Some(cand);
+            return;
+        }
+        if cand.shift {
+            self.shell_context_menu(cand.row_ix, window, cx);
+        } else {
+            self.on_row_right_click(cand.row_ix, ev.position, window, cx);
+        }
+    }
+
+    /// 右ボタン D&D のドロップチューザーを開く (ここにコピー / 移動 / キャンセル)。
+    fn open_drop_menu(
+        &mut self,
+        dst: PathBuf,
+        paths: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let position = window.mouse_position();
+        self.drop_menu = Some(DropMenu {
+            position,
+            dst,
+            paths,
+        });
+        cx.notify();
+    }
+
+    /// チューザーの選択: Some(true)=移動 / Some(false)=コピー / None=キャンセル。
+    fn drop_menu_action(&mut self, mv: Option<bool>, cx: &mut Context<Self>) {
+        let Some(m) = self.drop_menu.take() else {
+            return;
+        };
+        if let Some(is_move) = mv {
+            let items = build_job_items(&m.paths, &m.dst);
+            if !items.is_empty() {
+                self.run_transfer(items, is_move, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// 右ボタン D&D チューザーのオーバーレイ。
+    fn render_drop_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let m = self.drop_menu.as_ref()?;
+        let item = |id: &'static str, label: &'static str, mv: Option<bool>| {
+            div()
+                .id(id)
+                .flex()
+                .px_3()
+                .py_1()
+                .mx_1()
+                .rounded_sm()
+                .cursor_pointer()
+                .hover(|s| s.bg(th().menu_hover))
+                .child(label)
+                .on_click(cx.listener(move |this, _e, _w, cx| this.drop_menu_action(mv, cx)))
+                .into_any_element()
+        };
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .occlude()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _e: &MouseDownEvent, _w, cx| {
+                        this.drop_menu_action(None, cx);
+                        cx.stop_propagation();
+                    }),
+                )
+                .child(
+                    deferred(
+                        anchored()
+                            .position(m.position)
+                            .snap_to_window_with_margin(px(8.0))
+                            .child(
+                                div()
+                                    .occlude()
+                                    .flex()
+                                    .flex_col()
+                                    .py_1()
+                                    .w(px(180.0))
+                                    .rounded_md()
+                                    .bg(th().surface_bg)
+                                    .border_1()
+                                    .border_color(th().button_hover)
+                                    .text_color(th().text)
+                                    .child(item("dm-copy", "ここにコピー", Some(false)))
+                                    .child(item("dm-move", "ここに移動", Some(true)))
+                                    .child(menu_sep())
+                                    .child(item("dm-cancel", "キャンセル", None)),
+                            ),
+                    ),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// OLE ドラッグ終了通知 (`ole-drag-done`) の後始末。
     /// 自アプリ内へのドロップは on_drop 側で処理済みなのでスキップ。
     fn on_ole_drag_done(&mut self, payload: &serde_json::Value, cx: &mut Context<Self>) {
+        RIGHT_DRAG.store(false, std::sync::atomic::Ordering::SeqCst);
         if SELF_DROP.swap(false, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
@@ -1856,15 +2039,12 @@ impl PaneView {
             .on_click(cx.listener(move |this, event, window, cx| {
                 this.on_row_click(ix, event, window, cx);
             }))
-            // 右クリック: 通常=独自メニュー / Shift=Windows シェルメニュー (ADR 0007)。
+            // 右ボタン: 押下で候補記録 (5px 動けば右ボタン D&D / 動かず離せば
+            // 通常メニュー or Shift でシェルメニュー)。判定は mouse_up / move 側。
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                    if ev.modifiers.shift {
-                        this.shell_context_menu(ix, window, cx);
-                    } else {
-                        this.on_row_right_click(ix, ev.position, window, cx);
-                    }
+                    this.on_row_right_down(ix, ev, window, cx);
                     cx.stop_propagation();
                 }),
             )
@@ -1874,7 +2054,13 @@ impl PaneView {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, ev: &MouseDownEvent, _w, _cx| {
-                    this.drag_candidate = Some((ev.position, drag_paths.clone()));
+                    this.drag_candidate = Some(DragCand {
+                        pos: ev.position,
+                        paths: drag_paths.clone(),
+                        right: false,
+                        row_ix: ix,
+                        shift: false,
+                    });
                 }),
             )
             .child(
@@ -1910,15 +2096,19 @@ impl PaneView {
         if is_dir {
             let dirname = entry.name.clone();
             row.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_row_bg))
-                .on_drop(cx.listener(move |this, files: &ExternalPaths, _w, cx| {
-                    SELF_DROP.store(true, std::sync::atomic::Ordering::Relaxed);
+                .on_drop(cx.listener(move |this, files: &ExternalPaths, window, cx| {
+                    SELF_DROP.store(true, std::sync::atomic::Ordering::SeqCst);
                     let dst = this.cur_path.join(&dirname);
                     let paths: Vec<String> = files
                         .paths()
                         .iter()
                         .map(|p| p.to_string_lossy().to_string())
                         .collect();
-                    this.drop_paths_into(dst, paths, cx);
+                    if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
+                        this.open_drop_menu(dst, paths, window, cx);
+                    } else {
+                        this.drop_paths_into(dst, paths, cx);
+                    }
                     // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
                     cx.stop_propagation();
                 }))
@@ -2106,14 +2296,20 @@ impl Render for PaneView {
             // ドロップ受け入れ (ペイン間 / エクスプローラ等、全て OLE = ExternalPaths)。
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
             .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(th().drop_bg))
-            .on_drop(cx.listener(|this, files: &ExternalPaths, _w, cx| {
-                SELF_DROP.store(true, std::sync::atomic::Ordering::Relaxed);
+            .on_drop(cx.listener(|this, files: &ExternalPaths, window, cx| {
+                SELF_DROP.store(true, std::sync::atomic::Ordering::SeqCst);
                 let paths: Vec<String> = files
                     .paths()
                     .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                this.drop_paths_into(this.cur_path.clone(), paths, cx);
+                let dst = this.cur_path.clone();
+                if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
+                    // 右ボタン D&D: 効果をユーザーに選ばせる (ADR 0010)。
+                    this.open_drop_menu(dst, paths, window, cx);
+                } else {
+                    this.drop_paths_into(dst, paths, cx);
+                }
             }))
             // OLE ドラッグの開始判定 / 候補クリア。
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
@@ -2123,6 +2319,13 @@ impl Render for PaneView {
                 MouseButton::Left,
                 cx.listener(|this, _e, _w, _cx| {
                     this.drag_candidate = None;
+                }),
+            )
+            // 右ボタン: 動かず離した場合はメニュー表示 (候補が残っていれば)。
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, ev: &MouseUpEvent, window, cx| {
+                    this.on_right_up(ev, window, cx);
                 }),
             )
             .flex()
@@ -2247,6 +2450,8 @@ impl Render for PaneView {
             .children(self.render_modal(cx))
             // 右クリックメニュー (開いている時のみ)
             .children(self.render_context_menu(cx))
+            // 右ボタン D&D チューザー (開いている時のみ)
+            .children(self.render_drop_menu(cx))
     }
 }
 

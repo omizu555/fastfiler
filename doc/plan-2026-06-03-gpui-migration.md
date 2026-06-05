@@ -680,6 +680,20 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
 - Move 後の元削除は `DragOutcome::Move{delete_source:true}` のときのみ
   (PerformedDropEffect 照合 — データ損失防止は domain 実装どおり)。
 
+### 2026-06-05 — 右ボタン D&D 完了 ✅ (ADR 0010/0011 — 全タスク消化)
+- **domain**: `DragRequest` に `button: DragButton{Left,Right}` を追加し、
+  `CDropSource` をボタンマスク方式に (対象ボタンが離されたらドロップ)。
+- **行の右ボタン押下**は即メニューではなく**候補記録**に変更:
+  - 動かず離す → 従来どおりメニュー (Shift ならシェルメニュー)。mouse **up** で表示。
+  - 5px 動く → **右ボタン OLE ドラッグ**開始 (RIGHT_DRAG フラグ)。
+- **ドロップ先での効果選択**:
+  - 自アプリ内 (ペイン / フォルダ行) → **チューザー表示「ここにコピー / ここに移動 /
+    キャンセル」** (ドロップ位置に anchored)。Esc / 外クリックでキャンセル。
+  - Explorer 等の外部 → keystate に MK_RBUTTON が乗るため**ターゲット側が標準メニュー
+    を表示** (コピー/移動/ショートカット)。
+- 制限: Explorer→FastFiler 方向の右ドラッグは判別不能のため左ドラッグ相当
+  (volume 判定の自動 move/copy)。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)

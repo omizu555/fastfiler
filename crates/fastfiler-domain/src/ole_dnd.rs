@@ -37,7 +37,7 @@ use windows::Win32::System::Ole::{
     OleUninitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
     DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_NONE,
 };
-use windows::Win32::System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS};
+use windows::Win32::System::SystemServices::{MK_LBUTTON, MK_RBUTTON, MODIFIERKEYS_FLAGS};
 use windows::Win32::UI::Shell::{SHCreateStdEnumFmtEtc, DROPFILES};
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
@@ -64,9 +64,19 @@ pub enum DragOutcome {
     Error(String),
 }
 
+/// ドラッグに使うマウスボタン。Right は「右ボタン D&D」(ターゲット側が
+/// ドロップ時にコピー/移動メニューを出す Windows 標準 UX) 用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DragButton {
+    Left,
+    Right,
+}
+
 pub struct DragRequest {
     pub paths: Vec<PathBuf>,
     pub preferred: PreferredEffect,
+    /// ドラッグ継続判定に使うボタン (このボタンが離されたらドロップ)。
+    pub button: DragButton,
 }
 
 // ================================================================
@@ -430,7 +440,10 @@ impl IDataObject_Impl for CDataObject_Impl {
 // ================================================================
 
 #[implement(IDropSource)]
-struct CDropSource;
+struct CDropSource {
+    /// ドラッグ継続判定のボタンマスク (MK_LBUTTON or MK_RBUTTON)。
+    button_mask: u32,
+}
 
 impl IDropSource_Impl for CDropSource_Impl {
     fn QueryContinueDrag(
@@ -441,8 +454,8 @@ impl IDropSource_Impl for CDropSource_Impl {
         if fescapepressed.as_bool() {
             return windows::Win32::Foundation::DRAGDROP_S_CANCEL;
         }
-        // 左ボタンが離されたらドロップ
-        if (grfkeystate.0 & MK_LBUTTON.0) == 0 {
+        // 対象ボタンが離されたらドロップ
+        if (grfkeystate.0 & self.button_mask) == 0 {
             return windows::Win32::Foundation::DRAGDROP_S_DROP;
         }
         S_OK
@@ -491,7 +504,11 @@ pub fn start_drag(req: DragRequest) -> AppResult<DragOutcome> {
     let data_obj_impl = CDataObject::new(hdrop, preferred_dword);
     let state_handle = Arc::clone(&data_obj_impl.inner);
     let data_obj: IDataObject = data_obj_impl.into();
-    let drop_src: IDropSource = CDropSource.into();
+    let button_mask = match req.button {
+        DragButton::Left => MK_LBUTTON.0,
+        DragButton::Right => MK_RBUTTON.0,
+    };
+    let drop_src: IDropSource = CDropSource { button_mask }.into();
 
     let mut effect = DROPEFFECT_NONE;
     let hr = unsafe {
