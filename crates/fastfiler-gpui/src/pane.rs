@@ -1517,9 +1517,20 @@ impl PaneView {
 
         SELF_DROP.store(false, std::sync::atomic::Ordering::SeqCst);
         let sink = self.sink.clone();
+        // UI スレッド (= マウスを押下したスレッド) の id。ワーカーの入力状態を
+        // これに接続しないと DoDragDrop が「ボタン非押下」と誤判定して即終了する。
+        let ui_tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
         std::thread::spawn(move || {
+            use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+
             // このスレッドを STA として OLE 初期化 (UI スレッドとは独立)。
             ole_dnd::init_ole();
+
+            // 入力状態 (マウスボタン押下) を UI スレッドと共有する。
+            let worker_tid = unsafe { GetCurrentThreadId() };
+            let attached =
+                unsafe { AttachThreadInput(worker_tid, ui_tid, true) }.as_bool();
+
             let req = DragRequest {
                 paths: paths.iter().map(PathBuf::from).collect(),
                 preferred: PreferredEffect::Move,
@@ -1527,6 +1538,10 @@ impl PaneView {
             // ブロッキング (ドロップ or ESC まで戻らない)。UI スレッドは自由なので
             // 自ウィンドウへのドロップ受信・再描画は通常どおり動く。
             let outcome = ole_dnd::start_drag(req);
+
+            if attached {
+                let _ = unsafe { AttachThreadInput(worker_tid, ui_tid, false) };
+            }
             let payload = match outcome {
                 Ok(DragOutcome::Move { delete_source }) => serde_json::json!({
                     "result": "move",

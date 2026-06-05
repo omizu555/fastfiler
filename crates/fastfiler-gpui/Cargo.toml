@@ -33,6 +33,7 @@ raw-window-handle = "0.6"
 
 # 多重起動防止 (Named Mutex + 既存ウィンドウ前面化)。domain と同じ 0.61 に揃える。
 [target.'cfg(windows)'.dependencies]
+# 多重起動防止 (Named Mutex) と OLE ドラッグ補助 (AttachThreadInput は System_Threading)。
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
