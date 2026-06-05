@@ -17,10 +17,17 @@ pub struct AppSettings {
     /// Everything HTTP サーバのポート (検索連携)。
     #[serde(default = "default_port")]
     pub everything_port: u16,
+    /// タブバーの列数 (1〜4)。並びは行優先 (1,2 / 3,4 / …)。
+    #[serde(default = "default_tab_columns")]
+    pub tab_columns: u8,
 }
 
 fn default_port() -> u16 {
     80
+}
+
+fn default_tab_columns() -> u8 {
+    1
 }
 
 impl Default for AppSettings {
@@ -28,6 +35,7 @@ impl Default for AppSettings {
         Self {
             theme: None,
             everything_port: default_port(),
+            tab_columns: default_tab_columns(),
         }
     }
 }

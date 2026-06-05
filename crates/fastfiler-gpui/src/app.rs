@@ -44,6 +44,31 @@ struct DraggedHandle {
 /// ワークスペースツリーパネル幅のドラッグペイロード。
 struct DraggedTreeHandle;
 
+/// タブバー幅のドラッグペイロード。
+struct DraggedTabBarHandle;
+
+/// タブ並べ替えのドラッグペイロード (元のタブ index)。
+struct DraggedTab {
+    ix: usize,
+}
+
+/// タブドラッグ中のプレビュー (タイトルの小さなチップ)。
+struct TabDragPreview(SharedString);
+
+impl Render for TabDragPreview {
+    fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(th().surface_bg)
+            .border_1()
+            .border_color(th().accent)
+            .text_color(th().text)
+            .child(self.0.clone())
+    }
+}
+
 /// タブ内のペイン配置を表す BSP ツリー。
 enum PaneNode {
     Leaf(Entity<PaneView>),
@@ -96,6 +121,8 @@ pub struct FastFilerApp {
     show_tree: bool,
     /// ツリーパネル幅 (px、ドラッグで変更・保存)。
     tree_width: f32,
+    /// タブバー幅 (px、ドラッグで変更・保存)。
+    tab_width: f32,
     /// 最新のウィンドウ位置/サイズ [x,y,w,h] (render で取得・保存)。
     window_bounds: Option<[f32; 4]>,
     /// 次の render でこのペインへキーボードフォーカスを移す (F6/タブ切替)。
@@ -129,6 +156,7 @@ impl FastFilerApp {
             _tree_sub: tree_sub,
             show_tree: true,
             tree_width: 220.0,
+            tab_width: 200.0,
             window_bounds: None,
             pending_focus: None,
             settings_open: None,
@@ -156,6 +184,7 @@ impl FastFilerApp {
             _tree_sub: tree_sub,
             show_tree: data.show_tree,
             tree_width: data.tree_width.clamp(120.0, 480.0),
+            tab_width: data.tab_width.clamp(100.0, 600.0),
             window_bounds: None,
             pending_focus: None,
             settings_open: None,
@@ -258,6 +287,7 @@ impl FastFilerApp {
             active: self.active,
             show_tree: self.show_tree,
             tree_width: self.tree_width,
+            tab_width: self.tab_width,
             window: self.window_bounds,
             unc_shares: self.tree.read(cx).unc_shares().to_vec(),
             // テーマは gpui_settings.json へ移行済み (読み込み時の互換用に残置)。
@@ -329,6 +359,28 @@ impl FastFilerApp {
                     .hover(|s| s.bg(th().button_hover))
                     .child(name)
                     .on_click(cx.listener(move |this, _e, _w, cx| this.set_theme(name, cx)))
+                    .into_any_element()
+            })
+            .collect();
+
+        // タブバー列数 (1〜4) ボタン。
+        let current_cols = settings_store::get().tab_columns.clamp(1, 4);
+        let col_btns: Vec<AnyElement> = (1u8..=4)
+            .map(|n| {
+                let active = n == current_cols;
+                div()
+                    .id(SharedString::from(format!("cols-{n}")))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if active { th().sel_bg } else { th().button_bg })
+                    .hover(|s| s.bg(th().button_hover))
+                    .child(SharedString::from(format!("{n} 列")))
+                    .on_click(cx.listener(move |_this, _e, _w, cx| {
+                        settings_store::update(|s| s.tab_columns = n);
+                        cx.notify();
+                    }))
                     .into_any_element()
             })
             .collect();
@@ -410,6 +462,10 @@ impl FastFilerApp {
                         // 外観
                         .child(section("外観 — テーマ"))
                         .child(div().flex().flex_row().gap_2().children(theme_btns))
+                        .child(sep())
+                        // タブバー
+                        .child(section("タブバー — 列数"))
+                        .child(div().flex().flex_row().gap_2().children(col_btns))
                         .child(sep())
                         // ホットキー
                         .child(section("ホットキー (gpui_hotkeys.json)"))
@@ -650,6 +706,36 @@ impl FastFilerApp {
         self.schedule_save(cx);
     }
 
+    /// タブバー幅のドラッグ (バーは行コンテナの左端なので origin 起点の x がそのまま幅)。
+    fn on_tab_bar_handle_drag(
+        &mut self,
+        e: &DragMoveEvent<DraggedTabBarHandle>,
+        cx: &mut Context<Self>,
+    ) {
+        let w = (e.event.position.x - e.bounds.origin.x) / px(1.0);
+        self.tab_width = w.clamp(100.0, 600.0);
+        cx.notify();
+        self.schedule_save(cx);
+    }
+
+    /// タブを from → to へ移動 (D&D 並べ替え)。active の追従も行う。
+    fn move_tab(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let t = self.tabs.remove(from);
+        self.tabs.insert(to, t);
+        if self.active == from {
+            self.active = to;
+        } else if from < self.active && self.active <= to {
+            self.active -= 1;
+        } else if to <= self.active && self.active < from {
+            self.active += 1;
+        }
+        cx.notify();
+        self.schedule_save(cx);
+    }
+
     fn tab_index_of(&self, pane: EntityId) -> Option<usize> {
         self.tabs
             .iter()
@@ -856,10 +942,17 @@ impl Render for FastFilerApp {
             .map(|(i, t)| (i, t.title(cx)))
             .collect();
 
+        // タブバー列数 (設定 1〜4)。並びは行優先 (1,2 / 3,4 / …)。
+        let tab_cols = settings_store::get().tab_columns.clamp(1, 4) as usize;
+        // 幅はドラッグで可変 (保存値)。1 列あたり最低 80px は確保。
+        let tab_bar_width = px(self.tab_width.max(80.0 * tab_cols as f32));
+
         let tab_items: Vec<_> = titles
             .into_iter()
             .map(|(i, title)| {
                 let is_active = i == active;
+                let title = SharedString::from(title);
+                let preview_title = title.clone();
                 div()
                     .flex()
                     .flex_row()
@@ -878,7 +971,15 @@ impl Render for FastFilerApp {
                             .hover(|s| s.bg(th().hover_bg))
                             .text_color(th().text)
                             .child(title)
-                            .on_click(cx.listener(move |this, _e, _w, cx| this.select_tab(i, cx))),
+                            .on_click(cx.listener(move |this, _e, _w, cx| this.select_tab(i, cx)))
+                            // D&D 並べ替え: タブをドラッグして別タブへドロップ。
+                            .on_drag(DraggedTab { ix: i }, move |_, _, _, cx| {
+                                cx.new(|_| TabDragPreview(preview_title.clone()))
+                            })
+                            .drag_over::<DraggedTab>(|s, _, _, _| s.bg(th().drop_bg))
+                            .on_drop(cx.listener(move |this, d: &DraggedTab, _w, cx| {
+                                this.move_tab(d.ix, i, cx)
+                            })),
                     )
                     .child(
                         div()
@@ -893,6 +994,27 @@ impl Render for FastFilerApp {
                     )
             })
             .collect();
+
+        // 行優先でタブを列数ぶんずつ並べる (足りない末尾は空きスロットで埋める)。
+        let mut tab_rows: Vec<AnyElement> = Vec::new();
+        {
+            let mut iter = tab_items.into_iter();
+            loop {
+                let row_items: Vec<_> = iter.by_ref().take(tab_cols).collect();
+                if row_items.is_empty() {
+                    break;
+                }
+                let pad = tab_cols - row_items.len();
+                let mut row = div().flex().flex_row().gap_1();
+                for it in row_items {
+                    row = row.child(div().flex_1().min_w_0().child(it));
+                }
+                for _ in 0..pad {
+                    row = row.child(div().flex_1());
+                }
+                tab_rows.push(row.into_any_element());
+            }
+        }
 
         let body = self.render_node(&self.tabs[active].root, self.tabs[active].focused, cx);
 
@@ -964,12 +1086,18 @@ impl Render for FastFilerApp {
             .bg(th().app_bg)
             .child(
                 div().flex_1().flex().flex_row().overflow_hidden()
+            // タブバー幅ハンドルのドラッグ移動 (行コンテナ左端起点で幅算出)。
+            .on_drag_move(cx.listener(
+                |this, e: &DragMoveEvent<DraggedTabBarHandle>, _w, cx| {
+                    this.on_tab_bar_handle_drag(e, cx);
+                },
+            ))
             // 左: 縦タブバー
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .w(px(200.0))
+                    .w(tab_bar_width)
                     .h_full()
                     .bg(th().tab_bar_bg)
                     .p_1()
@@ -1007,7 +1135,7 @@ impl Render for FastFilerApp {
                                     .on_click(cx.listener(|this, _e, _w, cx| this.toggle_tree(cx))),
                             ),
                     )
-                    .children(tab_items)
+                    .children(tab_rows)
                     .child(div().flex_1())
                     // デバッグ: 生存ペイン数 (タブ/ペイン開閉でベースラインへ戻るかの可視化)
                     .child(
@@ -1017,6 +1145,18 @@ impl Render for FastFilerApp {
                             .text_color(th().text_disabled)
                             .child(SharedString::from(format!("live panes: {alive}"))),
                     ),
+            )
+            // タブバー幅リサイズハンドル
+            .child(
+                div()
+                    .id("tabbar-rh")
+                    .flex_shrink_0()
+                    .w(px(5.0))
+                    .h_full()
+                    .bg(th().handle_bg)
+                    .hover(|s| s.bg(th().handle_hover))
+                    .cursor_col_resize()
+                    .on_drag(DraggedTabBarHandle, |_, _, _, cx| cx.new(|_| Empty)),
             )
             // 中央〜右: ツリー (トグル) + リサイズハンドル + ペイン群
             .child(

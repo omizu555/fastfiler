@@ -16,6 +16,9 @@ pub struct SessionData {
     /// ツリーパネルの幅 (px)。
     #[serde(default = "default_tree_width")]
     pub tree_width: f32,
+    /// タブバーの幅 (px)。
+    #[serde(default = "default_tab_width")]
+    pub tab_width: f32,
     /// ウィンドウの位置とサイズ [x, y, w, h] (px)。
     #[serde(default)]
     pub window: Option<[f32; 4]>,
@@ -34,6 +37,10 @@ fn default_true() -> bool {
 
 fn default_tree_width() -> f32 {
     220.0
+}
+
+fn default_tab_width() -> f32 {
+    200.0
 }
 
 /// ペインツリーのシリアライズ表現。
