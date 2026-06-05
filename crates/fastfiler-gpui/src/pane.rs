@@ -1491,10 +1491,11 @@ impl PaneView {
     /// 行で押下した左ボタンが 5px 以上動いたら OLE ドラッグ (DoDragDrop) を開始。
     /// 内部ペイン間も Explorer への外部送信も同じ 1 ドラッグで動く。
     ///
-    /// 重要: DoDragDrop はメッセージポンプを回すため、entity リース保持中
-    /// (このリスナー内) で直接呼ぶと自ペインへのドロップで二重リースになる。
-    /// → `cx.defer` でリース解放後に実行する。
-    fn maybe_start_ole_drag(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+    /// 重要: DoDragDrop はブロッキングかつメッセージポンプを回すため、UI スレッド
+    /// では呼べない (wndproc が gpui の App RefCell を再借用して panic する)。
+    /// → **専用 STA ワーカースレッド**で実行し (OleInitialize はスレッド単位)、
+    /// 結果は sink (既存チャネル) 経由で `ole-drag-done` として UI へ戻す。
+    fn maybe_start_ole_drag(&mut self, ev: &MouseMoveEvent, _cx: &mut Context<Self>) {
         let Some((start, _)) = &self.drag_candidate else {
             return;
         };
@@ -1514,67 +1515,94 @@ impl PaneView {
             return;
         }
 
-        let pane = cx.weak_entity();
-        cx.defer(move |cx| {
-            SELF_DROP.store(false, std::sync::atomic::Ordering::Relaxed);
+        SELF_DROP.store(false, std::sync::atomic::Ordering::SeqCst);
+        let sink = self.sink.clone();
+        std::thread::spawn(move || {
+            // このスレッドを STA として OLE 初期化 (UI スレッドとは独立)。
+            ole_dnd::init_ole();
             let req = DragRequest {
                 paths: paths.iter().map(PathBuf::from).collect(),
                 preferred: PreferredEffect::Move,
             };
-            // ブロッキング (ドロップ or ESC まで戻らない。内部で OLE がポンプを回す)。
+            // ブロッキング (ドロップ or ESC まで戻らない)。UI スレッドは自由なので
+            // 自ウィンドウへのドロップ受信・再描画は通常どおり動く。
             let outcome = ole_dnd::start_drag(req);
-            let _ = pane.update(cx, |p, cx| p.after_ole_drag(outcome, paths, cx));
+            let payload = match outcome {
+                Ok(DragOutcome::Move { delete_source }) => serde_json::json!({
+                    "result": "move",
+                    "delete_source": delete_source,
+                    "paths": paths,
+                }),
+                Ok(DragOutcome::Copy) => serde_json::json!({
+                    "result": "copy",
+                    "paths": paths,
+                }),
+                Ok(DragOutcome::Cancel) | Ok(DragOutcome::None) => {
+                    serde_json::json!({ "result": "none" })
+                }
+                Ok(DragOutcome::Error(e)) => {
+                    serde_json::json!({ "result": "error", "error": e })
+                }
+                Err(e) => serde_json::json!({ "result": "error", "error": e.to_string() }),
+            };
+            sink.emit_json("ole-drag-done", payload);
+            ole_dnd::shutdown_ole();
         });
     }
 
-    /// OLE ドラッグ終了後の後始末。自アプリ内ドロップは on_drop 側で処理済み。
-    fn after_ole_drag(
-        &mut self,
-        outcome: fastfiler_domain::error::AppResult<DragOutcome>,
-        paths: Vec<String>,
-        cx: &mut Context<Self>,
-    ) {
-        // 自アプリ内へのドロップ → run_transfer が move/copy を実行済み。元削除不要。
-        if SELF_DROP.swap(false, std::sync::atomic::Ordering::Relaxed) {
+    /// OLE ドラッグ終了通知 (`ole-drag-done`) の後始末。
+    /// 自アプリ内へのドロップは on_drop 側で処理済みなのでスキップ。
+    fn on_ole_drag_done(&mut self, payload: &serde_json::Value, cx: &mut Context<Self>) {
+        if SELF_DROP.swap(false, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        match outcome {
-            Ok(DragOutcome::Move {
-                delete_source: true,
-            }) => {
-                // ターゲット (Explorer 等) がコピーを終えた move → 元を削除する。
-                let mut err = None;
-                for p in &paths {
-                    if let Err(e) = file_ops::delete_path(Path::new(p), true) {
-                        err = Some(e.to_string());
+        let result = payload.get("result").and_then(|v| v.as_str()).unwrap_or("");
+        let paths: Vec<String> = payload
+            .get("paths")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        match result {
+            "move" => {
+                let delete = payload
+                    .get("delete_source")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if delete {
+                    // ターゲット (Explorer 等) がコピーを終えた move → 元を削除する。
+                    let mut err = None;
+                    for p in &paths {
+                        if let Err(e) = file_ops::delete_path(Path::new(p), true) {
+                            err = Some(e.to_string());
+                        }
                     }
+                    self.status = match err {
+                        None => format!("{} 個を移動しました", paths.len()).into(),
+                        Some(e) => format!("移動の元削除に失敗: {e}").into(),
+                    };
+                } else {
+                    // 最適化ムーブ等 (ターゲット側で処理済み)。
+                    self.status = "移動しました".into();
                 }
-                self.status = match err {
-                    None => format!("{} 個を移動しました", paths.len()).into(),
-                    Some(e) => format!("移動の元削除に失敗: {e}").into(),
-                };
                 self.reload(cx, false);
             }
-            Ok(DragOutcome::Move {
-                delete_source: false,
-            }) => {
-                // 最適化ムーブ等 (ターゲット側で処理済み)。
-                self.status = "移動しました".into();
-                self.reload(cx, false);
-            }
-            Ok(DragOutcome::Copy) => {
+            "copy" => {
                 self.status = format!("{} 個をコピーしました", paths.len()).into();
                 cx.notify();
             }
-            Ok(DragOutcome::Cancel) | Ok(DragOutcome::None) => {}
-            Ok(DragOutcome::Error(e)) => {
+            "error" => {
+                let e = payload
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("不明");
                 self.status = format!("D&D 失敗: {e}").into();
                 cx.notify();
             }
-            Err(e) => {
-                self.status = format!("D&D 失敗: {e}").into();
-                cx.notify();
-            }
+            _ => {}
         }
     }
 
@@ -1616,6 +1644,7 @@ impl PaneView {
     /// 別スレッド由来の domain イベント受信 (UI スレッド上で実行)。
     fn on_domain_event(&mut self, event: &str, payload: serde_json::Value, cx: &mut Context<Self>) {
         match event {
+            "ole-drag-done" => self.on_ole_drag_done(&payload, cx),
             "fs-change" => {
                 // notify はバーストするため 150ms デバウンスでまとめて reload。
                 if !self.reload_pending {

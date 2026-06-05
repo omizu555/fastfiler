@@ -670,10 +670,13 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   受信ハンドラ (volume 判定 move/copy + フォルダ行ドロップ) がそのまま機能。
   DraggedFiles / DragPreview の内部ドラッグ機構は削除 (コード簡素化)。
 - 開始判定: 行で左押下 → 5px 移動で発動 (クリック/ダブルクリックと共存)。
-- **再入対策 (重要)**: DoDragDrop はメッセージポンプを回すため、リスナー内
-  (entity リース保持中) で呼ぶと自ペインへのドロップで二重リース panic になる。
-  → **`cx.defer` でリース解放後に実行**。自アプリ内ドロップは `SELF_DROP` フラグ
-  (同一スレッドの IDropTarget 呼び出しで設定) で検知し、外部向けの元削除をスキップ。
+- **再入対策 (重要・実機クラッシュで判明)**: DoDragDrop はメッセージポンプを回す
+  ため **UI スレッドでは呼べない**。`cx.defer` でも不十分 (App RefCell の update
+  サイクル内のままで、wndproc の再借用により "RefCell already borrowed" panic)。
+  → **専用 STA ワーカースレッドで実行** (OleInitialize はスレッド単位)。UI スレッド
+  は自由なため自ウィンドウのドロップ受信・再描画も正常動作。結果は sink チャネル
+  経由で `ole-drag-done` イベントとして UI へ戻す。自アプリ内ドロップは
+  `SELF_DROP` フラグ (IDropTarget→on_drop で設定) で検知し、外部向けの元削除をスキップ。
 - Move 後の元削除は `DragOutcome::Move{delete_source:true}` のときのみ
   (PerformedDropEffect 照合 — データ損失防止は domain 実装どおり)。
 
