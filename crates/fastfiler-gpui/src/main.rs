@@ -9,6 +9,7 @@ mod app;
 mod hotkeys;
 mod pane;
 mod session;
+mod settings_store;
 mod sink;
 mod text_input;
 mod theme;
@@ -44,10 +45,20 @@ fn main() {
         // テキスト入力 ("TextInput" コンテキスト限定) のキーバインドを登録。
         text_input::bind_keys(cx);
 
-        // 前回セッション (タブ / 分割構成 / ウィンドウ位置 / テーマ) があれば復元。
+        // 前回セッション (タブ / 分割構成 / ウィンドウ位置) があれば復元。
         let saved = session::load();
-        if let Some(name) = saved.as_ref().and_then(|s| s.theme.as_deref()) {
-            theme::set_by_name(name);
+
+        // 設定 (テーマ等)。旧バージョンの session.theme からの移行も吸収する。
+        let settings = settings_store::load();
+        let theme_name = settings
+            .theme
+            .clone()
+            .or_else(|| saved.as_ref().and_then(|s| s.theme.clone()));
+        if let Some(name) = theme_name {
+            if theme::set_by_name(&name) && settings.theme.is_none() {
+                // 旧 session 由来 → 設定ファイルへ移行保存。
+                settings_store::update(|s| s.theme = Some(name.clone()));
+            }
         }
 
         let bounds = saved

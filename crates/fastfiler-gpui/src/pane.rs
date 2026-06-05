@@ -932,7 +932,7 @@ impl PaneView {
             include_hidden: true,
             max_results: 2000,
             backend: "everything".to_string(),
-            everything_port: 80,
+            everything_port: crate::settings_store::get().everything_port,
             everything_scope: true,
         };
         match self.searcher.start_with_sink(sink, root, pattern, opts) {

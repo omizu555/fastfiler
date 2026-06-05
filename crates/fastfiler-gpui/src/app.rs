@@ -18,14 +18,18 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use gpui::{
-    AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, IntoElement, SharedString,
-    Subscription, Window, div, prelude::*, px,
+    AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, Window, div, prelude::*,
+    px,
 };
 
 use crate::pane::{PANES_ALIVE, PaneEvent, PaneView, SplitDir};
 use crate::session::{self, NodeData, SessionData};
-use crate::theme::th;
+use crate::settings_store;
+use crate::text_input::TextInput;
+use crate::theme::{self, th};
 use crate::tree::{TreeEvent, TreeView};
+use crate::hotkeys;
 
 /// ペインの最小サイズ (px)。リサイズ時にこれ未満へは縮めない。
 const MIN_PANE_PX: f32 = 80.0;
@@ -96,6 +100,10 @@ pub struct FastFilerApp {
     window_bounds: Option<[f32; 4]>,
     /// 次の render でこのペインへキーボードフォーカスを移す (F6/タブ切替)。
     pending_focus: Option<EntityId>,
+    /// 設定画面 (⚙)。Some = 表示中 (Everything ポート入力欄を保持)。
+    settings_open: Option<Entity<TextInput>>,
+    /// 設定画面の Esc/Enter 用フォーカス。
+    settings_focus: FocusHandle,
 }
 
 impl FastFilerApp {
@@ -123,6 +131,8 @@ impl FastFilerApp {
             tree_width: 220.0,
             window_bounds: None,
             pending_focus: None,
+            settings_open: None,
+            settings_focus: cx.focus_handle(),
         };
         this.register_quit_hook(cx);
         this.add_tab_at(start, cx);
@@ -148,6 +158,8 @@ impl FastFilerApp {
             tree_width: data.tree_width.clamp(120.0, 480.0),
             window_bounds: None,
             pending_focus: None,
+            settings_open: None,
+            settings_focus: cx.focus_handle(),
         };
         this.register_quit_hook(cx);
         for tab in &data.tabs {
@@ -248,7 +260,8 @@ impl FastFilerApp {
             tree_width: self.tree_width,
             window: self.window_bounds,
             unc_shares: self.tree.read(cx).unc_shares().to_vec(),
-            theme: Some(th().name.to_string()),
+            // テーマは gpui_settings.json へ移行済み (読み込み時の互換用に残置)。
+            theme: None,
             tabs: self
                 .tabs
                 .iter()
@@ -257,11 +270,217 @@ impl FastFilerApp {
         });
     }
 
-    /// テーマを次のプリセットへ切替え、全ビューを再描画して保存。
-    fn cycle_theme(&mut self, cx: &mut Context<Self>) {
-        crate::theme::cycle();
+    // ── 設定画面 (⚙) ──────────────────────────────────────────────
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx));
+        let port = settings_store::get().everything_port.to_string();
+        let len = port.len();
+        input.update(cx, |i, cx| i.set_text_and_select(port, 0..len, cx));
+        self.settings_open = Some(input);
+        self.settings_focus.focus(window, cx);
+        cx.notify();
+    }
+
+    fn close_settings(&mut self, cx: &mut Context<Self>) {
+        if self.settings_open.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Everything ポート入力を適用 (u16 にパースできた場合のみ保存)。
+    fn apply_settings_port(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.settings_open else {
+            return;
+        };
+        let text = input.read(cx).text().trim().to_string();
+        if let Ok(port) = text.parse::<u16>() {
+            if port > 0 {
+                settings_store::update(|s| s.everything_port = port);
+                cx.notify();
+            }
+        }
+    }
+
+    /// テーマをプリセット名で適用し、設定へ保存して全ビューを再描画。
+    fn set_theme(&mut self, name: &'static str, cx: &mut Context<Self>) {
+        theme::set_by_name(name);
+        settings_store::update(|s| s.theme = Some(name.to_string()));
         self.refresh_all(cx);
-        self.schedule_save(cx);
+    }
+
+    /// 設定画面のオーバーレイ (開いていなければ None)。
+    fn render_settings(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let input = self.settings_open.as_ref()?;
+
+        let current_theme = th().name;
+        let theme_btns: Vec<AnyElement> = theme::presets()
+            .iter()
+            .map(|t| {
+                let name = t.name;
+                let active = name == current_theme;
+                div()
+                    .id(SharedString::from(format!("th-{name}")))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(if active { th().sel_bg } else { th().button_bg })
+                    .hover(|s| s.bg(th().button_hover))
+                    .child(name)
+                    .on_click(cx.listener(move |this, _e, _w, cx| this.set_theme(name, cx)))
+                    .into_any_element()
+            })
+            .collect();
+
+        let action_btn = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .bg(th().button_bg)
+                .hover(|s| s.bg(th().button_hover))
+                .child(label)
+        };
+        let sep = || div().h(px(1.0)).bg(th().separator);
+        let section = |label: &'static str| div().text_color(th().text_dim).child(label);
+
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .occlude()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(th().overlay_bg)
+                .track_focus(&self.settings_focus)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| {
+                    match ev.keystroke.key.as_str() {
+                        "escape" => this.close_settings(cx),
+                        "enter" => this.apply_settings_port(cx),
+                        _ => {}
+                    }
+                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _e: &MouseDownEvent, _w, cx| {
+                        this.close_settings(cx);
+                        cx.stop_propagation();
+                    }),
+                )
+                .child(
+                    div()
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, |_e, _w, cx| cx.stop_propagation())
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .w(px(520.0))
+                        .p_4()
+                        .rounded_md()
+                        .bg(th().surface_bg)
+                        .border_1()
+                        .border_color(th().accent)
+                        .text_color(th().text)
+                        // タイトル行
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .child(div().flex_1().text_color(th().text_bright).child("設定"))
+                                .child(
+                                    div()
+                                        .id("st-close")
+                                        .px_2()
+                                        .rounded_sm()
+                                        .cursor_pointer()
+                                        .hover(|s| s.bg(th().button_bg))
+                                        .child("×")
+                                        .on_click(
+                                            cx.listener(|this, _e, _w, cx| this.close_settings(cx)),
+                                        ),
+                                ),
+                        )
+                        // 外観
+                        .child(section("外観 — テーマ"))
+                        .child(div().flex().flex_row().gap_2().children(theme_btns))
+                        .child(sep())
+                        // ホットキー
+                        .child(section("ホットキー (gpui_hotkeys.json)"))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .child(action_btn("st-hk-open", "設定ファイルを開く").on_click(
+                                    cx.listener(|_t, _e, _w, _cx| {
+                                        if let Some(f) = hotkeys::config_file() {
+                                            let _ = fastfiler_domain::shell::open_with_shell(f);
+                                        }
+                                    }),
+                                ))
+                                .child(action_btn("st-hk-reload", "再読み込み").on_click(
+                                    cx.listener(|_t, _e, _w, _cx| hotkeys::load()),
+                                )),
+                        )
+                        .child(sep())
+                        // フォルダ
+                        .child(section("フォルダを開く"))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .child(action_btn("st-tpl", "テンプレート").on_click(
+                                    cx.listener(|this, _e, _w, cx| {
+                                        if let Ok(d) =
+                                            fastfiler_domain::templates::templates_dir()
+                                        {
+                                            this.close_settings(cx);
+                                            this.open_in_focused_pane(PathBuf::from(d), cx);
+                                        }
+                                    }),
+                                ))
+                                .child(action_btn("st-cmd", "ユーザーコマンド").on_click(
+                                    cx.listener(|this, _e, _w, cx| {
+                                        if let Ok(d) =
+                                            fastfiler_domain::user_commands::user_commands_dir()
+                                        {
+                                            this.close_settings(cx);
+                                            this.open_in_focused_pane(PathBuf::from(d), cx);
+                                        }
+                                    }),
+                                )),
+                        )
+                        .child(sep())
+                        // 検索
+                        .child(section("検索 — Everything HTTP ポート"))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .items_center()
+                                .child(div().w(px(140.0)).child(input.clone()))
+                                .child(action_btn("st-port", "適用 (Enter)").on_click(
+                                    cx.listener(|this, _e, _w, cx| this.apply_settings_port(cx)),
+                                ))
+                                .child(div().text_color(th().text_faint).child(
+                                    SharedString::from(format!(
+                                        "現在: {}",
+                                        settings_store::get().everything_port
+                                    )),
+                                )),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     /// テーマ変更などで全ペイン + ツリーを再描画する。
@@ -707,11 +926,44 @@ impl Render for FastFilerApp {
         };
         let show_tree = self.show_tree;
 
-        div()
+        // フッター (左: タイトル / 右端: ⚙ 設定)
+        let footer = div()
             .flex()
             .flex_row()
+            .items_center()
+            .flex_shrink_0()
+            .gap_2()
+            .px_3()
+            .h(px(34.0))
+            .bg(th().tab_bar_bg)
+            .border_t_1()
+            .border_color(th().separator)
+            .child(div().text_color(th().text_soft).child("FastFiler"))
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("open-settings")
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .bg(th().surface_bg)
+                    .hover(|s| s.bg(th().button_bg))
+                    .text_color(th().text_soft)
+                    .child("⚙ 設定")
+                    .on_click(
+                        cx.listener(|this, _e, window, cx| this.open_settings(window, cx)),
+                    ),
+            );
+
+        div()
+            .flex()
+            .flex_col()
             .size_full()
+            .relative()
             .bg(th().app_bg)
+            .child(
+                div().flex_1().flex().flex_row().overflow_hidden()
             // 左: 縦タブバー
             .child(
                 div()
@@ -757,20 +1009,6 @@ impl Render for FastFilerApp {
                     )
                     .children(tab_items)
                     .child(div().flex_1())
-                    // テーマ切替 (クリックでプリセット巡回・セッション保存)
-                    .child(
-                        div()
-                            .id("theme-btn")
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .bg(th().surface_bg)
-                            .hover(|s| s.bg(th().button_bg))
-                            .text_color(th().text_soft)
-                            .child(SharedString::from(format!("テーマ: {}", th().name)))
-                            .on_click(cx.listener(|this, _e, _w, cx| this.cycle_theme(cx))),
-                    )
                     // デバッグ: 生存ペイン数 (タブ/ペイン開閉でベースラインへ戻るかの可視化)
                     .child(
                         div()
@@ -797,7 +1035,11 @@ impl Render for FastFilerApp {
                     .children(tree_panel)
                     .children(tree_handle)
                     .child(div().flex_1().h_full().overflow_hidden().child(body)),
+            ),
             )
+            .child(footer)
+            // 設定画面 (開いている時のみ)
+            .children(self.render_settings(cx))
     }
 }
 

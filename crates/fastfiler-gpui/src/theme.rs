@@ -2,8 +2,8 @@
 //!
 //! `th()` で現在のテーマを取得する。static ベースなので **どこからでも**
 //! (hover クロージャや TextElement の paint 内からでも) 参照できる。
-//! 切替は `cycle()` / `set_by_name()` → 呼び出し側で全ビューを再描画
-//! (FastFilerApp::refresh_all)。選択中テーマ名はセッションに保存される。
+//! 切替は `set_by_name()` → 呼び出し側で全ビューを再描画
+//! (FastFilerApp::refresh_all)。選択中テーマ名は設定 (gpui_settings.json) に保存される。
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -206,15 +206,7 @@ pub fn th() -> &'static Theme {
     &p[ix.min(p.len() - 1)]
 }
 
-/// 次のプリセットへ切替え、新テーマを返す。
-pub fn cycle() -> &'static Theme {
-    let n = presets().len();
-    let ix = (THEME_IX.load(Ordering::Relaxed) + 1) % n;
-    THEME_IX.store(ix, Ordering::Relaxed);
-    th()
-}
-
-/// 名前でテーマを選択 (セッション復元用)。見つかれば true。
+/// 名前でテーマを選択 (設定画面 / 起動時復元用)。見つかれば true。
 pub fn set_by_name(name: &str) -> bool {
     if let Some(ix) = presets().iter().position(|t| t.name == name) {
         THEME_IX.store(ix, Ordering::Relaxed);

@@ -709,12 +709,35 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   (テンプレ・コマンド) / Everything ポート**。永続化は `gpui_settings.json`
   (テーマは session から移行・後方互換読み)。タブバーのテーマ巡回ボタンは廃止。
 
+### 2026-06-05 — B-1/B-2 完了 ✅ (同名衝突ダイアログ + 修飾キー)
+- **B-1**: `run_transfer` 入口で宛先の同名を検査 → 衝突ありなら
+  `PendingTransfer` に退避してモーダル表示「N 件が既に存在します」
+  **[上書き] [別名で保存] [キャンセル]** (一括適用)。別名 = `unique_dest` で
+  衝突分のみ `name (2).ext` 連番。貼り付け / 内部・外部 D&D / フォルダ行 /
+  右ドラッグチューザーの全経路が 1 箇所で対象。
+- **B-2**: ドロップ受信時 `drop_effect_override` — **Ctrl=コピー / Shift=移動 /
+  なし=エクスプローラ準拠** (同一ボリューム=移動・別=コピー)。内部 D&D も同じ。
+- ユーザー実機テスト OK (「OK！」)。コミット 7cea2ea。
+
+### 2026-06-05 — A 完了 ✅ (フッター + 設定画面)
+- **フッター**: 全幅 34px・最下部 (左「FastFiler」/ 右端 **⚙ 設定** ボタン)。
+  ルートを column 化し、既存の [タブバー|ツリー|ペイン] 行を `flex_1` で内包。
+  ※当初ヘッダー予定 → ユーザー指定でフッターに変更。
+- **設定画面**: 中央モーダル (背景 overlay_bg + occlude、外クリック / Esc で閉じる)。
+  - **外観 — テーマ**: プリセット一覧 (現在値ハイライト) → クリックで即適用
+    + `gpui_settings.json` へ保存 + refresh_all。
+  - **ホットキー**: [設定ファイルを開く] (gpui_hotkeys.json を関連付けで開く) /
+    [再読み込み] (hotkeys::load)。
+  - **フォルダを開く**: [テンプレート] [ユーザーコマンド] → フォーカスペインで開く。
+  - **検索 — Everything ポート**: TextInput + [適用 (Enter)] → u16 のみ保存。
+    `pane.rs start_search` が `settings_store::get().everything_port` を参照。
+- **新規 `settings_store.rs`**: `%APPDATA%\FastFiler\gpui_settings.json`
+  (`theme` / `everything_port`、static RwLock、update で即保存)。
+  テーマは session.theme から初回起動時に移行 (session 側は読み込み互換のみ、
+  保存は `theme: None`)。タブバーのテーマ巡回ボタンと `theme::cycle()` は削除。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
-- 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)
-- UNC サーバ・share ノード / 新規ファイルテンプレート / Shift+右クリックシェルメニュー /
-  ユーザーコマンド commands.json
-- テーマ・ホットキーのカスタマイズ / exe アイコン埋め込み / 多重起動防止
-- D&D 外部送信 (ADR 0010) / 右ボタン D&D / フォルダ行への直接ドロップ
-</content>
-</invoke>
+- IContextMenu2/3 メッセージ転送 (シェルメニューの「新規作成」等)
+- ドラッグカーソル精度 (gpui_windows の IDropTarget 修飾キー反映 — vendor パッチ候補)
+- Move の Undo 記録
