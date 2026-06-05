@@ -36,6 +36,10 @@ fn main() {
     // ホットキー設定を読み込み (無ければ既定値で生成)。
     hotkeys::load();
 
+    // OLE D&D 送信の初期化 (UI スレッド)。gpui 側で初期化済みでも参照カウントで安全。
+    #[cfg(windows)]
+    fastfiler_domain::ole_dnd::init_ole();
+
     application().run(|cx: &mut App| {
         // テキスト入力 ("TextInput" コンテキスト限定) のキーバインドを登録。
         text_input::bind_keys(cx);

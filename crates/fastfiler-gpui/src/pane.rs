@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
+use fastfiler_domain::ole_dnd::{self, DragOutcome, DragRequest, PreferredEffect};
 use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
@@ -27,7 +28,7 @@ use fastfiler_domain::user_commands::{self, RunCtx};
 use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, EventEmitter, ExternalPaths, FocusHandle, Image,
-    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
+    ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent,
     NavigationDirection, Pixels, Point, ScrollStrategy, SharedString, UniformListScrollHandle,
     Window, anchored, deferred, div, img, prelude::*, px, uniform_list,
 };
@@ -92,30 +93,11 @@ struct SearchResult {
     is_dir: bool,
 }
 
-/// ペイン間 D&D のペイロード (ドラッグ中のファイルパス一覧)。
-pub(crate) struct DraggedFiles {
-    paths: Vec<String>,
-}
-
-/// ドラッグ中にカーソル横へ出すプレビュー。
-struct DragPreview {
-    text: SharedString,
-}
-
-impl Render for DragPreview {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .bg(th().sel_bg)
-            .border_1()
-            .border_color(th().accent)
-            .text_color(th().text_bright)
-            .text_size(px(12.0))
-            .child(self.text.clone())
-    }
-}
+/// OLE ドラッグ中に自アプリ内へドロップされたことを示すフラグ。
+/// `DoDragDrop` は同一スレッドのメッセージポンプ内で自ウィンドウの
+/// IDropTarget (→ ExternalPaths on_drop) を呼ぶため、ドロップ処理側で立てて
+/// `start_drag` 戻り後に「内部で処理済み → 元削除等をスキップ」を判定する。
+static SELF_DROP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 右クリックメニューの状態。
 struct MenuState {
@@ -206,6 +188,8 @@ pub struct PaneView {
     history_fwd: Vec<PathBuf>,
     /// アドレスバーの直接入力モード (パス文字列クリックで開始)。
     path_edit: Option<Entity<TextInput>>,
+    /// OLE ドラッグ開始候補 (行で左ボタン押下時に記録、5px 移動で発動)。
+    drag_candidate: Option<(Point<Pixels>, Vec<String>)>,
 
     // --- domain 連携 (watcher / ファイルジョブ) ---
     watcher: Arc<WatcherCore>,
@@ -263,6 +247,7 @@ impl PaneView {
             history_back: Vec::new(),
             history_fwd: Vec::new(),
             path_edit: None,
+            drag_candidate: None,
             watcher: Arc::new(WatcherCore::default()),
             sink,
             watched: None,
@@ -1503,6 +1488,96 @@ impl PaneView {
         self.run_transfer(items, is_move, cx);
     }
 
+    /// 行で押下した左ボタンが 5px 以上動いたら OLE ドラッグ (DoDragDrop) を開始。
+    /// 内部ペイン間も Explorer への外部送信も同じ 1 ドラッグで動く。
+    ///
+    /// 重要: DoDragDrop はメッセージポンプを回すため、entity リース保持中
+    /// (このリスナー内) で直接呼ぶと自ペインへのドロップで二重リースになる。
+    /// → `cx.defer` でリース解放後に実行する。
+    fn maybe_start_ole_drag(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some((start, _)) = &self.drag_candidate else {
+            return;
+        };
+        if ev.pressed_button != Some(MouseButton::Left) {
+            self.drag_candidate = None;
+            return;
+        }
+        let dx = (ev.position.x - start.x) / px(1.0);
+        let dy = (ev.position.y - start.y) / px(1.0);
+        if dx.abs() < 5.0 && dy.abs() < 5.0 {
+            return;
+        }
+        let Some((_, paths)) = self.drag_candidate.take() else {
+            return;
+        };
+        if paths.is_empty() {
+            return;
+        }
+
+        let pane = cx.weak_entity();
+        cx.defer(move |cx| {
+            SELF_DROP.store(false, std::sync::atomic::Ordering::Relaxed);
+            let req = DragRequest {
+                paths: paths.iter().map(PathBuf::from).collect(),
+                preferred: PreferredEffect::Move,
+            };
+            // ブロッキング (ドロップ or ESC まで戻らない。内部で OLE がポンプを回す)。
+            let outcome = ole_dnd::start_drag(req);
+            let _ = pane.update(cx, |p, cx| p.after_ole_drag(outcome, paths, cx));
+        });
+    }
+
+    /// OLE ドラッグ終了後の後始末。自アプリ内ドロップは on_drop 側で処理済み。
+    fn after_ole_drag(
+        &mut self,
+        outcome: fastfiler_domain::error::AppResult<DragOutcome>,
+        paths: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        // 自アプリ内へのドロップ → run_transfer が move/copy を実行済み。元削除不要。
+        if SELF_DROP.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        match outcome {
+            Ok(DragOutcome::Move {
+                delete_source: true,
+            }) => {
+                // ターゲット (Explorer 等) がコピーを終えた move → 元を削除する。
+                let mut err = None;
+                for p in &paths {
+                    if let Err(e) = file_ops::delete_path(Path::new(p), true) {
+                        err = Some(e.to_string());
+                    }
+                }
+                self.status = match err {
+                    None => format!("{} 個を移動しました", paths.len()).into(),
+                    Some(e) => format!("移動の元削除に失敗: {e}").into(),
+                };
+                self.reload(cx, false);
+            }
+            Ok(DragOutcome::Move {
+                delete_source: false,
+            }) => {
+                // 最適化ムーブ等 (ターゲット側で処理済み)。
+                self.status = "移動しました".into();
+                self.reload(cx, false);
+            }
+            Ok(DragOutcome::Copy) => {
+                self.status = format!("{} 個をコピーしました", paths.len()).into();
+                cx.notify();
+            }
+            Ok(DragOutcome::Cancel) | Ok(DragOutcome::None) => {}
+            Ok(DragOutcome::Error(e)) => {
+                self.status = format!("D&D 失敗: {e}").into();
+                cx.notify();
+            }
+            Err(e) => {
+                self.status = format!("D&D 失敗: {e}").into();
+                cx.notify();
+            }
+        }
+    }
+
     /// copy/move ジョブを別スレッドで開始する (進捗は sink 経由で届く)。
     fn run_transfer(&mut self, items: Vec<JobItem>, is_move: bool, cx: &mut Context<Self>) {
         let job_id = self.next_job_id;
@@ -1749,21 +1824,14 @@ impl PaneView {
                     cx.stop_propagation();
                 }),
             )
-            // ドラッグ元: 選択内の行なら選択全体、選択外なら単一をドラッグ。
-            .on_drag(
-                DraggedFiles { paths: drag_paths },
-                |files, _pos, _w, cx| {
-                    let text = if files.paths.len() == 1 {
-                        Path::new(&files.paths[0])
-                            .file_name()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    } else {
-                        format!("{} 個の項目", files.paths.len())
-                    };
-                    let text = SharedString::from(text);
-                    cx.new(|_| DragPreview { text })
-                },
+            // ドラッグ元 (OLE 統一): 左ボタン押下で候補を記録し、5px 動いたら
+            // DoDragDrop 開始 (maybe_start_ole_drag)。内部ペイン間も Explorer への
+            // 外部送信も同じ 1 ドラッグで動く。
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &MouseDownEvent, _w, _cx| {
+                    this.drag_candidate = Some((ev.position, drag_paths.clone()));
+                }),
             )
             .child(
                 div()
@@ -1796,24 +1864,18 @@ impl PaneView {
 
         // フォルダ行は直接ドロップ先になる (その行のフォルダへ転送)。
         if is_dir {
-            let name1 = entry.name.clone();
-            let name2 = entry.name.clone();
-            row.drag_over::<DraggedFiles>(|s, _, _, _| s.bg(th().drop_row_bg))
-                .on_drop(cx.listener(move |this, files: &DraggedFiles, _w, cx| {
-                    let dst = this.cur_path.join(&name1);
-                    this.drop_paths_into(dst, files.paths.clone(), cx);
-                    // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
-                    cx.stop_propagation();
-                }))
-                .drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_row_bg))
+            let dirname = entry.name.clone();
+            row.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_row_bg))
                 .on_drop(cx.listener(move |this, files: &ExternalPaths, _w, cx| {
-                    let dst = this.cur_path.join(&name2);
+                    SELF_DROP.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let dst = this.cur_path.join(&dirname);
                     let paths: Vec<String> = files
                         .paths()
                         .iter()
                         .map(|p| p.to_string_lossy().to_string())
                         .collect();
                     this.drop_paths_into(dst, paths, cx);
+                    // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
                     cx.stop_propagation();
                 }))
                 .into_any_element()
@@ -1997,14 +2059,11 @@ impl Render for PaneView {
                 MouseButton::Navigate(NavigationDirection::Forward),
                 cx.listener(|this, _ev, _w, cx| this.go_forward(cx)),
             )
-            // ドロップ受け入れ: ペイン間 D&D とエクスプローラ等の外部 D&D。
+            // ドロップ受け入れ (ペイン間 / エクスプローラ等、全て OLE = ExternalPaths)。
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
-            .drag_over::<DraggedFiles>(|style, _, _, _| style.bg(th().drop_bg))
-            .on_drop(cx.listener(|this, files: &DraggedFiles, _w, cx| {
-                this.drop_paths_into(this.cur_path.clone(), files.paths.clone(), cx);
-            }))
             .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(th().drop_bg))
             .on_drop(cx.listener(|this, files: &ExternalPaths, _w, cx| {
+                SELF_DROP.store(true, std::sync::atomic::Ordering::Relaxed);
                 let paths: Vec<String> = files
                     .paths()
                     .iter()
@@ -2012,6 +2071,16 @@ impl Render for PaneView {
                     .collect();
                 this.drop_paths_into(this.cur_path.clone(), paths, cx);
             }))
+            // OLE ドラッグの開始判定 / 候補クリア。
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
+                this.maybe_start_ole_drag(ev, cx);
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _e, _w, _cx| {
+                    this.drag_candidate = None;
+                }),
+            )
             .flex()
             .flex_col()
             .size_full()

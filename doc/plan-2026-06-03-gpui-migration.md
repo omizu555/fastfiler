@@ -660,6 +660,23 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
 - 制限: IContextMenu2/3 のメッセージ転送は未実装 (「新規作成」等の動的サブメニューは
   出ない場合がある)。メニュー表示中は UI スレッドをブロック (エクスプローラ同様のモーダル)。
 
+### 2026-06-05 — D&D 外部送信 完了 ✅ (ADR 0010 — ドラッグを OLE に統一)
+- **行ドラッグを GPUI 内部ドラッグから OLE `DoDragDrop` に一本化**。
+  `domain::ole_dnd::start_drag` (CF_HDROP + PreferredDropEffect、件数/サイズ上限、
+  最適化ムーブ対応の削除判定つき) を**無改造で利用**。
+- これにより **FastFiler → Explorer への外部送信が成立** (Ctrl=コピー / Shift=移動 /
+  既定はターゲット判断)。**内部ペイン間ドロップも同じ 1 ドラッグ**で動く —
+  自ウィンドウは gpui の IDropTarget が ExternalPaths として受けるため、既存の
+  受信ハンドラ (volume 判定 move/copy + フォルダ行ドロップ) がそのまま機能。
+  DraggedFiles / DragPreview の内部ドラッグ機構は削除 (コード簡素化)。
+- 開始判定: 行で左押下 → 5px 移動で発動 (クリック/ダブルクリックと共存)。
+- **再入対策 (重要)**: DoDragDrop はメッセージポンプを回すため、リスナー内
+  (entity リース保持中) で呼ぶと自ペインへのドロップで二重リース panic になる。
+  → **`cx.defer` でリース解放後に実行**。自アプリ内ドロップは `SELF_DROP` フラグ
+  (同一スレッドの IDropTarget 呼び出しで設定) で検知し、外部向けの元削除をスキップ。
+- Move 後の元削除は `DragOutcome::Move{delete_source:true}` のときのみ
+  (PerformedDropEffect 照合 — データ損失防止は domain 実装どおり)。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)
