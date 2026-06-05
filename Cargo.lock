@@ -1199,6 +1199,7 @@ dependencies = [
  "fastfiler-domain",
  "gpui",
  "gpui_platform",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "unicode-segmentation",

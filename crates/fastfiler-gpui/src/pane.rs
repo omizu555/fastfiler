@@ -1070,6 +1070,37 @@ impl PaneView {
         self.open_menu(position, false, cx);
     }
 
+    /// Shift+右クリック: Windows 標準のシェルコンテキストメニュー (IContextMenu)。
+    fn shell_context_menu(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.modal.is_some() {
+            return;
+        }
+        self.focus_handle.focus(window, cx);
+        cx.emit(PaneEvent::Activated);
+        if !self.selected.contains(&ix) {
+            self.select_only(ix);
+        } else {
+            self.cursor = Some(ix);
+        }
+        cx.notify();
+
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            return;
+        }
+        let Some(hwnd) = hwnd_of(window) else {
+            return;
+        };
+        // ブロッキング (メニューを閉じるまで戻らない)。閉じた後は変更を反映。
+        match shell::show_shell_context_menu(hwnd, paths) {
+            Ok(()) => self.reload(cx, false),
+            Err(e) => {
+                self.status = format!("シェルメニュー失敗: {e}").into();
+                cx.notify();
+            }
+        }
+    }
+
     fn menu_action(&mut self, action: MenuAction, window: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
         match action {
@@ -1706,11 +1737,15 @@ impl PaneView {
             .on_click(cx.listener(move |this, event, window, cx| {
                 this.on_row_click(ix, event, window, cx);
             }))
-            // 右クリック: この行を対象にメニューを開く (背景メニューへは伝播させない)。
+            // 右クリック: 通常=独自メニュー / Shift=Windows シェルメニュー (ADR 0007)。
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                    this.on_row_right_click(ix, ev.position, window, cx);
+                    if ev.modifiers.shift {
+                        this.shell_context_menu(ix, window, cx);
+                    } else {
+                        this.on_row_right_click(ix, ev.position, window, cx);
+                    }
                     cx.stop_propagation();
                 }),
             )
@@ -2154,6 +2189,18 @@ fn build_job_items(paths: &[String], dst_dir: &Path) -> Vec<JobItem> {
         .filter(|it| it.from != it.to)
         .filter(|it| !dst_dir.starts_with(Path::new(&it.from)))
         .collect()
+}
+
+/// GPUI ウィンドウから Win32 HWND を取得 (シェルメニュー等の Win32 連携用)。
+/// gpui の継承メソッド `Window::window_handle` (AnyWindowHandle) と衝突するため
+/// raw-window-handle のトレイトメソッドを明示的に呼ぶ。
+fn hwnd_of(window: &Window) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    match handle.as_raw() {
+        RawWindowHandle::Win32(h) => Some(h.hwnd.get()),
+        _ => None,
+    }
 }
 
 /// メニューの区切り線。

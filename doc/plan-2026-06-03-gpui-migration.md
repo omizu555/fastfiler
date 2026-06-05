@@ -648,6 +648,18 @@ Phase 0 (足場/ビルド確立) ──→ Phase 1 (一覧+メモリ検証)
   **「ホットキーを再読み込み」(再起動不要)** を追加。
 - 移動系 (矢印/PageUp/Dn/Home/End + Shift 範囲拡張) とモーダル内 Enter/Esc は固定。
 
+### 2026-06-05 — Shift+右クリック = Windows シェルメニュー 完了 ✅ (ADR 0007)
+- **`domain::shell::show_shell_context_menu(hwnd: isize, paths)`** を新設
+  (ADR 0007 想定の「将来追加」を実装。domain への後方互換追加 — 計画 §7)。
+  SHParseDisplayName → SHBindToParent → GetUIObjectOf(IContextMenu) →
+  QueryContextMenu → TrackPopupMenuEx(カーソル位置) → InvokeCommand。
+- **HWND は gpui Window の `HasWindowHandle` (raw-window-handle 0.6) から取得**
+  (`hwnd_of`)。gpui 継承メソッドと名前衝突するためトレイト明示呼び出し。
+- ペイン側: 行を **Shift+右クリック** → 選択を通常右クリックと同じ扱いにして
+  シェルメニュー表示 (複数選択対応・同一フォルダ前提)。閉じたら reload。
+- 制限: IContextMenu2/3 のメッセージ転送は未実装 (「新規作成」等の動的サブメニューは
+  出ない場合がある)。メニュー表示中は UI スレッドをブロック (エクスプローラ同様のモーダル)。
+
 ### 残タスク (改善候補 — 優先順位はユーザー指定待ち→おすすめ順で進行中)
 - **未定 (保留)**: ペイン内ツリー (リスト⇔ペイン cwd 起点ツリーの表示切替)
 - 検索 UI (内蔵 + Everything) / Undo UI 配線 / アドレスバー・履歴 (戻る/進む)

@@ -3,10 +3,120 @@
 // - open_with_shell: ShellExecuteW("open", path) — 既定アプリで開く
 // - reveal_in_explorer: explorer.exe /select で「エクスプローラで表示」
 // - show_properties: SHObjectProperties でプロパティダイアログ
-//
-// 将来的に IContextMenu のフルサポートを追加予定。
+// - show_shell_context_menu: IContextMenu による Windows 標準右クリックメニュー
+//   (ADR 0007: Shift+右クリックで呼び出す想定。GUI 非依存 — HWND は isize で受ける)
 
 use crate::error::{AppError, AppResult};
+
+/// Windows 標準のシェルコンテキストメニュー (IContextMenu) を現在のカーソル位置に
+/// 表示し、選択されたコマンドを実行する。ブロッキング (メニューを閉じるまで戻らない)。
+///
+/// * `hwnd` - オーナーウィンドウの HWND (isize)。
+/// * `paths` - 対象 (同一フォルダ内の複数選択可)。
+///
+/// 制限: IContextMenu2/3 のメッセージ転送は未実装のため、一部の動的サブメニュー
+/// (「新規作成」等) は表示されない場合がある。
+pub fn show_shell_context_menu(hwnd: isize, paths: Vec<String>) -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        unsafe { shell_context_menu_impl(hwnd, &paths) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (hwnd, paths);
+        Err(AppError::Other("Windows でのみ利用可能".into()))
+    }
+}
+
+#[cfg(windows)]
+unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResult<()> {
+    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows::Win32::UI::Shell::{
+        CMF_NORMAL, CMINVOKECOMMANDINFO, IContextMenu, ILFindLastID, ILFree, IShellFolder,
+        SHBindToParent, SHParseDisplayName,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreatePopupMenu, DestroyMenu, GetCursorPos, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        TrackPopupMenuEx,
+    };
+    use windows::core::{PCSTR, PCWSTR};
+
+    if paths.is_empty() {
+        return Err(AppError::Other("対象がありません".into()));
+    }
+    let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    // 各パス → 絶対 PIDL (失敗したらそこまでに確保した分を解放して返す)。
+    let mut abs_pidls: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
+    let free_all = |pidls: &[*mut ITEMIDLIST]| {
+        for &p in pidls {
+            unsafe { ILFree(Some(p)) };
+        }
+    };
+    for p in paths {
+        let wide = to_wide(p);
+        let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+        if let Err(e) =
+            SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None)
+        {
+            free_all(&abs_pidls);
+            return Err(AppError::Win32(format!("SHParseDisplayName({p}): {e}")));
+        }
+        abs_pidls.push(pidl);
+    }
+
+    let result = (|| -> AppResult<()> {
+        // 先頭の親フォルダへバインド (複数選択は同一フォルダ前提)。
+        let parent: IShellFolder = SHBindToParent(abs_pidls[0], None)
+            .map_err(|e| AppError::Win32(format!("SHBindToParent: {e}")))?;
+
+        // 各項目の相対 PIDL (最後の要素)。
+        let rel_pidls: Vec<*const ITEMIDLIST> = abs_pidls
+            .iter()
+            .map(|&p| ILFindLastID(p) as *const ITEMIDLIST)
+            .collect();
+
+        // IContextMenu を取得。
+        let pcm: IContextMenu = parent
+            .GetUIObjectOf(hwnd, &rel_pidls, None)
+            .map_err(|e| AppError::Win32(format!("GetUIObjectOf: {e}")))?;
+
+        let menu = CreatePopupMenu().map_err(|e| AppError::Win32(format!("{e}")))?;
+        let menu_result = (|| -> AppResult<()> {
+            pcm.QueryContextMenu(menu, 0, 1, 0x7fff, CMF_NORMAL)
+                .map_err(|e| AppError::Win32(format!("QueryContextMenu: {e}")))?;
+
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let cmd =
+                TrackPopupMenuEx(menu, (TPM_RETURNCMD | TPM_RIGHTBUTTON).0, pt.x, pt.y, hwnd, None);
+
+            let id = cmd.0;
+            if id > 0 {
+                let info = CMINVOKECOMMANDINFO {
+                    cbSize: std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
+                    lpVerb: PCSTR((id as usize - 1) as *const u8), // MAKEINTRESOURCE
+                    nShow: SW_SHOWNORMAL.0,
+                    hwnd,
+                    ..Default::default()
+                };
+                pcm.InvokeCommand(&info)
+                    .map_err(|e| AppError::Win32(format!("InvokeCommand: {e}")))?;
+            }
+            Ok(())
+        })();
+        let _ = DestroyMenu(menu);
+        menu_result
+    })();
+
+    free_all(&abs_pidls);
+    result
+}
 
 pub fn open_with_shell(path: String) -> AppResult<()> {
     #[cfg(windows)]
