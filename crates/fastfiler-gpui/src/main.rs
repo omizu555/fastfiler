@@ -70,9 +70,15 @@ fn main() {
                 size: size(px(w), px(h)),
             })
             .unwrap_or_else(|| Bounds::centered(None, size(px(1000.0), px(660.0)), cx));
+        // 最大化で終了していたら最大化で復元 (bounds は restore 時の位置として使われる)。
+        let window_bounds = if saved.as_ref().map(|s| s.maximized).unwrap_or(false) {
+            WindowBounds::Maximized(bounds)
+        } else {
+            WindowBounds::Windowed(bounds)
+        };
         cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(window_bounds),
                 // タイトルは多重起動防止の FindWindowW ("FastFiler") とも対応。
                 titlebar: Some(TitlebarOptions {
                     title: Some("FastFiler".into()),

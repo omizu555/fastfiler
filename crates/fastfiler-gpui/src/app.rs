@@ -19,8 +19,8 @@ use std::sync::atomic::Ordering;
 
 use gpui::{
     AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, Window, deferred, div,
-    prelude::*, px,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Subscription, Window, WindowBounds,
+    deferred, div, prelude::*, px,
 };
 
 use crate::pane::{PANES_ALIVE, PaneEvent, PaneView, SplitDir};
@@ -101,8 +101,10 @@ impl TabState {
         }
     }
 
+    /// タブの表示名。分割中もフォーカスに追従せず、常に一番最初の分割元
+    /// (ツリー順で先頭のペイン) のフォルダ名を使う。
     fn title(&self, cx: &App) -> String {
-        self.focused_pane()
+        first_pane(&self.root)
             .map(|p| p.read(cx).title())
             .unwrap_or_else(|| "—".to_string())
     }
@@ -127,13 +129,18 @@ pub struct FastFilerApp {
     /// タブバー幅 (px、ドラッグで変更・保存)。
     tab_width: f32,
     /// 最新のウィンドウ位置/サイズ [x,y,w,h] (render で取得・保存)。
+    /// 最大化中は通常表示時 (restore) の位置。
     window_bounds: Option<[f32; 4]>,
+    /// 最大化中か (render で取得・保存)。
+    window_maximized: bool,
     /// 次の render でこのペインへキーボードフォーカスを移す (F6/タブ切替)。
     pending_focus: Option<EntityId>,
     /// ツリー追従 (reveal) 済みのパス。同じ場所への重複 reveal を抑止。
     last_revealed: Option<PathBuf>,
     /// 設定画面 (⚙)。Some = 表示中 (Everything ポート入力欄を保持)。
     settings_open: Option<Entity<TextInput>>,
+    /// Everything ポート適用後の疎通確認結果 ("OK: …" / "NG: …" / "接続確認中…")。
+    everything_status: Option<SharedString>,
     /// 設定画面の Esc/Enter 用フォーカス。
     settings_focus: FocusHandle,
     /// 設定画面のテーマコンボボックス (ドロップダウン展開中か)。
@@ -145,7 +152,11 @@ impl FastFilerApp {
     fn make_tree(cx: &mut Context<Self>) -> (Entity<TreeView>, Subscription) {
         let tree = cx.new(|_| TreeView::new());
         let sub = cx.subscribe(&tree, |this, _tree, event: &TreeEvent, cx| match event {
-            TreeEvent::OpenDir(path) => this.open_in_focused_pane(path.clone(), cx),
+            TreeEvent::OpenDir(path) => {
+                // ツリーから開く時も開きっぱなしのメニュー/チューザーを閉じる。
+                this.close_other_menus(None, cx);
+                this.open_in_focused_pane(path.clone(), cx);
+            }
             // UNC 登録の変化 (削除等) はセッション保存。
             TreeEvent::UncChanged => this.schedule_save(cx),
         });
@@ -165,9 +176,11 @@ impl FastFilerApp {
             tree_width: 220.0,
             tab_width: 200.0,
             window_bounds: None,
+            window_maximized: false,
             pending_focus: None,
             last_revealed: None,
             settings_open: None,
+            everything_status: None,
             settings_focus: cx.focus_handle(),
             theme_menu_open: false,
         };
@@ -196,9 +209,11 @@ impl FastFilerApp {
             tree_width: data.tree_width.clamp(120.0, 480.0),
             tab_width: data.tab_width.clamp(100.0, 600.0),
             window_bounds: None,
+            window_maximized: false,
             pending_focus: None,
             last_revealed: None,
             settings_open: None,
+            everything_status: None,
             settings_focus: cx.focus_handle(),
             theme_menu_open: false,
         };
@@ -321,6 +336,7 @@ impl FastFilerApp {
             tree_width: self.tree_width,
             tab_width: self.tab_width,
             window: self.window_bounds,
+            maximized: self.window_maximized,
             unc_shares: self.tree.read(cx).unc_shares().to_vec(),
             // テーマは gpui_settings.json へ移行済み (読み込み時の互換用に残置)。
             theme: None,
@@ -341,6 +357,7 @@ impl FastFilerApp {
         let len = port.len();
         input.update(cx, |i, cx| i.set_text_and_select(port, 0..len, cx));
         self.settings_open = Some(input);
+        self.everything_status = None;
         self.theme_menu_open = false;
         self.settings_focus.focus(window, cx);
         cx.notify();
@@ -348,23 +365,51 @@ impl FastFilerApp {
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.theme_menu_open = false;
+        self.everything_status = None;
         if self.settings_open.take().is_some() {
             cx.notify();
         }
     }
 
     /// Everything ポート入力を適用 (u16 にパースできた場合のみ保存)。
+    /// 保存後にバックグラウンドで疎通確認し、結果 (OK/NG) を設定画面に表示する。
     fn apply_settings_port(&mut self, cx: &mut Context<Self>) {
         let Some(input) = &self.settings_open else {
             return;
         };
         let text = input.read(cx).text().trim().to_string();
-        if let Ok(port) = text.parse::<u16>() {
-            if port > 0 {
-                settings_store::update(|s| s.everything_port = port);
+        let port = match text.parse::<u16>() {
+            Ok(p) if p > 0 => p,
+            _ => {
+                self.everything_status =
+                    Some("NG: ポート番号が不正です (1〜65535)".into());
                 cx.notify();
+                return;
             }
-        }
+        };
+        settings_store::update(|s| s.everything_port = port);
+        self.everything_status = Some("接続確認中…".into());
+        cx.notify();
+        // 疎通確認は HTTP でブロッキングするため UI スレッドでは行わない。
+        cx.spawn(async move |this, cx| {
+            let ok = cx
+                .background_executor()
+                .spawn(async move { fastfiler_domain::everything::ping(port) })
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                app.everything_status = Some(if ok {
+                    format!("OK: Everything が応答しました (ポート {port})").into()
+                } else {
+                    format!(
+                        "NG: ポート {port} で応答なし — Everything 側の \
+                         Tools → Options → HTTP Server が有効か確認してください"
+                    )
+                    .into()
+                });
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// テーマをプリセット名で適用し、設定へ保存して全ビューを再描画。
@@ -591,7 +636,9 @@ impl FastFilerApp {
                                 .child(action_btn("st-hk-open", "設定ファイルを開く").on_click(
                                     cx.listener(|_t, _e, _w, _cx| {
                                         if let Some(f) = hotkeys::config_file() {
-                                            let _ = fastfiler_domain::shell::open_with_shell(f);
+                                            // UI スレッド再入対策で STA スレッド実行。
+                                            let _ =
+                                                fastfiler_domain::shell::open_with_shell_async(f);
                                         }
                                     }),
                                 ))
@@ -647,7 +694,18 @@ impl FastFilerApp {
                                         settings_store::get().everything_port
                                     )),
                                 )),
-                        ),
+                        )
+                        // 適用後の疎通確認結果 (OK / NG)。
+                        .children(self.everything_status.clone().map(|s| {
+                            let color = if s.starts_with("OK") {
+                                th().accent
+                            } else if s.starts_with("NG") {
+                                gpui::rgb(0xe05252)
+                            } else {
+                                th().text_dim
+                            };
+                            div().mt_1().text_color(color).child(s)
+                        })),
                 )
                 .into_any_element(),
         )
@@ -717,7 +775,11 @@ impl FastFilerApp {
         let ev = cx.subscribe(&pane, |this, emitter, event: &PaneEvent, cx| {
             let id = emitter.entity_id();
             match event {
-                PaneEvent::Activated => this.set_focus(id, cx),
+                PaneEvent::Activated => {
+                    // どのペインの操作でも、他ペインのメニュー/チューザーを閉じる。
+                    this.close_other_menus(Some(id), cx);
+                    this.set_focus(id, cx);
+                }
                 PaneEvent::SplitRequested(dir) => this.split_pane(id, *dir, cx),
                 PaneEvent::CloseRequested => this.close_pane(id, cx),
                 PaneEvent::FocusNextPane => this.cycle_focus(cx),
@@ -919,6 +981,21 @@ impl FastFilerApp {
         }
     }
 
+    /// 指定ペイン以外で開いている右クリックメニュー / 右ドラッグチューザーを
+    /// 全て閉じる (`except: None` で全ペイン)。分割中にメニュー類が
+    /// 開きっぱなしになるのを防ぐ (常に 1 か所だけ表示)。
+    fn close_other_menus(&mut self, except: Option<EntityId>, cx: &mut Context<Self>) {
+        let mut panes = Vec::new();
+        for t in &self.tabs {
+            collect_pane_entities(&t.root, &mut panes);
+        }
+        for p in panes {
+            if Some(p.entity_id()) != except {
+                p.update(cx, |p, cx| p.close_overlay_menus(cx));
+            }
+        }
+    }
+
     fn split_pane(&mut self, target: EntityId, dir: SplitDir, cx: &mut Context<Self>) {
         let Some(ti) = self.tab_index_of(target) else {
             return;
@@ -1087,17 +1164,25 @@ impl Render for FastFilerApp {
         }
 
         // ウィンドウ位置/サイズを記録 (変化時のみ保存予約)。
+        // `window.bounds()` (実クライアント座標) ではなく `window.window_bounds()` を使う。
+        // 後者は GetWindowPlacement 由来で、復元時の WindowBounds::Windowed →
+        // calculate_window_rect() と正確に逆変換の関係にあるため、起動のたびに
+        // タイトルバー高の半分ずつ下へずれる問題が起きない。
         {
-            let wb = window.bounds();
+            let (wb, maximized) = match window.window_bounds() {
+                WindowBounds::Maximized(b) => (b, true),
+                WindowBounds::Windowed(b) | WindowBounds::Fullscreen(b) => (b, false),
+            };
             let arr = [
                 wb.origin.x / px(1.0),
                 wb.origin.y / px(1.0),
                 wb.size.width / px(1.0),
                 wb.size.height / px(1.0),
             ];
-            if self.window_bounds != Some(arr) {
+            if self.window_bounds != Some(arr) || self.window_maximized != maximized {
                 let first = self.window_bounds.is_none();
                 self.window_bounds = Some(arr);
+                self.window_maximized = maximized;
                 if !first {
                     self.schedule_save(cx);
                 }

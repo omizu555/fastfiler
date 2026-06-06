@@ -162,6 +162,48 @@ pub fn open_with_shell(path: String) -> AppResult<()> {
     }
 }
 
+/// `open_with_shell` の非同期版: 専用 STA スレッドで実行し JoinHandle を返す。
+///
+/// ShellExecuteW は関連付け先 (Office の DDE 起動等) によってメッセージポンプを
+/// 回すことがあり、GUI の update サイクル中 (UI スレッド) に直接呼ぶと wndproc
+/// 再入で "RefCell already borrowed" panic になる (DoDragDrop と同じ類型)。
+/// UI スレッドからはこちらを使い、結果が必要なら別スレッドで join すること。
+pub fn open_with_shell_async(path: String) -> std::thread::JoinHandle<AppResult<()>> {
+    #[cfg(windows)]
+    {
+        win::open_with_shell_sta_thread(path)
+    }
+    #[cfg(not(windows))]
+    {
+        std::thread::spawn(move || open_with_shell(path))
+    }
+}
+
+/// 任意の実行ファイルを ShellExecuteW (既定 verb) で起動する。専用 STA スレッドで
+/// 実行して join するため、呼び出し元は UI スレッド以外であること。
+///
+/// エクスプローラと同じ起動経路なので、powershell 等のコンソールアプリは
+/// 自分の新しいコンソールへ正しく接続される。CreateProcess 直接起動だと
+/// 親の標準ハンドルが継承され、「新しいウィンドウは開くが入出力は親側」と
+/// なって開いた直後に閉じてしまう (デバッグ実行時に顕在化)。
+pub fn launch_with_shell(
+    exec: String,
+    params: Option<String>,
+    cwd: Option<String>,
+) -> AppResult<()> {
+    #[cfg(windows)]
+    {
+        win::launch_sta_thread(exec, params, cwd)
+            .join()
+            .map_err(|_| AppError::Other("shell 起動スレッドが異常終了しました".into()))?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (exec, params, cwd);
+        Err(AppError::NotSupported("shell launch is windows-only".into()))
+    }
+}
+
 pub fn reveal_in_explorer(path: String) -> AppResult<()> {
     #[cfg(windows)]
     {
@@ -244,6 +286,35 @@ mod win {
             )));
         }
         Ok(())
+    }
+
+    /// 任意の実行ファイルを ShellExecuteW で起動する専用 STA スレッドを立てる。
+    pub fn launch_sta_thread(
+        exec: String,
+        params: Option<String>,
+        cwd: Option<String>,
+    ) -> thread::JoinHandle<AppResult<()>> {
+        thread::spawn(move || {
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            }
+            let r = shell_exec(None, &exec, params.as_deref(), cwd.as_deref());
+            unsafe { CoUninitialize() };
+            r
+        })
+    }
+
+    /// `open_with_shell` を専用 STA スレッドで実行する (UI スレッド再入対策)。
+    pub fn open_with_shell_sta_thread(path: String) -> thread::JoinHandle<AppResult<()>> {
+        thread::spawn(move || {
+            // ShellExecuteW はシェル拡張へ委譲するため STA を要求する。
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            }
+            let r = super::open_with_shell(path);
+            unsafe { CoUninitialize() };
+            r
+        })
     }
 
     pub fn show_properties(path: &str) -> AppResult<()> {

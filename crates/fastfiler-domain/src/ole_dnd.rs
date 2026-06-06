@@ -558,6 +558,22 @@ pub fn start_drag(req: DragRequest) -> AppResult<DragOutcome> {
 
 static OLE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
+/// ドロップ時点の物理修飾キー状態 (Ctrl, Shift) を返す。
+///
+/// エクスプローラ等の外部からのドラッグ中はキーボードフォーカスが相手側にあり、
+/// GUI フレームワークのイベント追跡では修飾キーが更新されない (Ctrl+ドロップの
+/// 強制コピーが効かない)。そのため GetKeyState で物理状態を直接読む。
+/// ドロップ処理は OLE の Drop コールバック中に同期実行されるため、この時点の
+/// キー状態 = ドロップ瞬間のキー状態とみなせる。
+pub fn drop_modifiers() -> (bool, bool) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
+    unsafe {
+        let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
+        let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
+        (ctrl, shift)
+    }
+}
+
 /// プロセス起動時 (UI スレッド) に 1 回だけ呼ぶ。
 ///
 /// `OleInitialize` が成功すれば `is_ole_available()` が true を返し、

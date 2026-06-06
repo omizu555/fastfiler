@@ -30,8 +30,8 @@ use gpui::{
     AnyElement, ClickEvent, Context, DragMoveEvent, Empty, Entity, EventEmitter, ExternalPaths,
     FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, Point,
-    ScrollStrategy, SharedString, UniformListScrollHandle, Window, anchored, deferred, div, img,
-    prelude::*, px, uniform_list,
+    ScrollStrategy, SharedString, Size, UniformListScrollHandle, Window, anchored, deferred, div,
+    img, prelude::*, px, relative, uniform_list,
 };
 
 use crate::hotkeys;
@@ -62,7 +62,6 @@ enum MenuAction {
     Rename,
     Delete,
     NewFolder,
-    NewFile,
     /// テンプレートから新規ファイル (テンプレのフルパス)。
     NewFromTemplate(String),
     /// テンプレートフォルダを開く。
@@ -131,6 +130,8 @@ struct DropMenu {
     position: Point<Pixels>,
     dst: PathBuf,
     paths: Vec<String>,
+    /// `when: "drop"` のユーザーコマンド (id, ラベル)。開いた時点で取得。
+    user_cmds: Vec<(String, String)>,
 }
 
 /// 同名衝突の確認待ち転送 (上書き / 別名で保存 / キャンセル)。
@@ -142,6 +143,15 @@ struct PendingTransfer {
     conflict_count: usize,
 }
 
+/// 右クリックメニュー内のサブメニュー種別。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Submenu {
+    /// 「新しいファイル ▸」: テンプレート一覧 + テンプレートフォルダを開く。
+    NewFile,
+    /// 「設定 ▸」: ユーザーコマンド設定 / ホットキー設定 (背景メニューのみ)。
+    Settings,
+}
+
 /// 右クリックメニューの状態。
 struct MenuState {
     /// ウィンドウ座標 (anchored で配置)。
@@ -150,10 +160,12 @@ struct MenuState {
     on_row: bool,
     /// 開いた時点でクリップボードに貼り付け可能なファイルがあるか。
     can_paste: bool,
-    /// 新規ファイル用テンプレート一覧 (名前, フルパス)。開いた時点で取得 (先頭10件)。
+    /// 新規ファイル用テンプレート一覧 (名前, フルパス)。開いた時点で取得 (先頭20件)。
     templates: Vec<(String, String)>,
     /// 表示対象のユーザーコマンド (id, ラベル)。when/extensions で絞り込み済み。
     user_cmds: Vec<(String, String)>,
+    /// 展開中のサブメニュー (hover / クリックで開く)。
+    submenu: Option<Submenu>,
 }
 
 /// 分割方向。`Row`=左右に並べる / `Column`=上下に積む。
@@ -625,10 +637,29 @@ impl PaneView {
     }
 
     fn open_in_shell(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        if let Err(e) = shell::open_with_shell(path.to_string_lossy().to_string()) {
-            self.status = format!("開けません: {e}").into();
-            cx.notify();
-        }
+        // ShellExecuteW は関連付け先 (Office の DDE 等) でメッセージポンプが回り、
+        // UI スレッドの update サイクル中に呼ぶと "RefCell already borrowed" で
+        // 落ちるため、専用 STA スレッドで実行し結果だけ受け取る。
+        let path = path.to_string_lossy().to_string();
+        cx.spawn(async move |this, cx| {
+            let err: Option<String> = cx
+                .background_executor()
+                .spawn(async move {
+                    match shell::open_with_shell_async(path).join() {
+                        Ok(Ok(())) => None,
+                        Ok(Err(e)) => Some(e.to_string()),
+                        Err(_) => Some("シェル起動スレッドが異常終了しました".into()),
+                    }
+                })
+                .await;
+            if let Some(e) = err {
+                let _ = this.update(cx, |pane, cx| {
+                    pane.status = format!("開けません: {e}").into();
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// 選択中 (複数可) の項目をごみ箱へ。watcher でも更新されるが即時反映のため明示 reload。
@@ -1136,9 +1167,9 @@ impl PaneView {
             .flatten()
             .map(|c| !c.paths.is_empty())
             .unwrap_or(false);
-        // 新規ファイル用テンプレート (%APPDATA%\fastfiler\templates、先頭10件)。
+        // 新規ファイル用テンプレート (%APPDATA%\fastfiler\templates、先頭20件)。
         let templates: Vec<(String, String)> = templates::list_templates()
-            .map(|v| v.into_iter().take(10).map(|t| (t.name, t.path)).collect())
+            .map(|v| v.into_iter().take(20).map(|t| (t.name, t.path)).collect())
             .unwrap_or_default();
         // ユーザーコマンド (commands.json) を when / extensions で絞り込み。
         let cursor_entry = self.cursor.and_then(|i| self.entries.get(i));
@@ -1153,8 +1184,12 @@ impl PaneView {
                         if on_row {
                             let when_ok = match c.when.as_str() {
                                 "file" => !sel_is_dir,
-                                "dir" => sel_is_dir,
-                                _ => true, // "any"
+                                "dir" | "folder" => sel_is_dir,
+                                // 行専用 (ファイル・フォルダ両方)。背景には出さない。
+                                "selection" => true,
+                                // 背景専用コマンドは行メニューに出さない。
+                                "background" => false,
+                                _ => true, // "any" (行・背景の両方)
                             };
                             let ext_ok = c.extensions.is_empty()
                                 || sel_ext
@@ -1167,8 +1202,9 @@ impl PaneView {
                                     .unwrap_or(false);
                             when_ok && ext_ok
                         } else {
-                            // 背景メニューは選択非依存のコマンドのみ。
-                            c.when == "any"
+                            // 背景メニューは選択非依存のコマンドのみ
+                            // ("background" は背景専用 — commands.json.sample 参照)。
+                            c.when == "any" || c.when == "background"
                         }
                     })
                     .take(10)
@@ -1182,8 +1218,18 @@ impl PaneView {
             can_paste,
             templates,
             user_cmds,
+            submenu: None,
         });
         cx.notify();
+    }
+
+    /// 開いている右クリックメニュー / 右ドラッグチューザーを閉じる
+    /// (他ペインの操作時にコンテナ側から呼ばれる。メニュー類は常に 1 か所だけ表示する)。
+    pub fn close_overlay_menus(&mut self, cx: &mut Context<Self>) {
+        let closed = self.context_menu.take().is_some() | self.drop_menu.take().is_some();
+        if closed {
+            cx.notify();
+        }
     }
 
     fn on_row_right_click(
@@ -1264,9 +1310,6 @@ impl PaneView {
             MenuAction::NewFolder => {
                 self.open_modal(ModalKind::NewFolder, String::new(), 0..0, window, cx)
             }
-            MenuAction::NewFile => {
-                self.open_modal(ModalKind::NewFile, String::new(), 0..0, window, cx)
-            }
             MenuAction::NewFromTemplate(tpl) => self.create_from_template(tpl, window, cx),
             MenuAction::OpenTemplatesDir => {
                 if let Ok(dir) = templates::templates_dir() {
@@ -1278,9 +1321,7 @@ impl PaneView {
                     paths: self.selected_paths(),
                     cwd: self.cur_path.to_string_lossy().to_string(),
                 };
-                if let Err(e) = user_commands::run_user_command(id, ctx) {
-                    self.status = format!("コマンド実行に失敗: {e}").into();
-                }
+                self.run_user_command_bg(id, ctx, cx);
             }
             MenuAction::OpenCommandsDir => {
                 if let Ok(dir) = user_commands::user_commands_dir() {
@@ -1289,7 +1330,8 @@ impl PaneView {
             }
             MenuAction::OpenHotkeys => {
                 if let Some(file) = hotkeys::config_file() {
-                    let _ = shell::open_with_shell(file);
+                    // UI スレッド再入対策 (open_in_shell と同様)。結果は見ない。
+                    let _ = shell::open_with_shell_async(file);
                 }
             }
             MenuAction::ReloadHotkeys => {
@@ -1370,9 +1412,179 @@ impl PaneView {
         }
     }
 
+    /// サブメニュー付きの親項目。hover / クリックで右隣にサブメニューを展開する。
+    ///
+    /// `row_offset` はメニュー先頭からこの親項目までの推定オフセット (px)。
+    /// ウィンドウ端では展開方向を自動調整する (下にはみ出す → 上方向、
+    /// 右にはみ出す → 左方向) ため、展開位置の見積もりに使う。
+    fn submenu_parent(
+        &self,
+        label: &'static str,
+        kind: Submenu,
+        m: &MenuState,
+        row_offset: f32,
+        viewport: Size<Pixels>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let open = m.submenu == Some(kind);
+        // サブメニューの高さをざっくり見積もる (1 行 ≈ 28px + 区切り/padding)。
+        let sub_rows = match kind {
+            Submenu::NewFile => m.templates.len().max(1) + 1,
+            Submenu::Settings => 3,
+        };
+        let est_h = sub_rows as f32 * 28.0 + 19.0;
+        // メニュー anchor (右クリック位置) は snap で実際より下を指すことがあるが、
+        // その場合は上方向に倒れるだけなので安全側。
+        let open_up =
+            m.position.y / px(1.0) + row_offset + est_h > viewport.height / px(1.0) - 8.0;
+        let open_left =
+            m.position.x / px(1.0) + 210.0 * 2.0 > viewport.width / px(1.0) - 8.0;
+        let mut row = div()
+            .id(SharedString::from(format!("smp-{label}")))
+            .relative()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .px_3()
+            .py_1()
+            .mx_1()
+            .rounded_sm()
+            .cursor_pointer()
+            .hover(|s| s.bg(th().menu_hover))
+            // hover で展開 (別のサブメニューが開いていれば切り替え)。
+            // 離れても閉じない — サブメニュー側へポインタを移動できるようにする。
+            .on_hover(cx.listener(move |this, hovered: &bool, _w, cx| {
+                if *hovered {
+                    if let Some(menu) = this.context_menu.as_mut() {
+                        if menu.submenu != Some(kind) {
+                            menu.submenu = Some(kind);
+                            cx.notify();
+                        }
+                    }
+                }
+            }))
+            .on_click(cx.listener(move |this, _e, _w, cx| {
+                if let Some(menu) = this.context_menu.as_mut() {
+                    menu.submenu = if menu.submenu == Some(kind) {
+                        None
+                    } else {
+                        Some(kind)
+                    };
+                    cx.notify();
+                }
+            }))
+            .child(div().child(label))
+            .child(div().text_color(th().text_faint).child("▸"));
+        if open {
+            // 親項目の隣に本体メニューと同スタイルのパネルを重ねる。
+            // 既定は右隣・下方向。ウィンドウ端では左隣・上方向に切り替える。
+            let mut panel = div()
+                .occlude()
+                .absolute()
+                .flex()
+                .flex_col()
+                .py_1()
+                .w(px(210.0))
+                .rounded_md()
+                .bg(th().surface_bg)
+                .border_1()
+                .border_color(th().button_hover)
+                .text_color(th().text);
+            panel = if open_left {
+                panel.right(relative(1.0))
+            } else {
+                panel.left(relative(1.0))
+            };
+            panel = if open_up {
+                panel.bottom(px(-4.0))
+            } else {
+                panel.top(px(-4.0))
+            };
+            row = row.child(panel.children(self.submenu_items(kind, m, cx)));
+        }
+        row.into_any_element()
+    }
+
+    /// サブメニューの中身を構築する。
+    fn submenu_items(&self, kind: Submenu, m: &MenuState, cx: &Context<Self>) -> Vec<AnyElement> {
+        let mut items: Vec<AnyElement> = Vec::new();
+        match kind {
+            Submenu::NewFile => {
+                if m.templates.is_empty() {
+                    items.push(self.menu_item(
+                        "(テンプレートなし)",
+                        "",
+                        false,
+                        MenuAction::OpenTemplatesDir,
+                        cx,
+                    ));
+                } else {
+                    for (name, path) in &m.templates {
+                        items.push(self.menu_item(
+                            format!("新規: {name}"),
+                            "",
+                            true,
+                            MenuAction::NewFromTemplate(path.clone()),
+                            cx,
+                        ));
+                    }
+                }
+                items.push(menu_sep());
+                items.push(self.menu_item(
+                    "テンプレートフォルダを開く",
+                    "",
+                    true,
+                    MenuAction::OpenTemplatesDir,
+                    cx,
+                ));
+            }
+            Submenu::Settings => {
+                items.push(self.menu_item(
+                    "ユーザーコマンドの設定...",
+                    "",
+                    true,
+                    MenuAction::OpenCommandsDir,
+                    cx,
+                ));
+                items.push(menu_sep());
+                items.push(self.menu_item(
+                    "ホットキー設定を開く",
+                    "",
+                    true,
+                    MenuAction::OpenHotkeys,
+                    cx,
+                ));
+                items.push(self.menu_item(
+                    "ホットキーを再読み込み",
+                    "",
+                    true,
+                    MenuAction::ReloadHotkeys,
+                    cx,
+                ));
+            }
+        }
+        items
+    }
+
     /// 右クリックメニューのオーバーレイ (開いていなければ None)。
-    fn render_context_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
+    fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> Option<AnyElement> {
         let m = self.context_menu.as_ref()?;
+        let viewport = window.viewport_size();
+        // サブメニュー展開方向の判定用: メニュー先頭から各親項目までの推定オフセット
+        // (1 行 ≈ 28px / 区切り ≈ 9px / パネル上 padding 4px)。
+        const ROW_H: f32 = 28.0;
+        const SEP_H: f32 = 9.0;
+        let newfile_offset = if m.on_row {
+            4.0 + 7.0 * ROW_H + 3.0 * SEP_H
+        } else {
+            4.0 + 3.0 * ROW_H + SEP_H
+        };
+        let settings_offset = {
+            let extra = if m.user_cmds.is_empty() { 0.0 } else { SEP_H };
+            newfile_offset + (1.0 + m.user_cmds.len() as f32) * ROW_H + SEP_H + extra
+        };
         let mut items: Vec<AnyElement> = Vec::new();
         if m.on_row {
             items.push(self.menu_item("開く", "Enter", true, MenuAction::Open, cx));
@@ -1390,25 +1602,13 @@ impl PaneView {
             items.push(menu_sep());
         }
         items.push(self.menu_item("新しいフォルダ", "F7", true, MenuAction::NewFolder, cx));
-        items.push(self.menu_item("新しいファイル", "F8", true, MenuAction::NewFile, cx));
-        // テンプレートから新規ファイル (%APPDATA%\fastfiler\templates)
-        if !m.templates.is_empty() {
-            items.push(menu_sep());
-            for (name, path) in &m.templates {
-                items.push(self.menu_item(
-                    format!("新規: {name}"),
-                    "",
-                    true,
-                    MenuAction::NewFromTemplate(path.clone()),
-                    cx,
-                ));
-            }
-        }
-        items.push(self.menu_item(
-            "テンプレートフォルダを開く",
-            "",
-            true,
-            MenuAction::OpenTemplatesDir,
+        // 「新しいファイル ▸」: テンプレート一覧のサブメニュー (空ファイル作成は F8)。
+        items.push(self.submenu_parent(
+            "新しいファイル",
+            Submenu::NewFile,
+            m,
+            newfile_offset,
+            viewport,
             cx,
         ));
         // ユーザーコマンド (commands.json — ADR 0003 の拡張点)
@@ -1423,29 +1623,16 @@ impl PaneView {
                     cx,
                 ));
             }
-            items.push(self.menu_item(
-                "ユーザーコマンドの設定...",
-                "",
-                true,
-                MenuAction::OpenCommandsDir,
-                cx,
-            ));
         }
-        // ホットキー設定 (背景メニューのみ)
+        // 「設定 ▸」(背景メニューのみ): ユーザーコマンド設定 / ホットキー設定。
         if !m.on_row {
             items.push(menu_sep());
-            items.push(self.menu_item(
-                "ホットキー設定を開く",
-                "",
-                true,
-                MenuAction::OpenHotkeys,
-                cx,
-            ));
-            items.push(self.menu_item(
-                "ホットキーを再読み込み",
-                "",
-                true,
-                MenuAction::ReloadHotkeys,
+            items.push(self.submenu_parent(
+                "設定",
+                Submenu::Settings,
+                m,
+                settings_offset,
+                viewport,
                 cx,
             ));
         }
@@ -1664,11 +1851,15 @@ impl PaneView {
     }
 
     /// ドロップ時の修飾キー → 強制効果 (Ctrl=コピー / Shift=移動 / なし=既定)。
-    fn drop_effect_override(window: &Window) -> Option<bool> {
-        let mods = window.modifiers();
-        if mods.control {
+    ///
+    /// `window.modifiers()` は使わない — エクスプローラ等の外部からのドラッグ中は
+    /// キーボードフォーカスが相手側にあり修飾キーが更新されず、Ctrl+ドロップの
+    /// 強制コピーが効かない。物理キー状態 (GetKeyState) を直接読む。
+    fn drop_effect_override() -> Option<bool> {
+        let (ctrl, shift) = ole_dnd::drop_modifiers();
+        if ctrl {
             Some(false) // コピー
-        } else if mods.shift {
+        } else if shift {
             Some(true) // 移動
         } else {
             None
@@ -1820,10 +2011,22 @@ impl PaneView {
         cx: &mut Context<Self>,
     ) {
         let position = window.mouse_position();
+        // チューザー専用のユーザーコマンド (when: "drop")。
+        // paths = ドラッグした項目 / cwd = ドロップ先フォルダ として実行する。
+        let user_cmds: Vec<(String, String)> = user_commands::list_user_commands()
+            .map(|v| {
+                v.into_iter()
+                    .filter(|c| c.when == "drop")
+                    .take(10)
+                    .map(|c| (c.id, c.label))
+                    .collect()
+            })
+            .unwrap_or_default();
         self.drop_menu = Some(DropMenu {
             position,
             dst,
             paths,
+            user_cmds,
         });
         cx.notify();
     }
@@ -1840,6 +2043,40 @@ impl PaneView {
             }
         }
         cx.notify();
+    }
+
+    /// チューザーからユーザーコマンド実行 (paths=ドラッグ項目 / cwd=ドロップ先)。
+    fn drop_menu_run_user_command(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(m) = self.drop_menu.take() else {
+            return;
+        };
+        let ctx = RunCtx {
+            paths: m.paths,
+            cwd: m.dst.to_string_lossy().to_string(),
+        };
+        self.run_user_command_bg(id, ctx, cx);
+        cx.notify();
+    }
+
+    /// ユーザーコマンドをバックグラウンドで実行する。
+    /// プロセス起動 (CreateProcess / ShellExecuteW) は UI スレッドで呼ばない —
+    /// 起動中に新プロセスへのフォーカス移動メッセージが再入し、App RefCell の
+    /// 二重借用 ("RefCell already borrowed") で落ちる
+    /// (doc/plan-2026-06-03 の DoDragDrop 再入対策と同じ理由)。
+    fn run_user_command_bg(&self, id: String, ctx: RunCtx, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(async move { user_commands::run_user_command(id, ctx) })
+                .await;
+            if let Err(e) = res {
+                let _ = this.update(cx, |pane, cx| {
+                    pane.status = format!("コマンド実行に失敗: {e}").into();
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// 右ボタン D&D チューザーのオーバーレイ。
@@ -1859,6 +2096,35 @@ impl PaneView {
                 .on_click(cx.listener(move |this, _e, _w, cx| this.drop_menu_action(mv, cx)))
                 .into_any_element()
         };
+        let mut items: Vec<AnyElement> = vec![
+            item("dm-copy", "ここにコピー", Some(false)),
+            item("dm-move", "ここに移動", Some(true)),
+        ];
+        // ユーザーコマンド (when: "drop")。paths=ドラッグ項目 / cwd=ドロップ先。
+        if !m.user_cmds.is_empty() {
+            items.push(menu_sep());
+            for (id, label) in &m.user_cmds {
+                let cid = id.clone();
+                items.push(
+                    div()
+                        .id(SharedString::from(format!("dm-uc-{id}")))
+                        .flex()
+                        .px_3()
+                        .py_1()
+                        .mx_1()
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(th().menu_hover))
+                        .child(label.clone())
+                        .on_click(cx.listener(move |this, _e, _w, cx| {
+                            this.drop_menu_run_user_command(cid.clone(), cx)
+                        }))
+                        .into_any_element(),
+                );
+            }
+        }
+        items.push(menu_sep());
+        items.push(item("dm-cancel", "キャンセル", None));
         Some(
             div()
                 .absolute()
@@ -1884,16 +2150,13 @@ impl PaneView {
                                     .flex()
                                     .flex_col()
                                     .py_1()
-                                    .w(px(180.0))
+                                    .w(px(210.0))
                                     .rounded_md()
                                     .bg(th().surface_bg)
                                     .border_1()
                                     .border_color(th().button_hover)
                                     .text_color(th().text)
-                                    .child(item("dm-copy", "ここにコピー", Some(false)))
-                                    .child(item("dm-move", "ここに移動", Some(true)))
-                                    .child(menu_sep())
-                                    .child(item("dm-cancel", "キャンセル", None)),
+                                    .children(items),
                             ),
                     ),
                 )
@@ -2422,7 +2685,7 @@ impl PaneView {
                     if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
                         this.open_drop_menu(dst, paths, window, cx);
                     } else {
-                        let forced = Self::drop_effect_override(window);
+                        let forced = Self::drop_effect_override();
                         this.drop_paths_into(dst, paths, forced, cx);
                     }
                     // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
@@ -2694,7 +2957,7 @@ impl Render for PaneView {
                     // 右ボタン D&D: 効果をユーザーに選ばせる (ADR 0010)。
                     this.open_drop_menu(dst, paths, window, cx);
                 } else {
-                    let forced = Self::drop_effect_override(window);
+                    let forced = Self::drop_effect_override();
                     this.drop_paths_into(dst, paths, forced, cx);
                 }
             }))
@@ -2817,7 +3080,7 @@ impl Render for PaneView {
             // 入力モーダル (開いている時のみ)
             .children(self.render_modal(cx))
             // 右クリックメニュー (開いている時のみ)
-            .children(self.render_context_menu(cx))
+            .children(self.render_context_menu(window, cx))
             // 右ボタン D&D チューザー (開いている時のみ)
             .children(self.render_drop_menu(cx))
             // 同名衝突の確認モーダル (確認待ちのみ)

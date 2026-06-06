@@ -20,8 +20,12 @@ pub struct SessionData {
     #[serde(default = "default_tab_width")]
     pub tab_width: f32,
     /// ウィンドウの位置とサイズ [x, y, w, h] (px)。
+    /// 最大化中は通常表示時 (restore) の位置を保持する。
     #[serde(default)]
     pub window: Option<[f32; 4]>,
+    /// 最大化状態で終了したか (次回起動時に最大化で復元)。
+    #[serde(default)]
+    pub maximized: bool,
     /// ワークスペースツリーに登録済みの UNC share (`\\server\share`)。
     #[serde(default)]
     pub unc_shares: Vec<String>,
