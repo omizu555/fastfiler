@@ -6,7 +6,8 @@ publish = false
 description = "FastFiler GUI (GPUI-based) — Zed の GPUI への移植"
 
 [[bin]]
-name = "fastfiler-gpui"
+# 配布物の exe 名 (パッケージ名は fastfiler-gpui のまま)。
+name = "fastfiler"
 path = "src/main.rs"
 
 [dependencies]

@@ -12,7 +12,7 @@
 |---|---|
 | バージョン | `crates/fastfiler-gpui/Cargo.toml` の `version` |
 | プラットフォーム | Windows 10 / 11 (x64) のみ |
-| 配布形式 | 単一実行ファイル `fastfiler-gpui.exe` + ドキュメント (ZIP) |
+| 配布形式 | 単一実行ファイル `fastfiler.exe` + ドキュメント (ZIP) |
 | ランタイム依存 | なし (WebView2 不要) |
 
 ---
@@ -44,7 +44,7 @@ cargo build -p fastfiler-gpui --release
 
 # ZIP 構成
 fastfiler-<version>-win-x64/
-├ fastfiler-gpui.exe
+├ fastfiler.exe
 ├ README.md
 └ doc/USAGE.md
 ```
@@ -53,7 +53,7 @@ fastfiler-<version>-win-x64/
 $v = "x.y.z"
 $dir = "fastfiler-$v-win-x64"
 mkdir $dir; mkdir $dir\doc
-copy target\release\fastfiler-gpui.exe $dir\
+copy target\release\fastfiler.exe $dir\
 copy README.md $dir\
 copy doc\USAGE.md $dir\doc\
 Compress-Archive -Path $dir -DestinationPath "$dir.zip"

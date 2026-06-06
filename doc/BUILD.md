@@ -36,7 +36,7 @@ cargo run -p fastfiler-gpui
 
 ```powershell
 cargo build -p fastfiler-gpui --release
-.\target\release\fastfiler-gpui.exe
+.\target\release\fastfiler.exe
 ```
 
 約 2 分 (LTO + codegen-units=1)。生成物は約 6MB・単体動作・コンソール非表示。

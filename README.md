@@ -55,7 +55,7 @@ fastfiler/
 
 ```powershell
 cargo build -p fastfiler-gpui --release
-.\target\release\fastfiler-gpui.exe
+.\target\release\fastfiler.exe
 ```
 
 開発時は `cargo run -p fastfiler-gpui`。
