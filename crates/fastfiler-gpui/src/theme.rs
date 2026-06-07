@@ -294,6 +294,11 @@ pub fn load_user_themes() -> (usize, Vec<String>) {
         let _ = std::fs::create_dir_all(&dir);
         write_samples(&dir);
     }
+    // 異常な数のファイル / 巨大ファイルでメモリを食い潰さないよう上限を設ける
+    // (各テーマは Box::leak されるため特に効く)。
+    const MAX_THEME_FILES: usize = 256;
+    const MAX_THEME_BYTES: u64 = 256 * 1024;
+
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|rd| {
             rd.filter_map(|e| e.ok().map(|e| e.path()))
@@ -305,6 +310,7 @@ pub fn load_user_themes() -> (usize, Vec<String>) {
         })
         .unwrap_or_default();
     files.sort();
+    files.truncate(MAX_THEME_FILES);
 
     let mut loaded: Vec<&'static Theme> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
@@ -313,6 +319,11 @@ pub fn load_user_themes() -> (usize, Vec<String>) {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        // 巨大ファイルは読み込まずにスキップ (DoS 対策)。
+        if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > MAX_THEME_BYTES {
+            errors.push(format!("{fname} (サイズ超過)"));
+            continue;
+        }
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|t| serde_json::from_str::<ThemeFile>(&t).map_err(|e| e.to_string()))

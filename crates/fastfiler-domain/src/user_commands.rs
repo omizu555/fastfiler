@@ -112,6 +112,13 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
         None => ctx.cwd.clone(),
     };
 
+    // セキュリティ: ベア名 (`code` 等) は PATH (カレントディレクトリを除外) で
+    // 絶対パスに解決してから起動する。閲覧中フォルダに置かれた悪意ある `code.exe`
+    // 等が検索順序で実行される (バイナリプランティング) のを防ぐ。
+    // 解決できなければ従来どおり exec をそのまま使う (ShellExecuteW の App Paths
+    // 等に委ねる) — 退行はしない。
+    let exec = resolve_in_path(&exec).unwrap_or(exec);
+
     if cmd.shell {
         return build_shell_command(&exec, &args, &working_dir)
             .spawn()
@@ -123,12 +130,16 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
     // CreateProcess 直接起動だと親の標準ハンドルが継承され、powershell 等の
     // コンソールアプリが「新しいウィンドウは開くが入出力は親側」になり
     // 開いた直後に閉じてしまう (shell::launch_with_shell のコメント参照)。
+    //
+    // セキュリティ: 各引数は cmd_quote で必ずダブルクオートする。標的が .cmd/.bat
+    // だと ShellExecuteW 経由でも cmd が引数を再解釈するため、`a & calc.exe` の
+    // ような攻撃者制御のファイル名でメタ文字が実行されるのを防ぐ。
     let params = if args.is_empty() {
         None
     } else {
         Some(
             args.iter()
-                .map(|a| quote_if_needed(a))
+                .map(|a| cmd_quote(a))
                 .collect::<Vec<_>>()
                 .join(" "),
         )
@@ -152,25 +163,89 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
 
 /// `cmd.exe /c "<exec> <args...>"` を組み立てる
 /// (shell=true 指定と、.cmd/.bat の NotFound フォールバックで共用)。
+///
+/// セキュリティ: ファイル名由来の値 ({path} 等) が cmd のメタ文字 (& | < > ^ ( ))
+/// を含んでもコマンドとして解釈されないよう、各トークンを cmd_quote で必ず
+/// ダブルクオートし (引用符内では cmd はメタ文字をリテラル扱いする)、`/c` の
+/// 引用符剥がし規則に合わせて行全体をさらに 1 組の引用符で囲んで raw_arg で渡す。
 fn build_shell_command(exec: &str, args: &[String], working_dir: &str) -> Command {
-    let mut full = quote_if_needed(exec);
+    let mut inner = cmd_quote(exec);
     for a in args {
-        full.push(' ');
-        full.push_str(&quote_if_needed(a));
+        inner.push(' ');
+        inner.push_str(&cmd_quote(a));
     }
+    // `cmd /c "<...>"`: 先頭が " のとき cmd は最初と最後の " を剥がして残りを
+    // 実行する。各トークンを引用済みなので、全体を 1 組の " で囲んでおく。
+    let payload = format!("\"{inner}\"");
+
     let mut c = Command::new("cmd.exe");
-    c.arg("/c").arg(full);
+    c.arg("/c");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        // raw_arg: Rust による再クオート (cmd のメタ文字を考慮しない) を回避し、
+        // 上で厳密に組み立てた行をそのまま cmd へ渡す。
+        c.raw_arg(&payload);
         // CREATE_NO_WINDOW = 0x08000000 — cmd 自体のコンソールを一瞬も出さない
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         c.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        c.arg(&payload);
     }
     if !working_dir.is_empty() && Path::new(working_dir).is_dir() {
         c.current_dir(working_dir);
     }
     c
+}
+
+/// ベア名の実行ファイルを PATH (+ PATHEXT) で絶対パスに解決する。
+/// **カレントディレクトリは検索対象に含めない** (PATH の空エントリ = cwd を除外)
+/// ことでバイナリプランティングを防ぐ。パス区切りを含む / 絶対パスの exec、
+/// および見つからない場合は None を返し、呼び出し側は元の exec をそのまま使う。
+fn resolve_in_path(exec: &str) -> Option<String> {
+    let p = Path::new(exec);
+    if p.is_absolute() || exec.contains('\\') || exec.contains('/') {
+        return None;
+    }
+    let path_var = std::env::var_os("PATH")?;
+    let exts: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .collect();
+    let has_ext = p.extension().is_some();
+    for dir in std::env::split_paths(&path_var) {
+        // 空エントリは Windows ではカレントディレクトリを意味する → 除外。
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        if has_ext {
+            let cand = dir.join(exec);
+            if cand.is_file() {
+                return Some(cand.to_string_lossy().into_owned());
+            }
+        } else {
+            for ext in &exts {
+                let cand = dir.join(format!("{exec}{ext}"));
+                if cand.is_file() {
+                    return Some(cand.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 1 トークンを cmd.exe 用に必ずダブルクオートする。引用符内では cmd は
+/// `& | < > ^ ( )` をリテラルとして扱うため、ファイル名由来のメタ文字を無害化できる。
+/// 内部の `"` は cmd 規約の `""` にエスケープ (NTFS のファイル名に `"` は使えないため
+/// 実害ケースは設定値のみ)。`%VAR%` の環境変数展開だけは引用符内でも起こり得るが、
+/// それで起きるのは情報露出程度でコマンド実行には至らない。
+fn cmd_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
 }
 
 fn expand_placeholders(input: &str, ctx: &RunCtx, _quote_paths: bool) -> String {
@@ -303,3 +378,73 @@ const SAMPLE_JSON: &str = r#"// FastFiler ユーザー定義コマンド サン�
   }
 ]
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmd_quote_wraps_and_neutralizes_metachars() {
+        // 空白の有無にかかわらず常にダブルクオートする。
+        assert_eq!(cmd_quote("plain"), "\"plain\"");
+        assert_eq!(cmd_quote("has space"), "\"has space\"");
+        // cmd のメタ文字を含むファイル名 — 引用符内に入りリテラル化される。
+        assert_eq!(cmd_quote("x&calc.exe"), "\"x&calc.exe\"");
+        assert_eq!(cmd_quote("a|b>c"), "\"a|b>c\"");
+        // 内部の " は "" にエスケープ (cmd 規約)。
+        assert_eq!(cmd_quote("a\"b"), "\"a\"\"b\"");
+    }
+
+    /// .bat を標的にした end-to-end テスト (BatBadBut クラスの最重要ケース)。
+    /// バッチファイルを「ツール」に見立て、メタ文字入りのファイル名を引数に渡す。
+    /// 注入が起きれば marker が作られ、起きなければバッチが**リテラルの引数**を
+    /// out.txt に書く。両方 (注入なし & 引数が壊れず届く) を確認する。
+    #[cfg(windows)]
+    #[test]
+    fn no_injection_and_arg_intact_for_batch_target() {
+        let dir = std::env::temp_dir().join("ff_sec_batch_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("PWNED.txt");
+        let out = dir.join("out.txt");
+        // ツール: 第1引数を out.txt へ書くだけのバッチ。バッチ自身が %~1 を
+        // 再注入しないよう引用して echo する (バッチ側の二次注入を排除)。
+        let tool = dir.join("tool.bat");
+        std::fs::write(&tool, "@echo \"%~1\">\"%~dp0out.txt\"\r\n").unwrap();
+        // 攻撃ファイル名: & で marker を作ろうとする (スペース無し)。
+        let malicious = format!("x&echo PWNED>{}", marker.display());
+        let mut c = build_shell_command(
+            tool.to_str().unwrap(),
+            &[malicious.clone()],
+            dir.to_str().unwrap(),
+        );
+        let _ = c.status();
+        // (1) 注入が起きていない。
+        assert!(!marker.exists(), "コマンド注入が成功: marker が作成された");
+        // (2) バッチはリテラルの引数 (& を含む) を受け取れている。
+        let got = std::fs::read_to_string(&out).unwrap_or_default();
+        assert!(
+            got.contains("x&echo PWNED>"),
+            "引数がツールに正しく届いていない: out={got:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_shell_command_payload_is_outer_quoted() {
+        // 攻撃シナリオ: `code` に `C:\d\x&calc.exe` を渡しても & が
+        // コマンド区切りにならないこと。組み立てた cmd /c 行を検証する。
+        let exec = "code";
+        let args = vec!["C:\\d\\x&calc.exe".to_string()];
+        // build_shell_command 内部と同じ手順で payload を再現。
+        let mut inner = cmd_quote(exec);
+        inner.push(' ');
+        inner.push_str(&cmd_quote(&args[0]));
+        let payload = format!("\"{inner}\"");
+        // 先頭末尾が外側の引用符で、各トークンが個別に引用されている。
+        assert_eq!(payload, "\"\"code\" \"C:\\d\\x&calc.exe\"\"");
+        // cmd が先頭末尾の " を剥がすと、各トークンが引用された安全な行が残る。
+        let stripped = &payload[1..payload.len() - 1];
+        assert_eq!(stripped, "\"code\" \"C:\\d\\x&calc.exe\"");
+    }
+}

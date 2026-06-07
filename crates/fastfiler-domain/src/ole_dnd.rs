@@ -31,7 +31,7 @@ use windows::Win32::System::Com::{
     DVASPECT_CONTENT, FORMATETC, STGMEDIUM, STGMEDIUM_0, TYMED_HGLOBAL,
 };
 use windows::Win32::System::DataExchange::RegisterClipboardFormatA;
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
 use windows::Win32::System::Ole::{
     DoDragDrop, IDropSource, IDropSource_Impl, IDropTarget, IDropTarget_Impl, OleInitialize,
     OleUninitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
@@ -141,6 +141,11 @@ unsafe fn read_hglobal_dword(stgm: &STGMEDIUM) -> Option<u32> {
         return None;
     }
     let h = windows::Win32::Foundation::HGLOBAL(stgm.u.hGlobal.0);
+    // 規約違反の (またはなりすましの) ドロップ先が 4 バイト未満の HGLOBAL を
+    // 渡してきた場合に範囲外読み取りしないようサイズを検証する。
+    if GlobalSize(h) < 4 {
+        return None;
+    }
     let p = GlobalLock(h) as *const u8;
     if p.is_null() {
         return None;

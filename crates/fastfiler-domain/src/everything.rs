@@ -99,7 +99,11 @@ pub fn query(
         .into_json()
         .map_err(|e| EverythingError(format!("decode: {}", e)))?;
 
-    let raw = body.results.unwrap_or_default();
+    // `count` はサーバへのヒントに過ぎず、応答 (信頼できないローカル HTTP) は
+    // それを無視して大量のヒットを返しうる。max_results で切り詰めて
+    // メモリ/UI フラッディングを防ぐ。
+    let mut raw = body.results.unwrap_or_default();
+    raw.truncate(max_results);
     let mut out = Vec::with_capacity(raw.len());
     for r in raw {
         let name = match r.name {
