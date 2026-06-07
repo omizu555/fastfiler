@@ -23,6 +23,15 @@ pub struct AppSettings {
     /// タブバーに「ツリー」トグルボタンを表示するか。
     #[serde(default = "default_true")]
     pub show_tree_button: bool,
+    /// UI フォントサイズ (px)。既定 16 (= 従来の見た目)。
+    #[serde(default = "default_font_size")]
+    pub font_size: f32,
+    /// UI フォントファミリー。None ならシステム既定。
+    #[serde(default)]
+    pub font_family: Option<String>,
+    /// UI スタイル名 (形状プリセット)。None なら既定 (モダン)。
+    #[serde(default)]
+    pub style: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -37,6 +46,10 @@ fn default_tab_columns() -> u8 {
     1
 }
 
+fn default_font_size() -> f32 {
+    16.0
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -44,6 +57,9 @@ impl Default for AppSettings {
             everything_port: default_port(),
             tab_columns: default_tab_columns(),
             show_tree_button: true,
+            font_size: default_font_size(),
+            font_family: None,
+            style: None,
         }
     }
 }

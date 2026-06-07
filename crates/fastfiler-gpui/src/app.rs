@@ -60,7 +60,7 @@ impl Render for TabDragPreview {
         div()
             .px_2()
             .py_1()
-            .rounded_md()
+            .rounded(theme::radius_md())
             .bg(th().surface_bg)
             .border_1()
             .border_color(th().accent)
@@ -145,6 +145,10 @@ pub struct FastFilerApp {
     settings_focus: FocusHandle,
     /// 設定画面のテーマコンボボックス (ドロップダウン展開中か)。
     theme_menu_open: bool,
+    /// 設定画面のフォントコンボボックス (ドロップダウン展開中か)。
+    font_menu_open: bool,
+    /// テーマ再読み込みの結果表示 (設定画面)。
+    theme_load_status: Option<SharedString>,
 }
 
 impl FastFilerApp {
@@ -183,6 +187,8 @@ impl FastFilerApp {
             everything_status: None,
             settings_focus: cx.focus_handle(),
             theme_menu_open: false,
+            font_menu_open: false,
+            theme_load_status: None,
         };
         this.register_quit_hook(cx);
         this.add_tab_at(start, cx);
@@ -216,6 +222,8 @@ impl FastFilerApp {
             everything_status: None,
             settings_focus: cx.focus_handle(),
             theme_menu_open: false,
+            font_menu_open: false,
+            theme_load_status: None,
         };
         this.register_quit_hook(cx);
         for (i, tab) in data.tabs.iter().enumerate() {
@@ -359,12 +367,16 @@ impl FastFilerApp {
         self.settings_open = Some(input);
         self.everything_status = None;
         self.theme_menu_open = false;
+        self.font_menu_open = false;
+        self.theme_load_status = None;
         self.settings_focus.focus(window, cx);
         cx.notify();
     }
 
     fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.theme_menu_open = false;
+        self.font_menu_open = false;
+        self.theme_load_status = None;
         self.everything_status = None;
         if self.settings_open.take().is_some() {
             cx.notify();
@@ -419,14 +431,50 @@ impl FastFilerApp {
         self.refresh_all(cx);
     }
 
+    /// UI スタイル (形状プリセット) を適用し、設定へ保存して全ビューを再描画。
+    fn set_style(&mut self, name: &'static str, cx: &mut Context<Self>) {
+        theme::set_style_by_name(name);
+        settings_store::update(|s| s.style = Some(name.to_string()));
+        self.refresh_all(cx);
+    }
+
+    /// テーマフォルダ (themes/*.json) を再読み込みして反映し、結果を表示する。
+    fn reload_user_themes(&mut self, cx: &mut Context<Self>) {
+        let (n, errors) = theme::load_user_themes();
+        self.theme_load_status = Some(if errors.is_empty() {
+            SharedString::from(format!("テーマ {n} 件を読み込みました"))
+        } else {
+            SharedString::from(format!(
+                "テーマ {n} 件読み込み / エラー: {}",
+                errors.join(", ")
+            ))
+        });
+        self.refresh_all(cx);
+    }
+
+    /// UI フォントサイズを適用し、設定へ保存して全ビューを再描画。
+    fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let size = size.clamp(theme::FONT_MIN, theme::FONT_MAX);
+        theme::set_font_px(size);
+        settings_store::update(|s| s.font_size = size);
+        self.refresh_all(cx);
+    }
+
+    /// UI フォントファミリーを適用 (None = システム既定)、設定へ保存して全ビューを再描画。
+    fn set_font_family(&mut self, family: Option<String>, cx: &mut Context<Self>) {
+        settings_store::update(|s| s.font_family = family);
+        self.refresh_all(cx);
+    }
+
     /// 設定画面のオーバーレイ (開いていなければ None)。
     fn render_settings(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let input = self.settings_open.as_ref()?;
 
         // テーマ選択 (コンボボックス)。ボタンで開閉し、ドロップダウンから選択。
+        // プリセット + ユーザーテーマ (themes/*.json) を列挙する。
         let current_theme = th().name;
-        let theme_items: Vec<AnyElement> = theme::presets()
-            .iter()
+        let theme_items: Vec<AnyElement> = theme::all_themes()
+            .into_iter()
             .map(|t| {
                 let name = t.name;
                 let active = name == current_theme;
@@ -435,7 +483,7 @@ impl FastFilerApp {
                     .px_3()
                     .py_1()
                     .mx_1()
-                    .rounded_sm()
+                    .rounded(theme::radius_sm())
                     .cursor_pointer()
                     .when(active, |d| d.bg(th().sel_bg))
                     .hover(|s| s.bg(th().menu_hover))
@@ -459,7 +507,7 @@ impl FastFilerApp {
                     .gap_2()
                     .px_3()
                     .py_1()
-                    .rounded_md()
+                    .rounded(theme::radius_md())
                     .cursor_pointer()
                     .bg(th().button_bg)
                     .hover(|s| s.bg(th().button_hover))
@@ -473,19 +521,166 @@ impl FastFilerApp {
             .when(self.theme_menu_open, |el| {
                 el.child(deferred(
                     div()
+                        .id("theme-list")
                         .occlude()
                         .absolute()
                         .top(px(32.0))
                         .left_0()
                         .w_full()
+                        .max_h(px(280.0))
+                        .overflow_y_scroll()
                         .flex()
                         .flex_col()
                         .py_1()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .bg(th().surface_bg)
                         .border_1()
                         .border_color(th().button_hover)
                         .children(theme_items),
+                ))
+            });
+
+        // スタイル (形状プリセット: モダン / シャープ / ソフト) ボタン。
+        let current_style = theme::ui_style().name;
+        let style_btns: Vec<AnyElement> = theme::style_presets()
+            .iter()
+            .map(|s| {
+                let name = s.name;
+                let active = name == current_style;
+                div()
+                    .id(SharedString::from(format!("style-{name}")))
+                    .px_3()
+                    .py_1()
+                    .rounded(theme::radius_md())
+                    .cursor_pointer()
+                    .bg(if active { th().sel_bg } else { th().button_bg })
+                    .hover(|s| s.bg(th().button_hover))
+                    .child(name)
+                    .on_click(cx.listener(move |this, _e, _w, cx| this.set_style(name, cx)))
+                    .into_any_element()
+            })
+            .collect();
+
+        // フォントサイズ (ステッパー: − / 現在値 / ＋)。
+        let font_size = theme::font_px();
+        let step_btn = |id: &'static str, label: &'static str, enabled: bool| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded(theme::radius_md())
+                .bg(th().button_bg)
+                .when(enabled, |d| {
+                    d.cursor_pointer().hover(|s| s.bg(th().button_hover))
+                })
+                .when(!enabled, |d| d.text_color(th().text_disabled))
+                .child(label)
+        };
+        let font_stepper = div()
+            .flex()
+            .flex_row()
+            .gap_2()
+            .items_center()
+            .child(
+                step_btn("font-dec", "−", font_size > theme::FONT_MIN).on_click(
+                    cx.listener(|this, _e, _w, cx| {
+                        this.set_font_size(theme::font_px() - 1.0, cx)
+                    }),
+                ),
+            )
+            .child(div().flex().justify_center().w(px(52.0)).child(
+                SharedString::from(format!("{} px", font_size.round() as i32)),
+            ))
+            .child(
+                step_btn("font-inc", "＋", font_size < theme::FONT_MAX).on_click(
+                    cx.listener(|this, _e, _w, cx| {
+                        this.set_font_size(theme::font_px() + 1.0, cx)
+                    }),
+                ),
+            );
+
+        // フォントファミリー選択 (コンボボックス)。開いた時だけ全フォントを列挙する。
+        let current_family = settings_store::get().font_family;
+        let font_combo_label: SharedString = current_family
+            .clone()
+            .map(SharedString::from)
+            .unwrap_or_else(|| "(システム既定)".into());
+        let font_items: Vec<AnyElement> = if self.font_menu_open {
+            let mut names = cx.text_system().all_font_names();
+            names.sort();
+            names.dedup();
+            std::iter::once(None)
+                .chain(names.into_iter().map(Some))
+                .enumerate()
+                .map(|(ix, name)| {
+                    let label: SharedString = match &name {
+                        Some(n) => SharedString::from(n.clone()),
+                        None => "(システム既定)".into(),
+                    };
+                    let active = name.as_deref() == current_family.as_deref();
+                    div()
+                        .id(ix)
+                        .px_3()
+                        .py_1()
+                        .mx_1()
+                        .rounded(theme::radius_sm())
+                        .cursor_pointer()
+                        .when(active, |d| d.bg(th().sel_bg))
+                        .hover(|s| s.bg(th().menu_hover))
+                        .child(label)
+                        .on_click(cx.listener(move |this, _e, _w, cx| {
+                            this.font_menu_open = false;
+                            this.set_font_family(name.clone(), cx);
+                        }))
+                        .into_any_element()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let font_combo = div()
+            .relative()
+            .w(px(220.0))
+            .child(
+                div()
+                    .id("font-combo")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .rounded(theme::radius_md())
+                    .cursor_pointer()
+                    .bg(th().button_bg)
+                    .hover(|s| s.bg(th().button_hover))
+                    .child(div().flex_1().truncate().child(font_combo_label))
+                    .child(div().text_color(th().text_dim).child("▼"))
+                    .on_click(cx.listener(|this, _e, _w, cx| {
+                        this.font_menu_open = !this.font_menu_open;
+                        this.theme_menu_open = false;
+                        cx.notify();
+                    })),
+            )
+            .when(self.font_menu_open, |el| {
+                el.child(deferred(
+                    div()
+                        .id("font-list")
+                        .occlude()
+                        .absolute()
+                        .top(px(32.0))
+                        .left_0()
+                        .w_full()
+                        .max_h(px(280.0))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .py_1()
+                        .rounded(theme::radius_md())
+                        .bg(th().surface_bg)
+                        .border_1()
+                        .border_color(th().button_hover)
+                        .children(font_items),
                 ))
             });
 
@@ -498,7 +693,7 @@ impl FastFilerApp {
                     .id(SharedString::from(format!("cols-{n}")))
                     .px_3()
                     .py_1()
-                    .rounded_md()
+                    .rounded(theme::radius_md())
                     .cursor_pointer()
                     .bg(if active { th().sel_bg } else { th().button_bg })
                     .hover(|s| s.bg(th().button_hover))
@@ -516,7 +711,7 @@ impl FastFilerApp {
                 .id(id)
                 .px_3()
                 .py_1()
-                .rounded_md()
+                .rounded(theme::radius_md())
                 .cursor_pointer()
                 .bg(th().button_bg)
                 .hover(|s| s.bg(th().button_hover))
@@ -560,7 +755,7 @@ impl FastFilerApp {
                         .gap_3()
                         .w(px(520.0))
                         .p_4()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .bg(th().surface_bg)
                         .border_1()
                         .border_color(th().accent)
@@ -576,7 +771,7 @@ impl FastFilerApp {
                                     div()
                                         .id("st-close")
                                         .px_2()
-                                        .rounded_sm()
+                                        .rounded(theme::radius_sm())
                                         .cursor_pointer()
                                         .hover(|s| s.bg(th().button_bg))
                                         .child("×")
@@ -587,7 +782,45 @@ impl FastFilerApp {
                         )
                         // 外観
                         .child(section("外観 — テーマ"))
-                        .child(theme_combo)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .items_center()
+                                .child(theme_combo)
+                                // ユーザーテーマ (themes/*.json) の編集導線。
+                                .child(action_btn("st-th-dir", "テーマフォルダを開く").on_click(
+                                    cx.listener(|this, _e, _w, cx| {
+                                        if let Some(d) = theme::themes_dir() {
+                                            let _ = std::fs::create_dir_all(&d);
+                                            this.close_settings(cx);
+                                            this.open_in_focused_pane(d, cx);
+                                        }
+                                    }),
+                                ))
+                                .child(action_btn("st-th-reload", "再読み込み").on_click(
+                                    cx.listener(|this, _e, _w, cx| {
+                                        this.reload_user_themes(cx)
+                                    }),
+                                )),
+                        )
+                        // テーマ再読み込みの結果 (読込数 / エラー)。
+                        .children(self.theme_load_status.clone().map(|s| {
+                            div().text_color(th().text_dim).child(s)
+                        }))
+                        .child(section("外観 — スタイル"))
+                        .child(div().flex().flex_row().gap_2().children(style_btns))
+                        .child(section("外観 — フォント / サイズ"))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_3()
+                                .items_center()
+                                .child(font_combo)
+                                .child(font_stepper),
+                        )
                         .child(sep())
                         // タブバー
                         .child(section("タブバー — 列数"))
@@ -604,7 +837,7 @@ impl FastFilerApp {
                                         .id("tree-btn-toggle")
                                         .px_3()
                                         .py_1()
-                                        .rounded_md()
+                                        .rounded(theme::radius_md())
                                         .cursor_pointer()
                                         .bg(if settings_store::get().show_tree_button {
                                             th().sel_bg
@@ -1218,7 +1451,7 @@ impl Render for FastFilerApp {
                     div()
                         .id(SharedString::from(format!("lock-{i}")))
                         .px_1()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .text_color(th().text_dim)
                         .child("🔒")
                         .on_mouse_down(
@@ -1231,7 +1464,7 @@ impl Render for FastFilerApp {
                     div()
                         .id(SharedString::from(format!("close-{i}")))
                         .px_1()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .cursor_pointer()
                         .text_color(th().text_dim)
                         .hover(|s| s.bg(th().danger_bg).text_color(th().text_bright))
@@ -1252,7 +1485,7 @@ impl Render for FastFilerApp {
                             .truncate()
                             .px_2()
                             .py_1()
-                            .rounded_md()
+                            .rounded(theme::radius_md())
                             .cursor_pointer()
                             .bg(if is_active { th().sel_bg } else { th().header_bg })
                             .hover(|s| s.bg(th().hover_bg))
@@ -1340,7 +1573,7 @@ impl Render for FastFilerApp {
             .flex_shrink_0()
             .gap_2()
             .px_3()
-            .h(px(34.0))
+            .h(theme::bar_h())
             .bg(th().tab_bar_bg)
             .border_t_1()
             .border_color(th().separator)
@@ -1351,7 +1584,7 @@ impl Render for FastFilerApp {
                     .id("open-settings")
                     .px_2()
                     .py_1()
-                    .rounded_md()
+                    .rounded(theme::radius_md())
                     .cursor_pointer()
                     .bg(th().surface_bg)
                     .hover(|s| s.bg(th().button_bg))
@@ -1368,6 +1601,13 @@ impl Render for FastFilerApp {
             .size_full()
             .relative()
             .bg(th().app_bg)
+            // UI フォント (設定)。テキストスタイルスタックで全子孫
+            // (deferred 描画のメニュー含む) へ継承される。
+            .text_size(px(theme::font_px()))
+            .when_some(
+                settings.font_family.clone().map(SharedString::from),
+                |d, f| d.font_family(f),
+            )
             .child(
                 div().flex_1().flex().flex_row().overflow_hidden()
             // タブバー幅ハンドルのドラッグ移動 (行コンテナ左端起点で幅算出)。
@@ -1397,7 +1637,7 @@ impl Render for FastFilerApp {
                                     .flex_1()
                                     .px_2()
                                     .py_1()
-                                    .rounded_md()
+                                    .rounded(theme::radius_md())
                                     .cursor_pointer()
                                     .bg(th().surface_bg)
                                     .hover(|s| s.bg(th().button_bg))
@@ -1411,7 +1651,7 @@ impl Render for FastFilerApp {
                                     .id("toggle-tree")
                                     .px_2()
                                     .py_1()
-                                    .rounded_md()
+                                    .rounded(theme::radius_md())
                                     .cursor_pointer()
                                     .bg(if show_tree { th().sel_bg } else { th().surface_bg })
                                     .hover(|s| s.bg(th().menu_hover))

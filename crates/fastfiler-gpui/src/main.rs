@@ -50,6 +50,9 @@ fn main() {
 
         // 設定 (テーマ等)。旧バージョンの session.theme からの移行も吸収する。
         let settings = settings_store::load();
+        // ユーザーテーマ (themes/*.json) を先に読み込む — 保存済みテーマ名が
+        // ユーザーテーマでも set_by_name で解決できるように。
+        theme::load_user_themes();
         let theme_name = settings
             .theme
             .clone()
@@ -59,6 +62,11 @@ fn main() {
                 // 旧 session 由来 → 設定ファイルへ移行保存。
                 settings_store::update(|s| s.theme = Some(name.clone()));
             }
+        }
+        // UI フォントサイズ / スタイルの復元 (キャッシュへ反映)。
+        theme::set_font_px(settings.font_size);
+        if let Some(style) = &settings.style {
+            theme::set_style_by_name(style);
         }
 
         let bounds = saved

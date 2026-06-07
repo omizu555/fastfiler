@@ -37,7 +37,7 @@ use gpui::{
 use crate::hotkeys;
 use crate::sink::ChannelSink;
 use crate::text_input::TextInput;
-use crate::theme::th;
+use crate::theme::{self, th};
 
 /// 入力モーダルの種類。
 enum ModalKind {
@@ -1130,7 +1130,7 @@ impl PaneView {
             .flex_row()
             .items_center()
             .w_full()
-            .h(px(24.0))
+            .h(theme::row_h())
             .px_2()
             .gap_2()
             .bg(if ix % 2 == 0 {
@@ -1145,7 +1145,7 @@ impl PaneView {
                     this.open_search_result(ix, window, cx);
                 }
             }))
-            .child(div().w(px(6.0)).flex_shrink_0().h(px(14.0)).rounded_sm().bg(accent))
+            .child(div().w(px(6.0)).flex_shrink_0().h(px(14.0)).rounded(theme::radius_sm()).bg(accent))
             .child(div().flex_shrink_0().text_color(th().text).child(name))
             .child(
                 div()
@@ -1394,7 +1394,7 @@ impl PaneView {
             .px_3()
             .py_1()
             .mx_1()
-            .rounded_sm();
+            .rounded(theme::radius_sm());
         if enabled {
             row.cursor_pointer()
                 .hover(|s| s.bg(th().menu_hover))
@@ -1427,12 +1427,12 @@ impl PaneView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let open = m.submenu == Some(kind);
-        // サブメニューの高さをざっくり見積もる (1 行 ≈ 28px + 区切り/padding)。
+        // サブメニューの高さをざっくり見積もる (1 行 ≈ フォント×1.75 + 区切り/padding)。
         let sub_rows = match kind {
             Submenu::NewFile => m.templates.len().max(1) + 1,
             Submenu::Settings => 3,
         };
-        let est_h = sub_rows as f32 * 28.0 + 19.0;
+        let est_h = sub_rows as f32 * (theme::font_px() * 1.75) + 19.0;
         // メニュー anchor (右クリック位置) は snap で実際より下を指すことがあるが、
         // その場合は上方向に倒れるだけなので安全側。
         let open_up =
@@ -1450,21 +1450,11 @@ impl PaneView {
             .px_3()
             .py_1()
             .mx_1()
-            .rounded_sm()
+            .rounded(theme::radius_sm())
             .cursor_pointer()
             .hover(|s| s.bg(th().menu_hover))
-            // hover で展開 (別のサブメニューが開いていれば切り替え)。
-            // 離れても閉じない — サブメニュー側へポインタを移動できるようにする。
-            .on_hover(cx.listener(move |this, hovered: &bool, _w, cx| {
-                if *hovered {
-                    if let Some(menu) = this.context_menu.as_mut() {
-                        if menu.submenu != Some(kind) {
-                            menu.submenu = Some(kind);
-                            cx.notify();
-                        }
-                    }
-                }
-            }))
+            // クリックで開閉 (素通りの hover では開かない)。
+            // 開いたまま離れても閉じない — サブメニュー側へポインタを移動できるようにする。
             .on_click(cx.listener(move |this, _e, _w, cx| {
                 if let Some(menu) = this.context_menu.as_mut() {
                     menu.submenu = if menu.submenu == Some(kind) {
@@ -1487,7 +1477,7 @@ impl PaneView {
                 .flex_col()
                 .py_1()
                 .w(px(210.0))
-                .rounded_md()
+                .rounded(theme::radius_md())
                 .bg(th().surface_bg)
                 .border_1()
                 .border_color(th().button_hover)
@@ -1573,17 +1563,17 @@ impl PaneView {
         let m = self.context_menu.as_ref()?;
         let viewport = window.viewport_size();
         // サブメニュー展開方向の判定用: メニュー先頭から各親項目までの推定オフセット
-        // (1 行 ≈ 28px / 区切り ≈ 9px / パネル上 padding 4px)。
-        const ROW_H: f32 = 28.0;
+        // (1 行 ≈ フォント×1.75 [既定 16px で 28px] / 区切り ≈ 9px / パネル上 padding 4px)。
+        let row_h: f32 = theme::font_px() * 1.75;
         const SEP_H: f32 = 9.0;
         let newfile_offset = if m.on_row {
-            4.0 + 7.0 * ROW_H + 3.0 * SEP_H
+            4.0 + 7.0 * row_h + 3.0 * SEP_H
         } else {
-            4.0 + 3.0 * ROW_H + SEP_H
+            4.0 + 3.0 * row_h + SEP_H
         };
         let settings_offset = {
             let extra = if m.user_cmds.is_empty() { 0.0 } else { SEP_H };
-            newfile_offset + (1.0 + m.user_cmds.len() as f32) * ROW_H + SEP_H + extra
+            newfile_offset + (1.0 + m.user_cmds.len() as f32) * row_h + SEP_H + extra
         };
         let mut items: Vec<AnyElement> = Vec::new();
         if m.on_row {
@@ -1673,7 +1663,7 @@ impl PaneView {
                                     .flex_col()
                                     .py_1()
                                     .w(px(210.0))
-                                    .rounded_md()
+                                    .rounded(theme::radius_md())
                                     .bg(th().surface_bg)
                                     .border_1()
                                     .border_color(th().button_hover)
@@ -1720,7 +1710,7 @@ impl PaneView {
                         .gap_2()
                         .w(px(420.0))
                         .p_3()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .bg(th().surface_bg)
                         .border_1()
                         .border_color(th().accent)
@@ -2089,7 +2079,7 @@ impl PaneView {
                 .px_3()
                 .py_1()
                 .mx_1()
-                .rounded_sm()
+                .rounded(theme::radius_sm())
                 .cursor_pointer()
                 .hover(|s| s.bg(th().menu_hover))
                 .child(label)
@@ -2112,7 +2102,7 @@ impl PaneView {
                         .px_3()
                         .py_1()
                         .mx_1()
-                        .rounded_sm()
+                        .rounded(theme::radius_sm())
                         .cursor_pointer()
                         .hover(|s| s.bg(th().menu_hover))
                         .child(label.clone())
@@ -2151,7 +2141,7 @@ impl PaneView {
                                     .flex_col()
                                     .py_1()
                                     .w(px(210.0))
-                                    .rounded_md()
+                                    .rounded(theme::radius_md())
                                     .bg(th().surface_bg)
                                     .border_1()
                                     .border_color(th().button_hover)
@@ -2287,7 +2277,7 @@ impl PaneView {
                 .id(id)
                 .px_3()
                 .py_1()
-                .rounded_md()
+                .rounded(theme::radius_md())
                 .cursor_pointer()
                 .bg(bg)
                 .hover(|s| s.bg(th().button_hover))
@@ -2315,7 +2305,7 @@ impl PaneView {
                         .gap_3()
                         .w(px(460.0))
                         .p_3()
-                        .rounded_md()
+                        .rounded(theme::radius_md())
                         .bg(th().surface_bg)
                         .border_1()
                         .border_color(th().accent)
@@ -2576,7 +2566,7 @@ impl PaneView {
                 div()
                     .w(px(6.0))
                     .h(px(14.0))
-                    .rounded_sm()
+                    .rounded(theme::radius_sm())
                     .bg(accent)
                     .into_any_element()
             }
@@ -2589,7 +2579,7 @@ impl PaneView {
             .items_center()
             // 行は常に全幅 (内容幅で縮むと サイズ/種類 列が行ごとにずれる)。
             .w_full()
-            .h(px(24.0))
+            .h(theme::row_h())
             .px_2()
             .gap_2()
             .bg(row_bg)
@@ -2749,7 +2739,7 @@ impl Render for PaneView {
                 // クリックで入力欄になり、マウスドラッグで部分選択できる。
                 .truncate()
                 .px_1()
-                .rounded_sm()
+                .rounded(theme::radius_sm())
                 .cursor_pointer()
                 .hover(|s| s.bg(th().surface_hover))
                 .child(path_text)
@@ -2771,7 +2761,7 @@ impl Render for PaneView {
             div()
                 .id("job-cancel")
                 .px_2()
-                .rounded_sm()
+                .rounded(theme::radius_sm())
                 .cursor_pointer()
                 .bg(th().danger_bg)
                 .hover(|s| s.bg(th().danger_hover).text_color(th().text_bright))
@@ -2792,7 +2782,7 @@ impl Render for PaneView {
                 .items_center()
                 .gap_2()
                 .px_2()
-                .h(px(34.0))
+                .h(theme::bar_h())
                 .bg(th().search_bar_bg)
                 .child(div().text_color(th().text_dim).child("検索"))
                 .child(div().flex_1().child(ui.input.clone()))
@@ -2801,7 +2791,7 @@ impl Render for PaneView {
                     div()
                         .id("search-close")
                         .px_2()
-                        .rounded_sm()
+                        .rounded(theme::radius_sm())
                         .cursor_pointer()
                         .hover(|s| s.bg(th().button_bg))
                         .child("×")
@@ -2838,7 +2828,7 @@ impl Render for PaneView {
                 .items_center()
                 .gap_2()
                 .px_2()
-                .h(px(22.0))
+                .h(theme::header_h())
                 .bg(th().header_bg)
                 .text_color(th().text_faint)
                 .child(div().w(px(16.0)).flex_shrink_0())
@@ -2996,7 +2986,7 @@ impl Render for PaneView {
                     .items_center()
                     .gap_2()
                     .px_2()
-                    .h(px(34.0))
+                    .h(theme::bar_h())
                     .bg(th().bar_bg)
                     // 戻る/進むはボタン非表示 (マウス第4/5ボタン・Alt+←→ で操作)。
                     .child(
@@ -3004,7 +2994,7 @@ impl Render for PaneView {
                             .id("up")
                             .px_2()
                             .py_1()
-                            .rounded_md()
+                            .rounded(theme::radius_md())
                             .bg(th().button_bg)
                             .cursor_pointer()
                             .hover(|s| s.bg(th().button_hover))
@@ -3018,7 +3008,7 @@ impl Render for PaneView {
                             .id("split-row")
                             .px_2()
                             .py_1()
-                            .rounded_md()
+                            .rounded(theme::radius_md())
                             .bg(th().button_bg)
                             .cursor_pointer()
                             .hover(|s| s.bg(th().button_hover))
@@ -3032,7 +3022,7 @@ impl Render for PaneView {
                             .id("split-col")
                             .px_2()
                             .py_1()
-                            .rounded_md()
+                            .rounded(theme::radius_md())
                             .bg(th().button_bg)
                             .cursor_pointer()
                             .hover(|s| s.bg(th().button_hover))
@@ -3046,7 +3036,7 @@ impl Render for PaneView {
                             .id("close-pane")
                             .px_2()
                             .py_1()
-                            .rounded_md()
+                            .rounded(theme::radius_md())
                             .bg(th().button_bg)
                             .cursor_pointer()
                             .hover(|s| s.bg(th().danger_hover))
@@ -3070,7 +3060,7 @@ impl Render for PaneView {
                     .items_center()
                     .gap_2()
                     .px_2()
-                    .h(px(24.0))
+                    .h(theme::row_h())
                     .bg(th().bar_bg)
                     .text_color(th().text_dim)
                     .child(div().flex_1().overflow_hidden().child(status))

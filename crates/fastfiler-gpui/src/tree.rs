@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use fastfiler_domain::fs;
 
-use crate::theme::th;
+use crate::theme::{self, th};
 use gpui::{
     AnyElement, Context, EventEmitter, IntoElement, MouseButton, ScrollStrategy, SharedString,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -259,7 +259,7 @@ impl TreeView {
                 .flex()
                 .flex_row()
                 .items_center()
-                .h(px(24.0))
+                .h(theme::row_h())
                 .pl(px(6.0))
                 .pr_1()
                 .gap_1()
@@ -286,7 +286,7 @@ impl TreeView {
             .flex()
             .flex_row()
             .items_center()
-            .h(px(24.0))
+            .h(theme::row_h())
             .pl(indent)
             .pr_1()
             .gap_1()
@@ -310,7 +310,7 @@ impl TreeView {
                     .flex_1()
                     .overflow_hidden()
                     .truncate()
-                    .rounded_sm()
+                    .rounded(theme::radius_sm())
                     .px_1()
                     .cursor_pointer()
                     .when(is_sel, |d| d.bg(th().sel_bg).text_color(th().text))
@@ -341,7 +341,7 @@ impl Render for TreeView {
                     .flex_row()
                     .items_center()
                     .px_2()
-                    .h(px(28.0))
+                    .h(px(theme::font_px() + 12.0))
                     .bg(th().header_bg)
                     .text_color(th().text_dim)
                     .child(div().flex_1().child("ツリー"))
@@ -349,7 +349,7 @@ impl Render for TreeView {
                         div()
                             .id("tree-refresh")
                             .px_1()
-                            .rounded_sm()
+                            .rounded(theme::radius_sm())
                             .cursor_pointer()
                             .hover(|s| s.bg(th().button_bg).text_color(th().text))
                             .child("⟳")

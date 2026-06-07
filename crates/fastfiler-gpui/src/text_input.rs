@@ -19,7 +19,7 @@ use gpui::{
 };
 use unicode_segmentation::*;
 
-use crate::theme::th;
+use crate::theme::{self, th};
 
 actions!(
     text_input,
@@ -656,15 +656,16 @@ impl Render for TextInput {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .bg(th().input_bg)
-            .rounded_md()
+            .rounded(theme::radius_md())
             .border_1()
             .border_color(th().button_bg)
-            .line_height(px(22.))
-            .text_size(px(14.))
+            // 設定フォントサイズ基準 (既定 16px で従来の 14/22px と一致)。
+            .line_height(px(theme::font_px() + 6.))
+            .text_size(px(theme::font_px() - 2.))
             .text_color(th().text)
             .child(
                 div()
-                    .h(px(22. + 4. * 2.))
+                    .h(px(theme::font_px() + 6. + 4. * 2.))
                     .w_full()
                     .p(px(4.))
                     .child(TextElement { input: cx.entity() }),
