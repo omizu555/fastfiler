@@ -75,6 +75,8 @@ enum MenuAction {
     /// ホットキー設定を再読み込み。
     ReloadHotkeys,
     Refresh,
+    /// Windows のプロパティダイアログを開く (選択先頭の項目)。
+    Properties,
 }
 
 /// 検索バーの状態 (Ctrl+F)。閉じると入力 Entity ごと drop。
@@ -1375,6 +1377,18 @@ impl PaneView {
                 self.status = "ホットキーを再読み込みしました".into();
             }
             MenuAction::Refresh => self.reload(cx, false),
+            MenuAction::Properties => {
+                // 選択先頭 (なければカーソル) の項目を対象に。
+                let target = self.selected_paths().into_iter().next().or_else(|| {
+                    self.cursor
+                        .and_then(|i| self.entries.get(i))
+                        .map(|e| self.cur_path.join(&e.name).to_string_lossy().to_string())
+                });
+                if let Some(path) = target {
+                    // ダイアログを閉じるまでブロックするため投げっぱなし (UI 再入回避)。
+                    let _ = shell::show_properties_async(path);
+                }
+            }
         }
         cx.notify();
     }
@@ -1661,6 +1675,11 @@ impl PaneView {
                 viewport,
                 cx,
             ));
+        }
+        // プロパティ (行メニューの最下部) — Windows の SHObjectProperties。
+        if m.on_row {
+            items.push(menu_sep());
+            items.push(self.menu_item("プロパティ", "", true, MenuAction::Properties, cx));
         }
 
         Some(

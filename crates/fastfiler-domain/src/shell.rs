@@ -230,6 +230,20 @@ pub fn show_properties(path: String) -> AppResult<()> {
     }
 }
 
+/// プロパティダイアログを専用 STA スレッドで開く (UI スレッド再入対策)。
+/// `SHObjectProperties` はダイアログを閉じるまでブロックするため、呼び出し側は
+/// 戻り値の JoinHandle を join せず投げっぱなしにする (open_with_shell_async と同様)。
+pub fn show_properties_async(path: String) -> std::thread::JoinHandle<AppResult<()>> {
+    #[cfg(windows)]
+    {
+        win::show_properties_thread(path)
+    }
+    #[cfg(not(windows))]
+    {
+        std::thread::spawn(move || show_properties(path))
+    }
+}
+
 #[cfg(windows)]
 mod win {
     use super::*;
@@ -317,9 +331,9 @@ mod win {
         })
     }
 
-    pub fn show_properties(path: &str) -> AppResult<()> {
-        let path = path.to_owned();
-        let handle = thread::spawn(move || -> AppResult<()> {
+    /// プロパティ表示を行う STA スレッドを生成して返す (join は呼び出し側に委ねる)。
+    pub fn show_properties_thread(path: String) -> thread::JoinHandle<AppResult<()>> {
+        thread::spawn(move || -> AppResult<()> {
             unsafe {
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
                 let path_w = wide(&path);
@@ -336,8 +350,11 @@ mod win {
                     Err(AppError::Win32("SHObjectProperties returned FALSE".into()))
                 }
             }
-        });
-        handle
+        })
+    }
+
+    pub fn show_properties(path: &str) -> AppResult<()> {
+        show_properties_thread(path.to_owned())
             .join()
             .map_err(|_| AppError::Win32("properties thread panicked".into()))?
     }
