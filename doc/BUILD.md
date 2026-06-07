@@ -1,4 +1,4 @@
-# FastFiler ビルド & 開発ガイド (GPUI 版)
+# FastFiler ビルド & 開発 & リリースガイド (GPUI 版)
 
 GPUI (Zed のフレームワークを `vendor/` に完全移植) ベースの純 Rust 構成。
 Node / Tauri / WebView2 は不要。zed リポジトリのチェックアウトも**不要** (自己完結)。
@@ -72,10 +72,77 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 - デバッグ起動でコンソールにパニックが出る (`RUST_BACKTRACE=1` 推奨)。
 - ユーザーデータは `%APPDATA%\FastFiler\` 配下:
   - `gpui_session.json` — セッション (タブ / 分割 / 列幅 / ロック / ウィンドウ位置)
-  - `gpui_settings.json` — 設定 (テーマ / タブ列数 / Everything ポート 等)
+  - `gpui_settings.json` — 設定 (テーマ / スタイル / フォント / タブ列数 / Everything ポート 等)
   - `gpui_hotkeys.json` — ホットキー割り当て
+  - `themes/*.json` — カスタムテーマ (初回起動でサンプル生成)
   - 壊れた場合は該当ファイルを削除すれば既定値で再生成される。
 - メモリ健全性はタブバー下部の `live panes: N` で確認できる
   (タブ/ペインを開閉してベースラインへ戻れば OK)。
 - GPUI の API を調べるときは `vendor/crates/gpui/examples/` が最短
   (hello_world / uniform_list / input など)。
+
+---
+
+## 5. リリース手順 (ZIP 配布)
+
+| 項目 | 値 |
+|---|---|
+| バージョン | `crates/fastfiler-gpui/Cargo.toml` の `version` |
+| プラットフォーム | Windows 10 / 11 (x64) のみ |
+| 配布形式 | 単一実行ファイル `fastfiler.exe` + ドキュメント (ZIP) |
+| ランタイム依存 | なし (WebView2 不要) |
+
+### リリース前チェックリスト
+
+コード品質:
+
+- [ ] `cargo fmt --all` (差分なし)
+- [ ] `cargo clippy -p fastfiler-gpui -p fastfiler-domain -- -D warnings`
+- [ ] `cargo build -p fastfiler-gpui --release` (warnings 0)
+
+動作確認 (手動):
+
+- [ ] 起動 → 前回セッション (タブ / 分割 / ウィンドウ位置) が復元される
+- [ ] フォルダ展開速度 (`C:\Windows\System32` を開いて即時表示)
+- [ ] タブ追加/閉じ・ペイン分割/閉じ → **`live panes` がベースラインへ戻る**
+- [ ] D&D (ペイン間 / エクスプローラ相互 / 右ボタンドラッグのメニュー)
+- [ ] コピー / 切り取り / 貼り付け (エクスプローラ相互) + 進捗表示
+- [ ] リネーム / 新規フォルダ / 新規ファイル (日本語 IME 入力)
+- [ ] ごみ箱削除 (複数選択) と Ctrl+Z での取り消し
+- [ ] ワークスペースツリー (展開 / フォーカスペインに開く / 幅変更)
+- [ ] 右クリックメニュー (行 / 背景 / Shift+右クリックのシェルメニュー)
+- [ ] 検索 (Ctrl+F、Everything 起動中なら連携)
+- [ ] 設定画面 (テーマ / スタイル / フォントの切替が即反映)
+
+### ビルドと梱包
+
+```powershell
+cargo build -p fastfiler-gpui --release
+
+# ZIP 構成
+fastfiler-<version>-win-x64/
+├ fastfiler.exe
+├ README.md
+└ doc/USAGE.md
+```
+
+```powershell
+$v = "x.y.z"
+$dir = "fastfiler-$v-win-x64"
+mkdir $dir; mkdir $dir\doc
+copy target\release\fastfiler.exe $dir\
+copy README.md $dir\
+copy doc\USAGE.md $dir\doc\
+Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+```
+
+### タグ付け
+
+```powershell
+git tag -a gpui-vX.Y.Z -m "FastFiler GPUI vX.Y.Z"
+git push origin gpui-vX.Y.Z   # 任意
+```
+
+### 既知の制限 (リリースノートに記載)
+
+[`README.md`](./README.md) (doc 案内) の「未実装 / 残タスク」を転記する。

@@ -27,14 +27,14 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | ドキュメント | 内容 |
 |---|---|
 | [CONTEXT.md](./CONTEXT.md) | 中核アイデンティティと用語の定義 |
-| [doc/adr/](./doc/adr/) | アーキテクチャ意思決定記録 (ADR) — 何を捨てたか・なぜか |
-| [doc/plan-2026-06-03-gpui-migration.md](./doc/plan-2026-06-03-gpui-migration.md) | GPUI 移植計画と進捗ログ (§11) |
-| [vendor/README.md](./vendor/README.md) | GPUI vendor の構成・改変点・更新手順 |
-| [doc/STATUS.md](./doc/STATUS.md) | 実装ステータス (実装済 / 採用予定 / 不採用) |
-| [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
+| [doc/README.md](./doc/README.md) | **doc フォルダの案内** + 実装状況サマリ (まずここ) |
 | [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作リファレンス) |
-| [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 |
-| [doc/RELEASE.md](./doc/RELEASE.md) | リリース手順 (ZIP 配布) |
+| [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
+| [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 & リリース手順 |
+| [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |
+| [doc/adr/](./doc/adr/) | アーキテクチャ意思決定記録 (ADR) — 何を捨てたか・なぜか |
+| [doc/plan/](./doc/plan/) | 実装計画 (日付付き、作業ログ含む) |
+| [vendor/README.md](./vendor/README.md) | GPUI vendor の構成・改変点・更新手順 |
 
 ## ディレクトリ構成
 
@@ -47,8 +47,9 @@ fastfiler/
 │  ├ fastfiler-domain/   # OS/ファイル操作ライブラリ (GUI 非依存)
 │  └ fastfiler-gpui/     # GPUI GUI バイナリ
 ├ vendor/                # GPUI とその依存 18 クレート (zed から完全移植・自己完結)
-└ doc/                   # ドキュメント
-   └ adr/                # ADR (意思決定記録)
+└ doc/                   # ドキュメント (案内は doc/README.md)
+   ├ adr/                # ADR (意思決定記録)
+   └ plan/               # 実装計画 (日付付き md)
 ```
 
 ## ビルドと起動
@@ -74,7 +75,8 @@ cargo build -p fastfiler-gpui --release
 | コピー / 切り取り / 貼り付け | Ctrl+C / X / V (エクスプローラ相互運用) |
 | 削除 (ごみ箱) | Delete |
 | 右クリック | コンテキストメニュー (行 / 背景) |
-| D&D | ペイン間 / エクスプローラ→FastFiler (同一ボリューム=移動) |
+| D&D | ペイン間 / エクスプローラと相互 (右ボタンドラッグのメニュー対応) |
+| 検索 / 元に戻す | Ctrl+F (Everything 連携) / Ctrl+Z (リネーム・ごみ箱送り) |
 | ワークスペースツリー | 「ツリー」ボタンで表示切替、クリックでフォーカスペインに開く |
 
 タブ / 分割構成 / ウィンドウ位置はセッション保存され、次回起動時に復元されます

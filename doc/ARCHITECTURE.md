@@ -19,13 +19,18 @@ fastfiler/
 │       └── src/
 │           ├── main.rs         エントリ。キーバインド登録 / セッション復元 / 窓生成
 │           ├── app.rs          FastFilerApp (ルート Entity)。タブ / BSP ツリー /
-│           │                   リサイズ / セッション保存 / ツリー連携
+│           │                   リサイズ / セッション保存 / ツリー連携 / 設定画面
 │           ├── pane.rs         PaneView (1 ペイン)。一覧 / 選択 / 操作 / モーダル /
-│           │                   右クリックメニュー / D&D / watcher 連携
-│           ├── tree.rs         ワークスペースツリー (ドライブ起点 / 遅延展開)
+│           │                   右クリックメニュー / D&D / 検索 / Undo / watcher 連携
+│           ├── tree.rs         ワークスペースツリー (ドライブ起点 / 遅延展開 / UNC)
 │           ├── text_input.rs   IME 対応の単一行テキスト入力 (gpui 公式例の移植)
+│           ├── theme.rs        テーマ (プリセット + themes/*.json) / スタイル /
+│           │                   UI フォントサイズの static アクセサ (th() ほか)
+│           ├── settings_store.rs  設定の読み書き (gpui_settings.json、即時保存)
+│           ├── hotkeys.rs      ホットキー定義と読み込み (gpui_hotkeys.json)
 │           ├── sink.rs         EventSink → async-channel ブリッジ
-│           └── session.rs      セッション永続化 (JSON)
+│           ├── session.rs      セッション永続化 (JSON)
+│           └── win32_single_instance.rs  多重起動防止 (既存窓の前面化)
 └── vendor/                     GPUI と依存 18 クレート (zed から完全移植・自己完結)
     └── README.md               取り込み元コミット / 改変点 / 再 vendor 手順
 ```
@@ -108,6 +113,8 @@ Entity<FastFilerApp>                    ルート
 | ホットキー追加 | `pane.rs::on_key` (生キー) / `text_input.rs::bind_keys` (入力欄) |
 | パネル追加 | `app.rs` のレイアウト (タブバー/ツリーと同様に Entity を挿す) |
 | 永続化項目追加 | `session.rs` の `SessionData` (serde default で後方互換) |
+| 設定項目追加 | `settings_store.rs` の `AppSettings` + `app.rs` の `render_settings` |
+| テーマの色追加 | `theme.rs` の `theme_colors!` マクロに 1 行 + 各プリセット |
 | GPUI 自体の更新 | `vendor/README.md` の再 vendor 手順 |
 
 ---

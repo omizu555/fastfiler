@@ -1,7 +1,7 @@
 # ADR 0008: Undo の実装方針 (履歴スコープ・復元手段・バルク粒度・フォーカス挙動)
 
 - 日付: 2026-05-23
-- ステータス: Accepted
+- ステータス: Accepted (2026-06-07 追記あり — D1 履歴スコープが現実装と乖離)
 - 関連: [ADR 0006 (Undo の対象を 3 種に限定)](./0006-undo-scope.md)
 
 ## コンテキスト
@@ -139,3 +139,14 @@ watcher 通知での reload と競合しない。
 - アクション側 (`actions.rs` / `pane.rs` D&D / `clipboard_paste`) は **成功した分のみ** items に積み push
 - `hotkeys.rs` の `undo` 分岐を実 Undo に置換
 - Undo 不可時はステータスバーに `元に戻せる操作はありません` を表示 (ADR 0006)
+
+## 追記 (2026-06-07) — GPUI 版の実装状況
+
+- domain 側 (D2 `restore_from_trash` / S1 no-overwrite API / S3 `TrashedItem` 照合 /
+  N=20) は本決定どおり実装・流用されている。
+- **D1 (履歴はグローバル 1 本) は乖離**: GPUI 版は `PaneView` ごとに
+  `UndoManager` を持ち、**Ctrl+Z はフォーカスペインの履歴だけ**を戻す
+  (`pane.rs` の `undo: UndoManager` フィールド)。
+- 移動 (D&D / 貼り付け) が履歴を積んでいない点は ADR 0006 の追記を参照。
+- グローバル化 + 移動配線の対応計画:
+  [`plan/2026-06-07-adr-reconciliation.md`](../plan/2026-06-07-adr-reconciliation.md)
