@@ -29,6 +29,9 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [CONTEXT.md](./CONTEXT.md) | 中核アイデンティティと用語の定義 |
 | [doc/README.md](./doc/README.md) | **doc フォルダの案内** + 実装状況サマリ (まずここ) |
 | [doc/USAGE.md](./doc/USAGE.md) | 使い方ガイド (操作リファレンス) |
+| [doc/THEMES.md](./doc/THEMES.md) | テーマのカスタマイズ (JSON / 全色キーの説明) |
+| [doc/COMMANDS.md](./doc/COMMANDS.md) | ユーザーコマンド (commands.json の書き方) |
+| [doc/HOTKEYS.md](./doc/HOTKEYS.md) | ホットキーのカスタマイズ (全アクションの説明) |
 | [doc/ARCHITECTURE.md](./doc/ARCHITECTURE.md) | クレート構成 / 状態モデル / 拡張ポイント |
 | [doc/BUILD.md](./doc/BUILD.md) | ビルド & 開発 & リリース手順 |
 | [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |

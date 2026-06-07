@@ -131,7 +131,8 @@
 - **Shift+右クリック (行)**: Windows 標準のシェルコンテキストメニュー
 - ユーザーコマンド: `%APPDATA%\fastfiler\commands\commands.json` に定義した外部コマンド。
   `when` で表示場所を選択 — `file` / `folder` / `selection` (行のみ) /
-  `background` (背景のみ) / `drop` (右ドラッグメニュー) / `any` (両方、既定)
+  `background` (背景のみ) / `drop` (右ドラッグメニュー) / `any` (両方、既定)。
+  **書き方の詳細は [COMMANDS.md](./COMMANDS.md)**
 - **右ボタンドラッグのメニュー** (ここにコピー / 移動) にも `when: "drop"` の
   ユーザーコマンドが並ぶ ({paths}=ドラッグした項目 / {cwd}=ドロップ先)
 
@@ -175,43 +176,22 @@
 閉じる: `Esc` / 外側クリック / `×`。
 設定の保存先: `%APPDATA%\FastFiler\gpui_settings.json` (即時保存)。
 
-### カスタムテーマ (themes フォルダの JSON)
+### カスタマイズの詳細ガイド
 
-`%APPDATA%\FastFiler\themes\*.json` が起動時に読み込まれ、テーマのコンボに並ぶ。
-初回起動でサンプル 4 種 (カスタム例 / ノルド風 / ハイコントラスト / セピア) が
-生成される (削除したら復活しない)。形式:
+| やりたいこと | ガイド |
+|---|---|
+| 配色を変える / 自作テーマ JSON を書く (全色キーの説明) | [THEMES.md](./THEMES.md) |
+| 右クリックメニューに独自コマンドを足す (commands.json) | [COMMANDS.md](./COMMANDS.md) |
+| キー割り当てを変える (gpui_hotkeys.json、全アクションの説明) | [HOTKEYS.md](./HOTKEYS.md) |
 
-```json
-{
-  "name": "マイテーマ",
-  "base": "ダーク",
-  "colors": { "app_bg": "#181818", "accent": "#ff8800ff" }
-}
-```
+概要だけ:
 
-- `base`: 下敷きにするプリセット名 (省略時ダーク)。`colors` は**書いたキーだけ**上書き
-- 色は `"#rrggbb"` か `"#rrggbbaa"`。全キーの一覧は「カスタム例.json」を参照
-- 編集後は設定画面の「再読み込み」で即反映 (壊れたファイルはスキップしてエラー表示)
-- プリセットと同名のテーマは読み込まれない
-
-### ホットキーのカスタマイズ
-
-`%APPDATA%\FastFiler\gpui_hotkeys.json` を編集 → 設定画面の「再読み込み」
-(または背景右クリック / 再起動)。形式は `{ "action": "combo" }`:
-
-| action | 既定 | | action | 既定 |
-|---|---|---|---|---|
-| open | enter | | copy | ctrl+c |
-| parent | backspace | | cut | ctrl+x |
-| delete | delete | | paste | ctrl+v |
-| rename | f2 | | select-all | ctrl+a |
-| new-folder | f7 | | back | alt+left |
-| new-file | f8 | | forward | alt+right |
-| refresh | f5 | | next-pane | f6 |
-| search | ctrl+f | | next-tab | ctrl+tab |
-| undo | ctrl+z | | prev-tab | ctrl+shift+tab |
-
-修飾は `ctrl+` / `alt+` / `shift+`。矢印などの移動系とモーダル内 Enter/Esc は固定。
+- **テーマ**: `%APPDATA%\FastFiler\themes\*.json` (初回にサンプル 4 種生成)。
+  `base` のプリセットに `colors` の hex を上書きする形式。設定画面の「再読み込み」で即反映
+- **ユーザーコマンド**: `%APPDATA%\fastfiler\commands\commands.json`。
+  `{path}` `{cwd}` 等のプレースホルダ付きで任意の外部コマンドをメニューに追加
+- **ホットキー**: `%APPDATA%\FastFiler\gpui_hotkeys.json`。`{ "action": "combo" }` 形式で
+  18 アクションを変更可。矢印などの移動系とモーダル内 Enter/Esc は固定
 
 ---
 
