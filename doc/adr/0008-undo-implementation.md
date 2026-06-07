@@ -1,7 +1,7 @@
 # ADR 0008: Undo の実装方針 (履歴スコープ・復元手段・バルク粒度・フォーカス挙動)
 
 - 日付: 2026-05-23
-- ステータス: Accepted (2026-06-07 追記あり — D1 履歴スコープが現実装と乖離)
+- ステータス: Accepted (2026-06-07 に乖離解消 — D1 グローバル履歴 / S2 部分失敗も実装)
 - 関連: [ADR 0006 (Undo の対象を 3 種に限定)](./0006-undo-scope.md)
 
 ## コンテキスト
@@ -140,13 +140,16 @@ watcher 通知での reload と競合しない。
 - `hotkeys.rs` の `undo` 分岐を実 Undo に置換
 - Undo 不可時はステータスバーに `元に戻せる操作はありません` を表示 (ADR 0006)
 
-## 追記 (2026-06-07) — GPUI 版の実装状況
+## 追記 (2026-06-07) — GPUI 版の実装状況 (同日中に乖離解消)
 
 - domain 側 (D2 `restore_from_trash` / S1 no-overwrite API / S3 `TrashedItem` 照合 /
   N=20) は本決定どおり実装・流用されている。
-- **D1 (履歴はグローバル 1 本) は乖離**: GPUI 版は `PaneView` ごとに
-  `UndoManager` を持ち、**Ctrl+Z はフォーカスペインの履歴だけ**を戻す
-  (`pane.rs` の `undo: UndoManager` フィールド)。
-- 移動 (D&D / 貼り付け) が履歴を積んでいない点は ADR 0006 の追記を参照。
-- グローバル化 + 移動配線の対応計画:
-  [`plan/2026-06-07-adr-reconciliation.md`](../plan/2026-06-07-adr-reconciliation.md)
+- **D1 (グローバル履歴) 解消**: `pane.rs` の static `undo_store()`
+  (`OnceLock<Mutex<UndoManager>>`) に 1 本化。どのペインで Ctrl+Z しても直近 1 件を
+  戻し、ペインを閉じても履歴は残る。ロック内は pop/push のみ (S5 準拠)。
+- **S2 (部分失敗の再 push) 実装**: Move / Trash はアイテム別に実行し、失敗分だけを
+  新しい op として積み直す (`元に戻しました N 件 / 失敗 M 件 (Ctrl+Z で再試行)`)。
+  全件失敗とリネーム失敗は op をそのまま戻す。
+- 移動の記録は**全件成功したジョブのみ** — `run_move` がアイテム別成否を返さないため、
+  部分成功ジョブの記録は domain 拡張が必要な将来課題
+  ([`plan/2026-06-07-adr-reconciliation.md`](../plan/2026-06-07-adr-reconciliation.md) 参照)。

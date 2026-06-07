@@ -15,14 +15,14 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
 use fastfiler_domain::ole_dnd::{self, DragButton, DragOutcome, DragRequest, PreferredEffect};
 use fastfiler_domain::fs::{self, FileEntry};
 use fastfiler_domain::search::{SearchOptions, SearchState};
-use fastfiler_domain::undo::{TrashedItem, UndoManager, UndoOp};
+use fastfiler_domain::undo::{MoveItem, TrashedItem, UndoManager, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::user_commands::{self, RunCtx};
 use fastfiler_domain::{file_ops, icons, path_util, shell, templates, win_clipboard};
@@ -247,8 +247,9 @@ pub struct PaneView {
     search_ui: Option<SearchUi>,
     /// 検索の実行状態 (前回検索の自動キャンセルを管理)。
     searcher: Arc<SearchState>,
-    /// Undo スタック (リネーム / ごみ箱送りを記録。ADR 0006/0008)。
-    undo: UndoManager,
+    /// 実行中の移動ジョブの Undo 候補 (job_id, 移動アイテム)。完了 (ok) 時に
+    /// グローバル履歴へ push する (ADR 0006/0008)。
+    pending_move_undo: Option<(u64, Vec<MoveItem>)>,
     /// ナビゲーション履歴 (戻る / 進む)。
     history_back: Vec<PathBuf>,
     history_fwd: Vec<PathBuf>,
@@ -273,6 +274,13 @@ pub struct PaneView {
     job_status: Option<SharedString>,
     /// 実行中ジョブの id (Esc / キャンセルボタンの対象。直近開始分)。
     active_job: Option<u64>,
+}
+
+/// グローバル Undo 履歴 (ADR 0008 D1)。どのペイン / タブで Ctrl+Z を押しても
+/// 直近の操作 1 つを戻す。ペインを閉じても履歴は残る。
+fn undo_store() -> &'static Mutex<UndoManager> {
+    static STORE: OnceLock<Mutex<UndoManager>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(UndoManager::new()))
 }
 
 impl PaneView {
@@ -315,7 +323,7 @@ impl PaneView {
             context_menu: None,
             search_ui: None,
             searcher: Arc::new(SearchState::default()),
-            undo: UndoManager::new(),
+            pending_move_undo: None,
             history_back: Vec::new(),
             history_fwd: Vec::new(),
             path_edit: None,
@@ -687,7 +695,7 @@ impl PaneView {
         let n = paths.len();
         match file_ops::delete_to_trash(paths) {
             Ok(()) => {
-                self.undo.push(UndoOp::Trash { items: trashed });
+                undo_store().lock().unwrap().push(UndoOp::Trash { items: trashed });
                 if n > 1 {
                     self.status = format!("{n} 個をごみ箱へ移動しました").into();
                 }
@@ -700,47 +708,75 @@ impl PaneView {
         }
     }
 
-    /// 直近の操作を元に戻す (Ctrl+Z)。リネーム / ごみ箱送り対象 (ADR 0008)。
+    /// 直近の操作を元に戻す (Ctrl+Z)。リネーム / 移動 / ごみ箱送りが対象 (ADR 0006/0008)。
+    /// 部分失敗は失敗分だけ履歴へ push し直す (次の Ctrl+Z で再試行 — ADR 0008 S2)。
     fn undo_last(&mut self, cx: &mut Context<Self>) {
-        let Some(op) = self.undo.pop() else {
+        // ロック内は取り出しのみ (ADR 0008 S5)。I/O はロック外で行う。
+        let op = undo_store().lock().unwrap().pop();
+        let Some(op) = op else {
             self.status = "元に戻す操作はありません".into();
             cx.notify();
             return;
         };
         let label = op.label();
-        let result: Result<(), String> = match &op {
-            UndoOp::Rename { from, to } => {
-                file_ops::rename_path_no_overwrite(to, from).map_err(|e| e.to_string())
-            }
-            UndoOp::Move { items } => {
-                let mut err = None;
-                for it in items {
-                    if let Err(e) = file_ops::move_path_no_overwrite(&it.to, &it.from) {
-                        err = Some(e.to_string());
+        // (成功数, 失敗数, 最初のエラー, 再試行用に積み直す op)
+        let (done, failed, first_err, retry): (usize, usize, Option<String>, Option<UndoOp>) =
+            match op {
+                UndoOp::Rename { from, to } => {
+                    match file_ops::rename_path_no_overwrite(&to, &from) {
+                        Ok(()) => (1, 0, None, None),
+                        Err(e) => {
+                            (0, 1, Some(e.to_string()), Some(UndoOp::Rename { from, to }))
+                        }
                     }
                 }
-                err.map_or(Ok(()), Err)
-            }
-            UndoOp::Trash { items } => {
-                let mut err = None;
-                for it in items {
-                    if let Err(e) = file_ops::restore_from_trash(it) {
-                        err = Some(e.to_string());
+                UndoOp::Move { items } => {
+                    let mut ok = 0usize;
+                    let mut ng = Vec::new();
+                    let mut err = None;
+                    for it in items {
+                        match file_ops::move_path_no_overwrite(&it.to, &it.from) {
+                            Ok(()) => ok += 1,
+                            Err(e) => {
+                                err.get_or_insert_with(|| e.to_string());
+                                ng.push(it);
+                            }
+                        }
                     }
+                    let n = ng.len();
+                    let retry = (!ng.is_empty()).then_some(UndoOp::Move { items: ng });
+                    (ok, n, err, retry)
                 }
-                err.map_or(Ok(()), Err)
-            }
-        };
-        match result {
-            Ok(()) => {
-                self.status = format!("元に戻しました: {label}").into();
-                self.reload(cx, false);
-            }
-            Err(e) => {
-                self.status = format!("元に戻せませんでした: {e}").into();
-                cx.notify();
-            }
+                UndoOp::Trash { items } => {
+                    let mut ok = 0usize;
+                    let mut ng = Vec::new();
+                    let mut err = None;
+                    for it in items {
+                        match file_ops::restore_from_trash(&it) {
+                            Ok(()) => ok += 1,
+                            Err(e) => {
+                                err.get_or_insert_with(|| e.to_string());
+                                ng.push(it);
+                            }
+                        }
+                    }
+                    let n = ng.len();
+                    let retry = (!ng.is_empty()).then_some(UndoOp::Trash { items: ng });
+                    (ok, n, err, retry)
+                }
+            };
+        if let Some(retry_op) = retry {
+            undo_store().lock().unwrap().push(retry_op);
         }
+        self.status = if failed == 0 {
+            format!("元に戻しました: {label}").into()
+        } else if done > 0 {
+            format!("元に戻しました {done} 件 / 失敗 {failed} 件 (Ctrl+Z で再試行)").into()
+        } else {
+            let e = first_err.unwrap_or_default();
+            format!("元に戻せませんでした: {e} (Ctrl+Z で再試行)").into()
+        };
+        self.reload(cx, false);
     }
 
     /// カーソル移動。extend=true (Shift) なら anchor からの範囲選択。
@@ -942,7 +978,7 @@ impl PaneView {
                     match file_ops::rename_path_no_overwrite(&from, &to) {
                         Ok(()) => {
                             // Undo 用に記録 (Ctrl+Z で to → from へ戻す)。
-                            self.undo.push(UndoOp::Rename { from, to });
+                            undo_store().lock().unwrap().push(UndoOp::Rename { from, to });
                             Ok(())
                         }
                         Err(e) => Err(e.to_string()),
@@ -2349,6 +2385,18 @@ impl PaneView {
     fn run_transfer_now(&mut self, items: Vec<JobItem>, is_move: bool, cx: &mut Context<Self>) {
         let job_id = self.next_job_id;
         self.next_job_id += 1;
+        // 移動は Undo 候補を記録し、ジョブ完了 (ok) 時に履歴へ push する (ADR 0006)。
+        // resolve_transfer 後なので to は衝突リネーム (「名前 (2)」) 済みの最終位置。
+        if is_move {
+            let mv: Vec<MoveItem> = items
+                .iter()
+                .map(|it| MoveItem {
+                    from: PathBuf::from(&it.from),
+                    to: PathBuf::from(&it.to),
+                })
+                .collect();
+            self.pending_move_undo = Some((job_id, mv));
+        }
         let registry = self.jobs.clone();
         let sink = self.sink.clone();
         std::thread::spawn(move || {
@@ -2486,6 +2534,19 @@ impl PaneView {
                     .get("canceled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                // 移動ジョブの Undo 記録。ジョブはアイテム別成否を返さないため
+                // 全件成功 (ok) のときだけ履歴へ push する (失敗/キャンセルは記録しない)。
+                let done_id = payload.get("job_id").and_then(|v| v.as_u64());
+                if let Some((pending_id, items)) = self.pending_move_undo.take() {
+                    if done_id == Some(pending_id) {
+                        if ok && !canceled {
+                            undo_store().lock().unwrap().push(UndoOp::Move { items });
+                        }
+                    } else {
+                        // 別ジョブの完了通知 — 候補は保持したままにする。
+                        self.pending_move_undo = Some((pending_id, items));
+                    }
+                }
                 self.job_status = None;
                 self.active_job = None;
                 self.status = if canceled {

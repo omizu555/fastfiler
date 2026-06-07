@@ -34,34 +34,34 @@ ADR 0001〜0012 を現行 GPUI 実装と突き合わせて監査した記録と�
 - 行ドロップ: `pane.rs` render_row の `drag_over::<ExternalPaths>` + `on_drop`
 - サブクラス: `SetWindowSubclass` / `WM_RBUTTONUP` は crates/ に 0 件
 
-## 2. 残乖離の解消: Undo (将来作業・コード変更)
+## 2. 残乖離の解消: Undo — **実施済み (2026-06-07)**
 
-ADR 0006/0008 の決定に実装を寄せる。
+ADR 0006/0008 の決定に実装を寄せた (`pane.rs` のみ、domain 無変更):
 
-1. **移動の Undo 配線**
-   - `run_transfer` (D&D / Ctrl+X→V) の完了通知 (`fs:job:done`) で、移動だった場合に
-     `UndoOp::Move { items }` を push する。items は**成功した分のみ** (ADR 0008 S2)
-   - 逆方向は `move_path_no_overwrite` を使う (上書き禁止 — ADR 0008 S1)。実装済 API
-   - 注意: ジョブは background 実行なので、undo 履歴への push は UI スレッド側
-     (`on_job_done` 相当) で行う
-2. **履歴のグローバル化** (ADR 0008 D1)
-   - `UndoManager` を `FastFilerApp` (もしくは static `OnceLock<Mutex<UndoManager>>`) に
-     1 本化し、`Ctrl+Z` はどのペインで押してもグローバル直近 1 件を戻す
-   - ペイン削除で履歴が消える現状の問題も同時に解消される
-3. 完了後、ADR 0006/0008 の追記を「解消済み」に更新し、USAGE.md の
-   Undo 行に「移動」を追加する
+1. **移動の Undo 配線** — `run_transfer_now` で衝突リネーム解決後の items から
+   `(job_id, Vec<MoveItem>)` を `pending_move_undo` に記録し、`fs:job:done` の
+   `ok && !canceled` で `UndoOp::Move` を履歴へ push。
+   逆方向は `move_path_no_overwrite` (上書き禁止 — ADR 0008 S1)
+2. **履歴のグローバル化** (ADR 0008 D1) — static `undo_store()`
+   (`OnceLock<Mutex<UndoManager>>`) に 1 本化。ペインを閉じても履歴が残る
+3. **S2 (部分失敗の再 push)** — undo_last をアイテム別集計に書き換え、
+   失敗分だけ新しい op として積み直す
 
-見積り: 1 セッション規模。`fastfiler-domain` の変更は不要 (UI 配線のみ)。
+**残る制約 (将来課題)**: `file_jobs::run_move` はアイテム別成否を返さないため、
+移動の記録は**全件成功ジョブのみ**。部分成功ジョブも記録するには JobDone に
+per-item 結果を載せる domain 拡張が必要。また OLE 外部送信の移動 (Explorer 側が
+移動先を決める) は移動先を追跡できないため対象外。
 
-## 3. 残乖離の判断待ち: 通常メニュー項目 (ADR 0007)
+## 3. 通常メニュー項目 (ADR 0007) — **結論: 実装しない (2026-06-07 ユーザー判断)**
 
-「プログラムから開く / プロパティ / Windows メニュー…」が ADR の骨子にあるが未実装。
+「プログラムから開く / プロパティ / Windows メニュー…」は追加しない。
 
-- 現状 Shift+右クリック (シェルメニュー) で全て代替可能で、実用上の不便は出ていない
-- **推奨: 実装しない方向で ADR 0007 の骨子を改訂** (メニューは現状の項目構成を正とする)。
-  ただし「Windows メニュー…」1 項目だけは発見性の観点で追加価値があるかもしれない
-  (Shift+右クリックを知らなくても辿り着ける) — 要望が出たら検討
-- 対応するまで ADR 0007 の追記が現状を説明している
+- プロパティ等は Shift+右クリックのシェルメニューに既に出ており代替十分
+- ユーザーコマンド (`commands.json`) 経由のプロパティ表示は**不適**:
+  プロパティシートは呼び出しプロセスの生存中しか表示されず、外部プロセス起動
+  (PowerShell の COM `InvokeVerb("properties")` 等) では即座に消える。
+  Sleep で延命するハックは常駐プロセスが残るため非推奨
+- ADR 0007 の骨子は「現行実装を正とする」と改訂済み
 
 ## 4. ドキュメント整理の記録 (2026-06-07 実施済み)
 
