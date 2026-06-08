@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 description = "FastFiler GUI (GPUI-based) — Zed の GPUI への移植"
+# GPL クレート (vendor/crates/{zlog,ztracing}) をリンクするため成果物全体が GPL-3.0。
+license = "GPL-3.0-or-later"
 
 [[bin]]
 # 配布物の exe 名 (パッケージ名は fastfiler-gpui のまま)。

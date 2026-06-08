@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
 description = "FastFiler の Tauri 非依存ドメインロジック (Phase 2B 段階移行中)"
+# GPL クレート (vendor/crates/{zlog,ztracing}) をリンクするため成果物全体が GPL-3.0。
+license = "GPL-3.0-or-later"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

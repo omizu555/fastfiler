@@ -90,3 +90,22 @@ cargo build -p fastfiler-gpui --release
 - **GPUI 版**: floem 版 v0.1.0 の中核機能パリティ + メモリ問題の構造的解決
   (タブ/ペイン開閉で `live panes` がベースラインへ戻ることを実機確認可能)。
 - 旧 floem 版: v0.1.0 で凍結 → 削除済み (git 履歴参照)。
+
+## ライセンスとクレジット
+
+FastFiler は **GPL-3.0-or-later** で配布されます ([`LICENSE`](./LICENSE))。
+
+GUI に [Zed](https://github.com/zed-industries/zed) の **GPUI** フレームワークと
+その依存クレート群を `vendor/` に取り込んで利用しているためです。GPL クレートを
+リンクした成果物全体が GPL-3.0 になります。取り込み元・コミット・改変点は
+[`vendor/README.md`](./vendor/README.md) に記録しています。
+
+| 取り込んだもの | 元 | ライセンス | 全文 |
+|---|---|---|---|
+| `gpui`, `gpui_platform`, `collections`, `util`, `sum_tree`, `scheduler`, `http_client`, `refineable` ほか | zed-industries/zed | **Apache-2.0** | [`vendor/LICENSE-APACHE`](./vendor/LICENSE-APACHE) |
+| `zlog`, `ztracing` | zed-industries/zed | **GPL-3.0-or-later** | [`vendor/LICENSE-GPL`](./vendor/LICENSE-GPL) |
+
+> **FastFiler は Zed Industries とは無関係・非公式のプロジェクトです。**
+> 同社の GPUI フレームワークを利用しているだけであり、Zed Industries による
+> 開発・承認・支援を受けたものではありません。"Zed" の名称・ロゴは
+> Zed Industries に帰属します。
