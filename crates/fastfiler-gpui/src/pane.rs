@@ -30,7 +30,8 @@ use gpui::{
     AnyElement, ClickEvent, Context, DragMoveEvent, Empty, Entity, EventEmitter, ExternalPaths,
     FocusHandle, Image, ImageFormat, IntoElement, KeyDownEvent, Keystroke, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, Pixels, Point,
-    ScrollStrategy, SharedString, Size, UniformListScrollHandle, Window, anchored, deferred, div,
+    ScrollStrategy, SharedString, Size, Subscription, UniformListScrollHandle, Window, anchored,
+    deferred, div,
     img, prelude::*, px, relative, uniform_list,
 };
 
@@ -257,6 +258,8 @@ pub struct PaneView {
     history_fwd: Vec<PathBuf>,
     /// アドレスバーの直接入力モード (パス文字列クリックで開始)。
     path_edit: Option<Entity<TextInput>>,
+    /// `path_edit` 入力欄の blur 購読。フォーカスが外れたら編集を破棄するため保持する。
+    path_edit_blur: Option<Subscription>,
     /// OLE ドラッグ開始候補 (行でボタン押下時に記録、5px 移動で発動)。
     drag_candidate: Option<DragCand>,
     /// 右ボタン D&D のドロップチューザー。
@@ -329,6 +332,7 @@ impl PaneView {
             history_back: Vec::new(),
             history_fwd: Vec::new(),
             path_edit: None,
+            path_edit_blur: None,
             drag_candidate: None,
             drop_menu: None,
             pending_transfer: None,
@@ -1028,7 +1032,15 @@ impl PaneView {
         let len = text.len();
         input.update(cx, |i, cx| i.set_text_and_select(text, 0..len, cx));
         let fh = input.read(cx).focus_handle.clone();
+        // 入力欄がフォーカスを失ったら (別の場所をクリックした等) 編集を破棄する。
+        // Esc と異なりフォーカスはペインへ奪い返さない (ユーザのクリック先を尊重する)。
+        let blur = cx.on_blur(&fh, window, |this, _window, cx| {
+            if this.path_edit.take().is_some() {
+                cx.notify();
+            }
+        });
         self.path_edit = Some(input);
+        self.path_edit_blur = Some(blur);
         fh.focus(window, cx);
         cx.notify();
     }
@@ -1037,6 +1049,7 @@ impl PaneView {
         let Some(input) = self.path_edit.take() else {
             return;
         };
+        self.path_edit_blur = None;
         let text = input.read(cx).text().trim().to_string();
         self.focus_handle.focus(window, cx);
         if text.is_empty() {
@@ -1054,6 +1067,7 @@ impl PaneView {
 
     fn cancel_path_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.path_edit.take().is_some() {
+            self.path_edit_blur = None;
             self.focus_handle.focus(window, cx);
             cx.notify();
         }
