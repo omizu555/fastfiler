@@ -120,6 +120,19 @@ struct DragCand {
     shift: bool,
 }
 
+/// ラバーバンド (矩形) 選択の状態。一覧の空白部分で左ボタンを押下し、
+/// ドラッグした矩形に重なる行を範囲選択する。座標はすべてウィンドウ座標。
+struct RubberBand {
+    /// 押下した開始位置。
+    origin: Point<Pixels>,
+    /// 現在のポインタ位置 (ドラッグ追従)。
+    current: Point<Pixels>,
+    /// Ctrl 押下で開始したか (既存選択へ加算する)。
+    additive: bool,
+    /// additive のときの加算元 (開始時点の選択スナップショット)。
+    base: BTreeSet<usize>,
+}
+
 /// 列幅リサイズのドラッグペイロード (見出しの仕切り)。対象は固定幅列のみ。
 /// on_drag_move は全ペインで発火するため、ドラッグ元ペインの id を持たせて
 /// 他ペインは無視する (複数ペインが互いの右端基準で書き換え合うと幅が暴れる)。
@@ -262,6 +275,8 @@ pub struct PaneView {
     path_edit_blur: Option<Subscription>,
     /// OLE ドラッグ開始候補 (行でボタン押下時に記録、5px 移動で発動)。
     drag_candidate: Option<DragCand>,
+    /// ラバーバンド (矩形) 選択中の状態 (空白部分で左ドラッグ中のみ Some)。
+    rubber: Option<RubberBand>,
     /// 右ボタン D&D のドロップチューザー。
     drop_menu: Option<DropMenu>,
     /// 同名衝突の確認待ち転送。
@@ -334,6 +349,7 @@ impl PaneView {
             path_edit: None,
             path_edit_blur: None,
             drag_candidate: None,
+            rubber: None,
             drop_menu: None,
             pending_transfer: None,
             watcher: Arc::new(WatcherCore::default()),
@@ -435,7 +451,8 @@ impl PaneView {
                 let n = v.len();
                 self.row_icons = load_row_icons(&v, &self.cur_path);
                 self.entries = v;
-                self.status = format!("{}  —  {} 項目", self.cur_path.display(), n).into();
+                // パスは上部アドレスバーに常時出ているのでフッターでは項目数のみ。
+                self.status = format!("{} 項目", n).into();
             }
             Err(e) => {
                 self.entries.clear();
@@ -874,6 +891,17 @@ impl PaneView {
         // 実行中のコピー/移動ジョブは Esc でキャンセル要求。
         if ks.key.as_str() == "escape" && self.active_job.is_some() {
             self.cancel_job(cx);
+            return;
+        }
+
+        // Esc: 選択・カーソルを解除 (モーダル類やジョブが無いとき)。
+        if ks.key.as_str() == "escape" {
+            if !self.selected.is_empty() || self.cursor.is_some() {
+                self.selected.clear();
+                self.cursor = None;
+                self.anchor = None;
+                cx.notify();
+            }
             return;
         }
 
@@ -1833,6 +1861,130 @@ impl PaneView {
             self.select_only(ix);
         }
         cx.notify();
+    }
+
+    // ── ラバーバンド (矩形) 選択 ───────────────────────────────────────
+    //
+    // 一覧は uniform_list で仮想化描画されるため、ウィンドウ座標から行 index を
+    // 直接逆算する: 行高は固定 (theme::row_h)、ビューポート上端と縦スクロール量は
+    // scroll ハンドル (base_handle.bounds()/offset()) から得る。
+
+    /// ウィンドウ座標の y がどの一覧行に当たるか。空白・範囲外は None。
+    fn row_at_y(&self, y: Pixels) -> Option<usize> {
+        let row_h = theme::row_h() / px(1.0);
+        if row_h <= 0.0 {
+            return None;
+        }
+        let (top, offset_y) = {
+            let st = self.scroll.0.borrow();
+            (st.base_handle.bounds().origin.y, st.base_handle.offset().y)
+        };
+        let content_y = (y - top - offset_y) / px(1.0);
+        if content_y < 0.0 {
+            return None;
+        }
+        let ix = (content_y / row_h) as usize;
+        (ix < self.entries.len()).then_some(ix)
+    }
+
+    /// 一覧領域での左ボタン押下。行の上なら何もしない (行ハンドラが OLE ドラッグ
+    /// 候補を記録する)。空白部分ならラバーバンド選択を開始する。
+    /// Ctrl なしは既存選択を即解除する (= 空白クリックでの選択解除も兼ねる)。
+    fn on_list_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
+        if self.modal.is_some() || self.context_menu.is_some() || self.drop_menu.is_some() {
+            return;
+        }
+        if self.row_at_y(ev.position.y).is_some() {
+            return;
+        }
+        let additive = ev.modifiers.control;
+        let base = if additive {
+            self.selected.clone()
+        } else {
+            BTreeSet::new()
+        };
+        if !additive {
+            self.selected.clear();
+            self.cursor = None;
+            self.anchor = None;
+        }
+        self.rubber = Some(RubberBand {
+            origin: ev.position,
+            current: ev.position,
+            additive,
+            base,
+        });
+        cx.notify();
+    }
+
+    /// ラバーバンドのドラッグ追従: 矩形に重なる行を選択し直す。
+    fn update_rubber(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(rb) = self.rubber.as_ref() else {
+            return;
+        };
+        let origin_y = rb.origin.y;
+        let additive = rb.additive;
+        let mut sel: BTreeSet<usize> = rb.base.clone();
+        if !additive {
+            sel.clear();
+        }
+        // 現在位置を更新。
+        if let Some(rb) = self.rubber.as_mut() {
+            rb.current = pos;
+        }
+        let row_h = theme::row_h() / px(1.0);
+        let len = self.entries.len();
+        if len > 0 && row_h > 0.0 {
+            let (top, offset_y) = {
+                let st = self.scroll.0.borrow();
+                (st.base_handle.bounds().origin.y, st.base_handle.offset().y)
+            };
+            let oy = origin_y / px(1.0);
+            let py = pos.y / px(1.0);
+            let ty = top / px(1.0);
+            let off = offset_y / px(1.0);
+            // ウィンドウ座標 y → 一覧コンテンツ座標 (offset は下スクロールで負)。
+            let to_content = |wy: f32| wy - ty - off;
+            let first = (to_content(oy.min(py)).max(0.0) / row_h) as usize;
+            let last = (to_content(oy.max(py)).max(0.0) / row_h) as usize;
+            for ix in first..=last.min(len - 1) {
+                sel.insert(ix);
+            }
+        }
+        self.cursor = sel.iter().next_back().copied();
+        self.selected = sel;
+        cx.notify();
+    }
+
+    /// ラバーバンド矩形のオーバーレイ (ドラッグ中のみ)。一覧コンテナ内へ
+    /// ビューポート相対の絶対配置で重ねる。クリックは小矩形 (= 単なるクリック) では
+    /// 描かない。
+    fn render_rubber(&self) -> Option<AnyElement> {
+        let rb = self.rubber.as_ref()?;
+        let ox = rb.origin.x / px(1.0);
+        let oy = rb.origin.y / px(1.0);
+        let cxp = rb.current.x / px(1.0);
+        let cyp = rb.current.y / px(1.0);
+        let w = (cxp - ox).abs();
+        let h = (cyp - oy).abs();
+        if w < 2.0 && h < 2.0 {
+            return None;
+        }
+        let origin = self.scroll.0.borrow().base_handle.bounds().origin;
+        let left = ox.min(cxp) - origin.x / px(1.0);
+        let top = oy.min(cyp) - origin.y / px(1.0);
+        Some(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .w(px(w))
+                .h(px(h))
+                .bg(th().sel_translucent)
+                .border_1()
+                .border_color(th().accent)
+                .into_any_element(),
+        )
     }
 
     /// 選択中 (複数可) の項目を CF_HDROP でクリップボードへ (op: "copy" | "cut")。
@@ -3000,6 +3152,20 @@ impl Render for PaneView {
             .into_any_element()
         };
 
+        // 一覧コンテナ。検索結果でないときは空白部分の左ドラッグでラバーバンド
+        // (矩形) 選択を受け付け、ドラッグ中の矩形を重ねて描く。
+        let mut list_container = div().relative().flex_1().overflow_hidden().child(list_area);
+        if !searching {
+            list_container = list_container
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, ev: &MouseDownEvent, _w, cx| {
+                        this.on_list_mouse_down(ev, cx);
+                    }),
+                )
+                .children(self.render_rubber());
+        }
+
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -3045,14 +3211,21 @@ impl Render for PaneView {
                     this.drop_paths_into(dst, paths, forced, cx);
                 }
             }))
-            // OLE ドラッグの開始判定 / 候補クリア。
+            // OLE ドラッグの開始判定 / ラバーバンド追従。
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
-                this.maybe_start_ole_drag(ev, cx);
+                if this.rubber.is_some() {
+                    this.update_rubber(ev.position, cx);
+                } else {
+                    this.maybe_start_ole_drag(ev, cx);
+                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _e, _w, _cx| {
+                cx.listener(|this, _e, _w, cx| {
                     this.drag_candidate = None;
+                    if this.rubber.take().is_some() {
+                        cx.notify();
+                    }
                 }),
             )
             // 右ボタン: 動かず離した場合はメニュー表示 (候補が残っていれば)。
@@ -3144,8 +3317,8 @@ impl Render for PaneView {
             .children(search_bar)
             // 列見出し (検索中は非表示)
             .children(header)
-            // 一覧 (仮想化: 通常 or 検索結果)
-            .child(div().flex_1().overflow_hidden().child(list_area))
+            // 一覧 (仮想化: 通常 or 検索結果。空白部分のラバーバンド選択を内包)
+            .child(list_container)
             // フッタ (ステータス + 選択数)
             .child(
                 div()

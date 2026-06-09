@@ -15,7 +15,6 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 
 use gpui::{
     AnyElement, App, Context, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, IntoElement,
@@ -23,7 +22,7 @@ use gpui::{
     deferred, div, prelude::*, px,
 };
 
-use crate::pane::{PANES_ALIVE, PaneEvent, PaneView, SplitDir};
+use crate::pane::{PaneEvent, PaneView, SplitDir};
 use crate::session::{self, NodeData, SessionData};
 use crate::settings_store;
 use crate::text_input::TextInput;
@@ -1423,7 +1422,6 @@ impl Render for FastFilerApp {
         }
 
         let active = self.active;
-        let alive = PANES_ALIVE.load(Ordering::Relaxed);
 
         let titles: Vec<(usize, String, bool)> = self
             .tabs
@@ -1661,15 +1659,7 @@ impl Render for FastFilerApp {
                             })),
                     )
                     .children(tab_rows)
-                    .child(div().flex_1())
-                    // デバッグ: 生存ペイン数 (タブ/ペイン開閉でベースラインへ戻るかの可視化)
-                    .child(
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_color(th().text_disabled)
-                            .child(SharedString::from(format!("live panes: {alive}"))),
-                    ),
+                    .child(div().flex_1()),
             )
             // タブバー幅リサイズハンドル
             .child(

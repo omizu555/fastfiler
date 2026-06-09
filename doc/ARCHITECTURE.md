@@ -69,9 +69,11 @@ Entity<FastFilerApp>                    ルート
 - **タブ/ペインを閉じる = `Entity<PaneView>` と `Subscription` を drop するだけ。**
   `PaneView::drop` を起点に watcher (notify スレッド) / sink (チャネル送信端) /
   `cx.spawn` 受信ループ / 観測購読が**連鎖解放**される。
-- 計測: `pane.rs` の `PANES_ALIVE` (AtomicI64) を new/+1, Drop/-1 し、
-  タブバー下部に `live panes: N` を常時表示。開閉でベースラインへ戻ることを
-  実機確認できる。floem 版で増殖していたのはこのライフサイクル。
+- 計測: `pane.rs` の `PANES_ALIVE` (AtomicI64) を new/+1, Drop/-1 する。
+  以前はタブバー下部に `live panes: N` を常時表示していたが、通常利用では
+  不要なため UI 表示は撤去した (2026-06-09)。カウンタ自体は残しており、
+  リーク調査時は一時的に表示を足せば開閉でベースラインへ戻ることを実機確認できる。
+  floem 版で増殖していたのはこのライフサイクル。
 
 ---
 
