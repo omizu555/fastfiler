@@ -2030,7 +2030,7 @@ impl PaneView {
                 return;
             }
         };
-        let items = build_job_items(&clip.paths, &self.cur_path);
+        let items = build_job_items(&clip.paths, &self.cur_path, clip.op == "cut");
         if items.is_empty() {
             self.status = "同じ場所への貼り付けはスキップしました".into();
             cx.notify();
@@ -2049,16 +2049,50 @@ impl PaneView {
         forced_move: Option<bool>,
         cx: &mut Context<Self>,
     ) {
-        let items = build_job_items(&paths, &dst_dir);
-        if items.is_empty() {
+        let Some(first) = paths.first() else {
             return;
-        }
+        };
+        // 既定効果はエクスプローラ準拠 (同一ボリューム=移動 / 異なる=コピー)。
+        // build_job_items が同一フォルダ・コピーをその場複製にするため、効果は
+        // ジョブ生成より前に確定させる。
         let is_move = forced_move.unwrap_or_else(|| {
-            let src_vol = path_util::volume_key(Path::new(&items[0].from));
+            let src_vol = path_util::volume_key(Path::new(first));
             let dst_vol = path_util::volume_key(&dst_dir);
             src_vol.is_some() && src_vol == dst_vol
         });
+        let items = build_job_items(&paths, &dst_dir, is_move);
+        if items.is_empty() {
+            return;
+        }
         self.run_transfer(items, is_move, cx);
+    }
+
+    /// ExternalPaths のドロップを `dst` へ振り分ける共通処理 (行 / 左端ガター /
+    /// ペイン背景で共用)。右ボタン D&D ならチューザー (ここにコピー/移動)、
+    /// 左ボタンなら修飾キー準拠で即実行する。
+    /// 呼び出し側は他のドロップ先と二重処理しないよう必要に応じて
+    /// `cx.stop_propagation()` する。
+    fn dispatch_external_drop(
+        &mut self,
+        dst: PathBuf,
+        files: &ExternalPaths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 自アプリ内へのドロップ。on_ole_drag_done 側の後処理 (元削除等) を抑止する。
+        SELF_DROP.store(true, std::sync::atomic::Ordering::SeqCst);
+        let paths: Vec<String> = files
+            .paths()
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
+            // 右ボタン D&D: 効果をユーザーに選ばせる (ADR 0010)。
+            self.open_drop_menu(dst, paths, window, cx);
+        } else {
+            let forced = Self::drop_effect_override();
+            self.drop_paths_into(dst, paths, forced, cx);
+        }
     }
 
     /// ドロップ時の修飾キー → 強制効果 (Ctrl=コピー / Shift=移動 / なし=既定)。
@@ -2248,7 +2282,7 @@ impl PaneView {
             return;
         };
         if let Some(is_move) = mv {
-            let items = build_job_items(&m.paths, &m.dst);
+            let items = build_job_items(&m.paths, &m.dst, is_move);
             if !items.is_empty() {
                 self.run_transfer(items, is_move, cx);
             }
@@ -2823,6 +2857,8 @@ impl PaneView {
             .flex()
             .flex_row()
             .items_center()
+            // 左端ガター (絶対配置) の位置基準。
+            .relative()
             // 行は常に全幅 (内容幅で縮むと サイズ/種類 列が行ごとにずれる)。
             .w_full()
             .h(theme::row_h())
@@ -2904,6 +2940,26 @@ impl PaneView {
                     .truncate()
                     .text_color(th().text_dim)
                     .child(kind_text),
+            )
+            // 左端の薄いドロップ帯: ここへ落とすと行のサブフォルダではなく
+            // 「現在フォルダ」へ転送する (= その場コピー)。一覧がフォルダで
+            // 埋まっていても現在フォルダへコピーできる逃げ場を確保する。
+            // 絶対配置オーバーレイなので列整列・ヘッダーは不変、通常時は透明で
+            // ドラッグ中だけハイライトする。
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .h_full()
+                    .w(px(10.0))
+                    .drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_bg))
+                    .on_drop(cx.listener(|this, files: &ExternalPaths, window, cx| {
+                        let dst = this.cur_path.clone();
+                        this.dispatch_external_drop(dst, files, window, cx);
+                        // 行本体 (サブフォルダへ) と二重処理しない。
+                        cx.stop_propagation();
+                    })),
             );
 
         // フォルダ行は直接ドロップ先になる (その行のフォルダへ転送)。
@@ -2911,19 +2967,8 @@ impl PaneView {
             let dirname = entry.name.clone();
             row.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(th().drop_row_bg))
                 .on_drop(cx.listener(move |this, files: &ExternalPaths, window, cx| {
-                    SELF_DROP.store(true, std::sync::atomic::Ordering::SeqCst);
                     let dst = this.cur_path.join(&dirname);
-                    let paths: Vec<String> = files
-                        .paths()
-                        .iter()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect();
-                    if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
-                        this.open_drop_menu(dst, paths, window, cx);
-                    } else {
-                        let forced = Self::drop_effect_override();
-                        this.drop_paths_into(dst, paths, forced, cx);
-                    }
+                    this.dispatch_external_drop(dst, files, window, cx);
                     // ペイン全体のドロップ (表示中フォルダへ) と二重処理しない。
                     cx.stop_propagation();
                 }))
@@ -3196,20 +3241,9 @@ impl Render for PaneView {
             // ドロップ先はこのペインの表示中フォルダ (ADR 0009)。
             .drag_over::<ExternalPaths>(|style, _, _, _| style.bg(th().drop_bg))
             .on_drop(cx.listener(|this, files: &ExternalPaths, window, cx| {
-                SELF_DROP.store(true, std::sync::atomic::Ordering::SeqCst);
-                let paths: Vec<String> = files
-                    .paths()
-                    .iter()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .collect();
+                // ドロップ先はこのペインの表示中フォルダ (ADR 0009 / 0010)。
                 let dst = this.cur_path.clone();
-                if RIGHT_DRAG.load(std::sync::atomic::Ordering::SeqCst) {
-                    // 右ボタン D&D: 効果をユーザーに選ばせる (ADR 0010)。
-                    this.open_drop_menu(dst, paths, window, cx);
-                } else {
-                    let forced = Self::drop_effect_override();
-                    this.drop_paths_into(dst, paths, forced, cx);
-                }
+                this.dispatch_external_drop(dst, files, window, cx);
             }))
             // OLE ドラッグの開始判定 / ラバーバンド追従。
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
@@ -3379,23 +3413,41 @@ fn load_icon(entry: &FileEntry, dir: &Path) -> Option<Arc<Image>> {
 }
 
 /// パス一覧 → コピー/移動ジョブの from/to。安全のため以下をスキップ:
-/// - 同一パスへの転送 (from == to)
 /// - 自分自身 (またはその子孫) への転送 (無限再帰防止)
-fn build_job_items(paths: &[String], dst_dir: &Path) -> Vec<JobItem> {
+/// - 同一フォルダへの**移動** (from == to の no-op)
+///
+/// 同一フォルダへの**コピー** (`is_move == false` かつ from == to) は「その場に
+/// 複製」とみなし、`unique_dest` で連番名 ("name (2).ext") を付けて残す
+/// (エクスプローラの Ctrl+ドラッグ / コピー&貼り付け相当)。
+fn build_job_items(paths: &[String], dst_dir: &Path, is_move: bool) -> Vec<JobItem> {
     paths
         .iter()
-        .map(|p| {
+        .filter_map(|p| {
             let name = Path::new(p)
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| p.clone());
-            JobItem {
-                from: p.clone(),
-                to: dst_dir.join(name).to_string_lossy().to_string(),
+            let from = Path::new(p);
+            // 自分自身 / その子孫への転送は無限再帰になるため除外。
+            if dst_dir.starts_with(from) {
+                return None;
             }
+            let to = dst_dir.join(&name);
+            if to.as_path() == from {
+                // 宛先が元と同一フォルダ。移動は no-op、コピーはその場複製。
+                if is_move {
+                    return None;
+                }
+                return Some(JobItem {
+                    from: p.clone(),
+                    to: unique_dest(&to).to_string_lossy().to_string(),
+                });
+            }
+            Some(JobItem {
+                from: p.clone(),
+                to: to.to_string_lossy().to_string(),
+            })
         })
-        .filter(|it| it.from != it.to)
-        .filter(|it| !dst_dir.starts_with(Path::new(&it.from)))
         .collect()
 }
 
