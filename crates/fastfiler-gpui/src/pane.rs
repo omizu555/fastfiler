@@ -1405,7 +1405,8 @@ impl PaneView {
             }
             MenuAction::OpenCommandsDir => {
                 if let Ok(dir) = user_commands::user_commands_dir() {
-                    self.navigate(PathBuf::from(dir), cx);
+                    // 現在のタブを移動させず、設定フォルダを新しいタブで開く。
+                    cx.emit(PaneEvent::OpenInNewTab(PathBuf::from(dir)));
                 }
             }
             MenuAction::OpenHotkeys => {

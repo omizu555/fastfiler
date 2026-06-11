@@ -126,6 +126,18 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
             .map_err(|e| AppError::Other(format!("spawn failed ({}): {}", cmd.id, e)));
     }
 
+    // .cmd / .bat はバッチファイル。ShellExecuteW で起動すると毎回コンソール
+    // ウィンドウ (CMD) が開いて残る (VSCode の `code` は実体が code.cmd でこれに
+    // 該当する)。cmd /c + CREATE_NO_WINDOW でバッチを不可視に実行し、そこから
+    // 起動する GUI (Code.exe 等) だけを残す。powershell.exe 等のコンソールアプリ
+    // は .exe なので下の ShellExecuteW 経路を通り、従来どおり自前のコンソールを保つ。
+    if is_batch_file(&exec) {
+        return build_shell_command(&exec, &args, &working_dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| AppError::Other(format!("起動失敗 ({}): {}", cmd.id, e)));
+    }
+
     // 直接起動はエクスプローラと同じ ShellExecuteW 経路で行う。
     // CreateProcess 直接起動だと親の標準ハンドルが継承され、powershell 等の
     // コンソールアプリが「新しいウィンドウは開くが入出力は親側」になり
@@ -198,6 +210,16 @@ fn build_shell_command(exec: &str, args: &[String], working_dir: &str) -> Comman
         c.current_dir(working_dir);
     }
     c
+}
+
+/// 拡張子が .cmd / .bat か (大文字小文字無視)。これらはバッチファイルで、
+/// ShellExecuteW 経由だとコンソールウィンドウを開いて残すため、cmd /c +
+/// CREATE_NO_WINDOW で不可視に起動する。
+fn is_batch_file(exec: &str) -> bool {
+    Path::new(exec)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
 }
 
 /// ベア名の実行ファイルを PATH (+ PATHEXT) で絶対パスに解決する。
