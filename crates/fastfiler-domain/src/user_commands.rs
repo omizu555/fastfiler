@@ -343,6 +343,11 @@ const SAMPLE_JSON: &str = r#"// FastFiler ユーザー定義コマンド サン�
 //                  ({paths}=ドラッグした項目 / {cwd}=ドロップ先フォルダ)
 //   "any" (既定) … 行・背景の両方
 //
+// submenu (任意): メニューをサブメニューに畳む。"/" 区切りで最大 3 階層。
+//   例) "VSCode" → 「VSCode ▸」の中に入る
+//       "ツール/圧縮" → 「ツール ▸ 圧縮 ▸」の中に入る
+//   同じ submenu を持つコマンドが 1 つのサブメニューにまとまります。
+//
 // 補足: 作業フォルダは現在ペインのパス。ターミナル系は起動するだけで
 // そのフォルダで開きます。
 //
@@ -351,10 +356,11 @@ const SAMPLE_JSON: &str = r#"// FastFiler ユーザー定義コマンド サン�
 [
   {
     "id": "vscode-open",
-    "label": "VSCode で開く",
+    "label": "ファイルを開く",
     "exec": "code",
     "args": ["{path}"],
-    "when": "selection"
+    "when": "selection",
+    "submenu": "VSCode で開く"
   },
   {
     "id": "7z-compress",
@@ -365,10 +371,11 @@ const SAMPLE_JSON: &str = r#"// FastFiler ユーザー定義コマンド サン�
   },
   {
     "id": "vscode-here",
-    "label": "ここを VSCode で開く",
+    "label": "ここで開く",
     "exec": "code",
     "args": ["{cwd}"],
-    "when": "background"
+    "when": "background",
+    "submenu": "VSCode で開く"
   },
   {
     "id": "powershell-here",

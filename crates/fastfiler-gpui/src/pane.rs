@@ -146,8 +146,10 @@ struct DropMenu {
     position: Point<Pixels>,
     dst: PathBuf,
     paths: Vec<String>,
-    /// `when: "drop"` のユーザーコマンド (id, ラベル)。開いた時点で取得。
-    user_cmds: Vec<(String, String)>,
+    /// `when: "drop"` のユーザーコマンド (グループパス付き)。開いた時点で取得。
+    user_cmds: Vec<MenuCmd>,
+    /// 展開中のユーザーコマンドグループのパス (空 = どれも開いていない)。
+    open_group: Vec<String>,
 }
 
 /// 同名衝突の確認待ち転送 (上書き / 別名で保存 / キャンセル)。
@@ -168,6 +170,36 @@ enum Submenu {
     Settings,
 }
 
+/// メニューに出すユーザーコマンド 1 件 (グループパス付き)。
+#[derive(Clone)]
+struct MenuCmd {
+    /// commands.json の id (実行時に参照)。
+    id: String,
+    /// メニュー表示名。
+    label: String,
+    /// サブメニューのパス (空 = トップレベル)。`submenu` を "/" 区切りで分解。
+    group: Vec<String>,
+}
+
+/// ユーザーコマンドのサブメニュー最大階層 (`submenu` の "/" 区切り段数)。
+const MENU_MAX_DEPTH: usize = 3;
+/// メニューに並べるユーザーコマンドの上限 (サブメニュー化前提なので緩め)。
+const MENU_MAX_USER_CMDS: usize = 50;
+
+/// `submenu` 文字列を階層パスへ分解する ("/" 区切り、空白/空セグメント除去、最大 3 階層)。
+fn parse_group(submenu: &Option<String>) -> Vec<String> {
+    match submenu {
+        Some(s) => s
+            .split('/')
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .take(MENU_MAX_DEPTH)
+            .map(|x| x.to_string())
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 /// 右クリックメニューの状態。
 struct MenuState {
     /// ウィンドウ座標 (anchored で配置)。
@@ -178,10 +210,13 @@ struct MenuState {
     can_paste: bool,
     /// 新規ファイル用テンプレート一覧 (名前, フルパス)。開いた時点で取得 (先頭20件)。
     templates: Vec<(String, String)>,
-    /// 表示対象のユーザーコマンド (id, ラベル)。when/extensions で絞り込み済み。
-    user_cmds: Vec<(String, String)>,
-    /// 展開中のサブメニュー (hover / クリックで開く)。
+    /// 表示対象のユーザーコマンド (グループパス付き)。when/extensions で絞り込み済み。
+    user_cmds: Vec<MenuCmd>,
+    /// 展開中の固定サブメニュー (新しいファイル / 設定)。
     submenu: Option<Submenu>,
+    /// 展開中のユーザーコマンドグループのパス (空 = どれも開いていない)。
+    /// 例: `["開く", "VSCode"]` なら「開く ▸ VSCode ▸」まで展開中。
+    open_group: Vec<String>,
 }
 
 /// 分割方向。`Row`=左右に並べる / `Column`=上下に積む。
@@ -1257,7 +1292,7 @@ impl PaneView {
             Some(e) => (e.kind == "dir", e.ext.clone()),
             None => (false, None),
         };
-        let user_cmds: Vec<(String, String)> = user_commands::list_user_commands()
+        let user_cmds: Vec<MenuCmd> = user_commands::list_user_commands()
             .map(|v| {
                 v.into_iter()
                     .filter(|c| {
@@ -1287,8 +1322,12 @@ impl PaneView {
                             c.when == "any" || c.when == "background"
                         }
                     })
-                    .take(10)
-                    .map(|c| (c.id, c.label))
+                    .take(MENU_MAX_USER_CMDS)
+                    .map(|c| MenuCmd {
+                        group: parse_group(&c.submenu),
+                        id: c.id,
+                        label: c.label,
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -1299,6 +1338,7 @@ impl PaneView {
             templates,
             user_cmds,
             submenu: None,
+            open_group: Vec::new(),
         });
         cx.notify();
     }
@@ -1555,6 +1595,8 @@ impl PaneView {
                     } else {
                         Some(kind)
                     };
+                    // 固定サブメニューを開いたらユーザーグループは閉じる。
+                    menu.open_group.clear();
                     cx.notify();
                 }
             }))
@@ -1651,6 +1693,144 @@ impl PaneView {
         items
     }
 
+    /// ユーザーコマンドのグループ木を再帰的にメニュー項目へ変換する。
+    /// `prefix` = この階層のパス (トップレベルは空)。`group == prefix` の項目は
+    /// その場のコマンド、`group` が `prefix` より深い項目は次セグメントでまとめて
+    /// 「▸」サブメニューにする。記述順 (commands.json の順) は維持する。
+    fn user_cmd_items(
+        &self,
+        cmds: &[MenuCmd],
+        prefix: &[String],
+        m: &MenuState,
+        viewport: Size<Pixels>,
+        cx: &Context<Self>,
+    ) -> Vec<AnyElement> {
+        let depth = prefix.len();
+        let mut items: Vec<AnyElement> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for c in cmds {
+            if !c.group.starts_with(prefix) {
+                continue;
+            }
+            if c.group.len() == depth {
+                // この階層直下のコマンド。
+                items.push(self.user_cmd_leaf(prefix, c, cx));
+            } else {
+                // サブグループ — 次のセグメントで一度だけ親項目を出す。
+                let seg = &c.group[depth];
+                if seen.iter().any(|s| s == seg) {
+                    continue;
+                }
+                seen.push(seg.clone());
+                let mut child = prefix.to_vec();
+                child.push(seg.clone());
+                items.push(self.user_group_parent(seg.clone(), child, cmds, m, viewport, cx));
+            }
+        }
+        items
+    }
+
+    /// ユーザーコマンド 1 件 (葉) のメニュー項目。クリックで実行する。
+    /// id はパス + コマンド id で一意化し、同名ラベルでも衝突しないようにする。
+    fn user_cmd_leaf(&self, prefix: &[String], c: &MenuCmd, cx: &Context<Self>) -> AnyElement {
+        let id = SharedString::from(format!("uc-{}-{}", prefix.join("/"), c.id));
+        let label = c.label.clone();
+        let cmd_id = c.id.clone();
+        div()
+            .id(id)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_1()
+            .mx_1()
+            .rounded(theme::radius_sm())
+            .cursor_pointer()
+            .hover(|s| s.bg(th().menu_hover))
+            .on_click(cx.listener(move |this, _e, w, cx| {
+                this.menu_action(MenuAction::RunUserCommand(cmd_id.clone()), w, cx)
+            }))
+            .child(div().child(label))
+            .into_any_element()
+    }
+
+    /// ユーザーコマンドのサブグループ親項目 (「▸」)。クリックで右隣に展開する。
+    /// 開閉状態は `m.open_group` (開いているパス) で判定する。
+    fn user_group_parent(
+        &self,
+        label: String,
+        path: Vec<String>,
+        cmds: &[MenuCmd],
+        m: &MenuState,
+        viewport: Size<Pixels>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let open = m.open_group.starts_with(&path);
+        // 展開方向: 右にはみ出す → 左隣 / カーソルが下寄り → 上方向 (簡易判定)。
+        // path.len() = この親の階層 (1 始まり) ≒ 何枚目のサブパネルか。
+        let open_left =
+            m.position.x / px(1.0) + 210.0 * (path.len() as f32 + 1.0) > viewport.width / px(1.0) - 8.0;
+        let open_up = m.position.y / px(1.0) > viewport.height / px(1.0) * 0.55;
+        let id = SharedString::from(format!("ug-{}", path.join("/")));
+        let toggle = path.clone();
+        let mut row = div()
+            .id(id)
+            .relative()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .px_3()
+            .py_1()
+            .mx_1()
+            .rounded(theme::radius_sm())
+            .cursor_pointer()
+            .hover(|s| s.bg(th().menu_hover))
+            .on_click(cx.listener(move |this, _e, _w, cx| {
+                if let Some(menu) = this.context_menu.as_mut() {
+                    if menu.open_group.starts_with(&toggle) {
+                        // 既に開いている → この階層を閉じる (親パスへ戻す)。
+                        menu.open_group.truncate(toggle.len() - 1);
+                    } else {
+                        menu.open_group = toggle.clone();
+                    }
+                    // 固定サブメニュー (新規ファイル / 設定) は閉じる。
+                    menu.submenu = None;
+                    cx.notify();
+                }
+            }))
+            .child(div().child(label))
+            .child(div().text_color(th().text_faint).child("▸"));
+        if open {
+            let mut panel = div()
+                .occlude()
+                .absolute()
+                .flex()
+                .flex_col()
+                .py_1()
+                .w(px(210.0))
+                .rounded(theme::radius_md())
+                .bg(th().surface_bg)
+                .border_1()
+                .border_color(th().button_hover)
+                .text_color(th().text);
+            panel = if open_left {
+                panel.right(relative(1.0))
+            } else {
+                panel.left(relative(1.0))
+            };
+            panel = if open_up {
+                panel.bottom(px(-4.0))
+            } else {
+                panel.top(px(-4.0))
+            };
+            row = row.child(panel.children(self.user_cmd_items(cmds, &path, m, viewport, cx)));
+        }
+        row.into_any_element()
+    }
+
     /// 右クリックメニューのオーバーレイ (開いていなければ None)。
     fn render_context_menu(&self, window: &Window, cx: &Context<Self>) -> Option<AnyElement> {
         let m = self.context_menu.as_ref()?;
@@ -1665,8 +1845,22 @@ impl PaneView {
             4.0 + 3.0 * row_h + SEP_H
         };
         let settings_offset = {
+            // 「設定 ▸」の縦位置見積もりにはトップレベルに並ぶ行数を使う
+            // (サブメニュー化したコマンドは親 1 行に畳まれるため全件数ではない)。
+            let mut top_groups: Vec<&str> = Vec::new();
+            let mut top_rows = 0usize;
+            for c in &m.user_cmds {
+                match c.group.first() {
+                    None => top_rows += 1,
+                    Some(g) if !top_groups.contains(&g.as_str()) => {
+                        top_groups.push(g.as_str());
+                        top_rows += 1;
+                    }
+                    Some(_) => {}
+                }
+            }
             let extra = if m.user_cmds.is_empty() { 0.0 } else { SEP_H };
-            newfile_offset + (1.0 + m.user_cmds.len() as f32) * row_h + SEP_H + extra
+            newfile_offset + (1.0 + top_rows as f32) * row_h + SEP_H + extra
         };
         let mut items: Vec<AnyElement> = Vec::new();
         if m.on_row {
@@ -1694,18 +1888,11 @@ impl PaneView {
             viewport,
             cx,
         ));
-        // ユーザーコマンド (commands.json — ADR 0003 の拡張点)
+        // ユーザーコマンド (commands.json — ADR 0003 の拡張点)。
+        // `submenu` 付きはグループ化して ▸ サブメニューに畳む (最大 3 階層)。
         if !m.user_cmds.is_empty() {
             items.push(menu_sep());
-            for (id, label) in &m.user_cmds {
-                items.push(self.menu_item(
-                    label.clone(),
-                    "",
-                    true,
-                    MenuAction::RunUserCommand(id.clone()),
-                    cx,
-                ));
-            }
+            items.extend(self.user_cmd_items(&m.user_cmds, &[], m, viewport, cx));
         }
         // 「設定 ▸」(背景メニューのみ): ユーザーコマンド設定 / ホットキー設定。
         if !m.on_row {
@@ -2259,12 +2446,16 @@ impl PaneView {
         let position = window.mouse_position();
         // チューザー専用のユーザーコマンド (when: "drop")。
         // paths = ドラッグした項目 / cwd = ドロップ先フォルダ として実行する。
-        let user_cmds: Vec<(String, String)> = user_commands::list_user_commands()
+        let user_cmds: Vec<MenuCmd> = user_commands::list_user_commands()
             .map(|v| {
                 v.into_iter()
                     .filter(|c| c.when == "drop")
-                    .take(10)
-                    .map(|c| (c.id, c.label))
+                    .take(MENU_MAX_USER_CMDS)
+                    .map(|c| MenuCmd {
+                        group: parse_group(&c.submenu),
+                        id: c.id,
+                        label: c.label,
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -2273,6 +2464,7 @@ impl PaneView {
             dst,
             paths,
             user_cmds,
+            open_group: Vec::new(),
         });
         cx.notify();
     }
@@ -2325,9 +2517,135 @@ impl PaneView {
         .detach();
     }
 
+    /// ドロップチューザーのユーザーコマンド (when: "drop") をグループ木として描画する。
+    /// 中身は `user_cmd_items` と同じ畳み方だが、クリックの実行先 (ドロップ実行) と
+    /// 開閉状態 (`DropMenu::open_group`) がチューザー側になる。
+    fn drop_cmd_items(
+        &self,
+        cmds: &[MenuCmd],
+        prefix: &[String],
+        m: &DropMenu,
+        viewport: Size<Pixels>,
+        cx: &Context<Self>,
+    ) -> Vec<AnyElement> {
+        let depth = prefix.len();
+        let mut items: Vec<AnyElement> = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for c in cmds {
+            if !c.group.starts_with(prefix) {
+                continue;
+            }
+            if c.group.len() == depth {
+                items.push(self.drop_cmd_leaf(prefix, c, cx));
+            } else {
+                let seg = &c.group[depth];
+                if seen.iter().any(|s| s == seg) {
+                    continue;
+                }
+                seen.push(seg.clone());
+                let mut child = prefix.to_vec();
+                child.push(seg.clone());
+                items.push(self.drop_group_parent(seg.clone(), child, cmds, m, viewport, cx));
+            }
+        }
+        items
+    }
+
+    /// ドロップチューザーのユーザーコマンド 1 件 (葉)。クリックでドロップ実行。
+    fn drop_cmd_leaf(&self, prefix: &[String], c: &MenuCmd, cx: &Context<Self>) -> AnyElement {
+        let id = SharedString::from(format!("dm-uc-{}-{}", prefix.join("/"), c.id));
+        let label = c.label.clone();
+        let cid = c.id.clone();
+        div()
+            .id(id)
+            .flex()
+            .px_3()
+            .py_1()
+            .mx_1()
+            .rounded(theme::radius_sm())
+            .cursor_pointer()
+            .hover(|s| s.bg(th().menu_hover))
+            .child(label)
+            .on_click(cx.listener(move |this, _e, _w, cx| {
+                this.drop_menu_run_user_command(cid.clone(), cx)
+            }))
+            .into_any_element()
+    }
+
+    /// ドロップチューザーのサブグループ親項目 (「▸」)。クリックで右隣に展開する。
+    fn drop_group_parent(
+        &self,
+        label: String,
+        path: Vec<String>,
+        cmds: &[MenuCmd],
+        m: &DropMenu,
+        viewport: Size<Pixels>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let open = m.open_group.starts_with(&path);
+        let open_left = m.position.x / px(1.0) + 210.0 * (path.len() as f32 + 1.0)
+            > viewport.width / px(1.0) - 8.0;
+        let open_up = m.position.y / px(1.0) > viewport.height / px(1.0) * 0.55;
+        let id = SharedString::from(format!("dm-ug-{}", path.join("/")));
+        let toggle = path.clone();
+        let mut row = div()
+            .id(id)
+            .relative()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .px_3()
+            .py_1()
+            .mx_1()
+            .rounded(theme::radius_sm())
+            .cursor_pointer()
+            .hover(|s| s.bg(th().menu_hover))
+            .on_click(cx.listener(move |this, _e, _w, cx| {
+                if let Some(menu) = this.drop_menu.as_mut() {
+                    if menu.open_group.starts_with(&toggle) {
+                        menu.open_group.truncate(toggle.len() - 1);
+                    } else {
+                        menu.open_group = toggle.clone();
+                    }
+                    cx.notify();
+                }
+            }))
+            .child(div().child(label))
+            .child(div().text_color(th().text_faint).child("▸"));
+        if open {
+            let mut panel = div()
+                .occlude()
+                .absolute()
+                .flex()
+                .flex_col()
+                .py_1()
+                .w(px(210.0))
+                .rounded(theme::radius_md())
+                .bg(th().surface_bg)
+                .border_1()
+                .border_color(th().button_hover)
+                .text_color(th().text);
+            panel = if open_left {
+                panel.right(relative(1.0))
+            } else {
+                panel.left(relative(1.0))
+            };
+            panel = if open_up {
+                panel.bottom(px(-4.0))
+            } else {
+                panel.top(px(-4.0))
+            };
+            row = row.child(panel.children(self.drop_cmd_items(cmds, &path, m, viewport, cx)));
+        }
+        row.into_any_element()
+    }
+
     /// 右ボタン D&D チューザーのオーバーレイ。
-    fn render_drop_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
+    fn render_drop_menu(&self, window: &Window, cx: &Context<Self>) -> Option<AnyElement> {
         let m = self.drop_menu.as_ref()?;
+        let viewport = window.viewport_size();
         let item = |id: &'static str, label: &'static str, mv: Option<bool>| {
             div()
                 .id(id)
@@ -2347,27 +2665,10 @@ impl PaneView {
             item("dm-move", "ここに移動", Some(true)),
         ];
         // ユーザーコマンド (when: "drop")。paths=ドラッグ項目 / cwd=ドロップ先。
+        // `submenu` 付きはグループ化して ▸ サブメニューに畳む (最大 3 階層)。
         if !m.user_cmds.is_empty() {
             items.push(menu_sep());
-            for (id, label) in &m.user_cmds {
-                let cid = id.clone();
-                items.push(
-                    div()
-                        .id(SharedString::from(format!("dm-uc-{id}")))
-                        .flex()
-                        .px_3()
-                        .py_1()
-                        .mx_1()
-                        .rounded(theme::radius_sm())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(th().menu_hover))
-                        .child(label.clone())
-                        .on_click(cx.listener(move |this, _e, _w, cx| {
-                            this.drop_menu_run_user_command(cid.clone(), cx)
-                        }))
-                        .into_any_element(),
-                );
-            }
+            items.extend(self.drop_cmd_items(&m.user_cmds, &[], m, viewport, cx));
         }
         items.push(menu_sep());
         items.push(item("dm-cancel", "キャンセル", None));
@@ -3374,7 +3675,7 @@ impl Render for PaneView {
             // 右クリックメニュー (開いている時のみ)
             .children(self.render_context_menu(window, cx))
             // 右ボタン D&D チューザー (開いている時のみ)
-            .children(self.render_drop_menu(cx))
+            .children(self.render_drop_menu(window, cx))
             // 同名衝突の確認モーダル (確認待ちのみ)
             .children(self.render_conflict_modal(cx))
     }

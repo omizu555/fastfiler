@@ -30,20 +30,22 @@
 
 初回生成される `commands.json.sample` に入っているもの。挙動の確認用にここへ再掲する。
 
-| ラベル | when | 説明 |
-|---|---|---|
-| VSCode で開く | `selection` | 選択ファイル/フォルダを VS Code で開く |
-| 7-Zip で圧縮 (.7z) | `selection` | 選択をまとめて親フォルダに `.7z` 圧縮 |
-| ここを VSCode で開く | `background` | 今のフォルダを VS Code で開く |
-| ここで PowerShell | `background` | 今のフォルダで PowerShell を開く |
-| ここで CMD | `background` | 今のフォルダで CMD を開く |
-| ここでターミナル | `background` | 今のフォルダで Windows Terminal を開く |
-| ここに 7-Zip で圧縮 (.7z) | `drop` | 右ボタン D&D した項目をドロップ先に `.7z` 圧縮 |
+| ラベル | when | submenu | 説明 |
+|---|---|---|---|
+| ファイルを開く | `selection` | VSCode で開く | 選択を VS Code で開く |
+| ここで開く | `background` | VSCode で開く | 今のフォルダを VS Code で開く |
+| 7-Zip で圧縮 (.7z) | `selection` | — | 選択をまとめて親フォルダに `.7z` 圧縮 |
+| ここで PowerShell | `background` | — | 今のフォルダで PowerShell を開く |
+| ここで CMD | `background` | — | 今のフォルダで CMD を開く |
+| ここでターミナル | `background` | — | 今のフォルダで Windows Terminal を開く |
+| ここに 7-Zip で圧縮 (.7z) | `drop` | — | 右ボタン D&D した項目をドロップ先に `.7z` 圧縮 |
+
+VSCode 系は `submenu` で `VSCode で開く ▸` の 1 つにまとめてある (サブメニューの例)。
 
 ```json
 [
-  { "id": "vscode-open",      "label": "VSCode で開く",            "exec": "code",                              "args": ["{path}"],                          "when": "selection" },
-  { "id": "vscode-here",      "label": "ここを VSCode で開く",      "exec": "code",                              "args": ["{cwd}"],                           "when": "background" },
+  { "id": "vscode-open",      "label": "ファイルを開く",           "exec": "code",                              "args": ["{path}"],                          "when": "selection",  "submenu": "VSCode で開く" },
+  { "id": "vscode-here",      "label": "ここで開く",                "exec": "code",                              "args": ["{cwd}"],                           "when": "background",  "submenu": "VSCode で開く" },
   { "id": "powershell-here",  "label": "ここで PowerShell",         "exec": "powershell.exe",                    "args": ["-NoExit"],                         "when": "background" },
   { "id": "cmd-here",         "label": "ここで CMD",                "exec": "cmd.exe",                           "args": ["/k"],                              "when": "background" },
   { "id": "terminal-here",    "label": "ここでターミナル",          "exec": "wt.exe",                            "args": ["-d", "{cwd}"],                     "when": "background" },
@@ -51,6 +53,40 @@
   { "id": "7z-compress-drop", "label": "ここに 7-Zip で圧縮 (.7z)", "exec": "C:\\Program Files\\7-Zip\\7z.exe",  "args": ["a", "{cwd}\\{stem}.7z", "{paths}"],    "when": "drop" }
 ]
 ```
+
+---
+
+## サブメニューでまとめる
+
+メニューが長くなったら `submenu` でサブメニューに畳める。同じ `submenu` 名の
+コマンドが 1 つの `▸` にまとまる。`"/"` 区切りで**最大 3 階層**までネスト可。
+
+```json
+[
+  { "id": "vscode-file",  "label": "ファイルを開く", "exec": "code",        "args": ["{path}"], "when": "selection",  "submenu": "VSCode で開く" },
+  { "id": "vscode-here2", "label": "ここで開く",      "exec": "code",        "args": ["{cwd}"],  "when": "background",  "submenu": "VSCode で開く" },
+
+  { "id": "zip-here",     "label": "ZIP で圧縮",     "exec": "C:\\Program Files\\7-Zip\\7z.exe", "args": ["a", "-tzip", "{parent}\\{stem}.zip", "{paths}"], "when": "selection", "submenu": "ツール/圧縮" },
+  { "id": "sevenz-here",  "label": "7z で圧縮",      "exec": "C:\\Program Files\\7-Zip\\7z.exe", "args": ["a", "{parent}\\{stem}.7z", "{paths}"],          "when": "selection", "submenu": "ツール/圧縮" }
+]
+```
+
+- 上は `VSCode で開く ▸ {ファイルを開く, ここで開く}` の 2 択サブメニュー。
+- 下は `ツール ▸ 圧縮 ▸ {ZIP で圧縮, 7z で圧縮}` の 2 階層ネスト。
+- `submenu` を書かなければ従来どおりトップレベルに並ぶ (混在 OK)。
+
+サブメニューは**右ボタン D&D のチューザー (`when: "drop"`) でも効く**。圧縮系を
+畳む例:
+
+```json
+[
+  { "id": "7z-drop",  "label": "ここに 7-Zip で圧縮 (.7z)", "exec": "C:\\Program Files\\7-Zip\\7z.exe", "args": ["a", "{cwd}\\{stem}.7z", "{paths}"],          "when": "drop", "submenu": "ツール/圧縮" },
+  { "id": "zip-drop", "label": "ここに ZIP で圧縮 (.zip)",   "exec": "C:\\Program Files\\7-Zip\\7z.exe", "args": ["a", "-tzip", "{cwd}\\{stem}.zip", "{paths}"], "when": "drop", "submenu": "ツール/圧縮" }
+]
+```
+
+ドロップして右ボタンを離すと「ここにコピー / ここに移動」の下に `ツール ▸ 圧縮 ▸`
+が出て、その中に 2 つの圧縮コマンドがまとまる。
 
 ---
 
