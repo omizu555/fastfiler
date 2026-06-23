@@ -2730,26 +2730,46 @@ impl PaneView {
             .unwrap_or_default();
         match result {
             "move" => {
+                // delete_source=true は「ドロップ先が PerformedDropEffect=MOVE を明示した」
+                // ときだけ立つ。ブラウザの添付のように移動完了を通知しない相手は
+                // delete_source=false で来るため、ここで元は削除しない (データ損失防止)。
                 let delete = payload
                     .get("delete_source")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                if delete {
-                    // ターゲット (Explorer 等) がコピーを終えた move → 元を削除する。
-                    let mut err = None;
-                    for p in &paths {
-                        if let Err(e) = file_ops::delete_path(Path::new(p), true) {
-                            err = Some(e.to_string());
-                        }
+
+                let mut moved_by_target = 0usize; // ドロップ先が既に元を移動済み (元が消滅)
+                let mut kept = 0usize; // 添付/コピー扱いで元を残した件数
+                let mut to_recycle: Vec<String> = Vec::new();
+                for p in &paths {
+                    if !Path::new(p).exists() {
+                        // Explorer の最適化ムーブ等で既に元が移動・削除されている。
+                        moved_by_target += 1;
+                    } else if delete {
+                        to_recycle.push(p.clone());
+                    } else {
+                        kept += 1;
                     }
-                    self.status = match err {
-                        None => format!("{} 個を移動しました", paths.len()).into(),
-                        Some(e) => format!("移動の元削除に失敗: {e}").into(),
-                    };
-                } else {
-                    // 最適化ムーブ等 (ターゲット側で処理済み)。
-                    self.status = "移動しました".into();
                 }
+
+                // 元削除は完全削除ではなく **ゴミ箱送り** (FOF_ALLOWUNDO)。
+                // 万一判定を誤っても復元できる安全側に倒す。
+                let mut err = None;
+                let recycled = to_recycle.len();
+                if recycled > 0 {
+                    if let Err(e) = file_ops::delete_to_trash(to_recycle) {
+                        err = Some(e.to_string());
+                    }
+                }
+
+                self.status = if let Some(e) = err {
+                    format!("移動の元削除に失敗: {e}").into()
+                } else if kept > 0 && recycled == 0 && moved_by_target == 0 {
+                    // ブラウザ等への添付。ドロップ先は移動を実行していないため元は保持。
+                    format!("{kept} 個を添付 (コピー) しました").into()
+                } else {
+                    format!("{} 個を移動しました", recycled + moved_by_target).into()
+                };
                 self.reload(cx, false);
             }
             "copy" => {
@@ -3714,6 +3734,18 @@ fn load_icon(entry: &FileEntry, dir: &Path) -> Option<Arc<Image>> {
     Some(Arc::new(Image::from_bytes(ImageFormat::Png, png.as_ref().clone())))
 }
 
+/// `haystack` が `prefix` 自身またはその子孫かをケース非依存で判定する。
+///
+/// `Path::starts_with` はケース区別ありだが、Windows のパスはケース非依存。
+/// そのまま使うと `C:\Foo` を `c:\foo\sub` へ落としたときに自己/子孫判定を
+/// 取りこぼし、フォルダを自分の子孫へ再帰コピーしてしまう。小文字化して
+/// から比較することでこれを防ぐ (区切りは小文字化で変化しないので
+/// `starts_with` のコンポーネント単位判定はそのまま効く)。
+fn path_starts_with_ci(haystack: &Path, prefix: &Path) -> bool {
+    let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
+    lower(haystack).starts_with(lower(prefix))
+}
+
 /// パス一覧 → コピー/移動ジョブの from/to。安全のため以下をスキップ:
 /// - 自分自身 (またはその子孫) への転送 (無限再帰防止)
 /// - 同一フォルダへの**移動** (from == to の no-op)
@@ -3730,8 +3762,8 @@ fn build_job_items(paths: &[String], dst_dir: &Path, is_move: bool) -> Vec<JobIt
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| p.clone());
             let from = Path::new(p);
-            // 自分自身 / その子孫への転送は無限再帰になるため除外。
-            if dst_dir.starts_with(from) {
+            // 自分自身 / その子孫への転送は無限再帰になるため除外 (ケース非依存)。
+            if path_starts_with_ci(dst_dir, from) {
                 return None;
             }
             let to = dst_dir.join(&name);

@@ -11,6 +11,10 @@
 //   `pdwEffect == DROPEFFECT_MOVE` **かつ** ドロップターゲットが
 //   CFSTR_PERFORMEDDROPEFFECT (SetData 経由) で MOVE を通知してきた場合のみ。
 //   どちらか片方だけでは削除しない (データ損失防止)。
+//   特にブラウザ (Chrome 系 / Firefox) は AI チャット等への添付時、こちらの
+//   推奨効果 (MOVE) を pdwEffect にそのまま反響させてくるが、移動を実行した
+//   わけではないので Performed DropEffect は送ってこない。これを「移動」と信用
+//   して元を削除すると「添付しただけでファイルが消える」データ損失になる。
 //
 // ADR/設計メモは `plan-dnd2.md` を参照。
 
@@ -536,15 +540,27 @@ pub fn start_drag(req: DragRequest) -> AppResult<DragOutcome> {
     // pdwEffect 判定 + PerformedDropEffect 一致確認
     let state = state_handle.lock().unwrap();
     let performed = state.performed.or(state.logical_performed);
+    drop(state);
+
+    // 診断ログ: ドロップ先 (Explorer / ブラウザ等) が返した効果を確認する。
+    // デバッグビルド限定 (リリースでは出さない)。`cargo run` 等のターミナル
+    // 起動時のみ見える。挙動を調べたいときはここを見る。
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[ole_dnd] DoDragDrop 完了: pdwEffect=0x{:X} performed={performed:?}",
+        effect.0
+    );
 
     if (effect.0 & DROPEFFECT_MOVE.0) != 0 {
-        // pdwEffect が MOVE。PerformedDropEffect が MOVE と明示されていれば削除可。
-        // PerformedDropEffect が来ない (None) ターゲットも多い (シェルは送らないことが多い) ので、
-        // None の場合も MOVE 採用するが、LOGICAL が COPY を返した場合は削除しない (安全側)。
-        let delete = match performed {
-            Some(p) => (p & DROPEFFECT_MOVE.0) != 0,
-            None => true, // ターゲットが Performed を送らない場合は pdwEffect を信用する
-        };
+        // pdwEffect が MOVE でも、元を削除してよいのは「ドロップ先が
+        // CFSTR_PERFORMEDDROPEFFECT で MOVE を **明示**した」ときだけ。
+        // Performed が来ない (None) 相手 — 代表例がブラウザの添付 — は移動を
+        // 実行していないので削除しない (= 添付/コピー扱い)。これがデータ損失防止の要。
+        //
+        // なお Explorer 等が最適化ムーブで既に元を移動済みでも performed=MOVE を
+        // 返すため delete=true になるが、その場合は呼出側が「元は既に存在しない」
+        // ことを確認してゴミ箱送りを空振りさせる (二重削除にならない)。
+        let delete = matches!(performed, Some(p) if (p & DROPEFFECT_MOVE.0) != 0);
         Ok(DragOutcome::Move {
             delete_source: delete,
         })
