@@ -3,6 +3,11 @@
 //!
 //! 保存先: `%APPDATA%\FastFiler\gpui_session.json`
 //! 保存タイミング: 構成変更後 800ms デバウンス + アプリ終了時 (on_app_quit)。
+//!
+//! クラッシュ・電源断では on_app_quit が呼ばれないため、デバウンス保存だけが
+//! 頼り。その保存が壊れてもタブが消えないよう、書き込みは [`crate::persist`] の
+//! アトミック書き込み + `.bak` フォールバックを使う (素の `fs::write` は途中切れ /
+//! 0 バイト化の危険がある)。
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -81,18 +86,16 @@ fn session_path() -> Option<PathBuf> {
 
 pub fn load() -> Option<SessionData> {
     let p = session_path()?;
-    let s = std::fs::read_to_string(p).ok()?;
-    serde_json::from_str(&s).ok()
+    // 本体が壊れていれば .bak から復元する。
+    crate::persist::load_with_backup(&p, |s| serde_json::from_str(s).ok())
 }
 
 pub fn save(data: &SessionData) {
     let Some(p) = session_path() else {
         return;
     };
-    if let Some(dir) = p.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
     if let Ok(s) = serde_json::to_string_pretty(data) {
-        let _ = std::fs::write(p, s);
+        // アトミック書き込み + .bak 退避 (電源断でもタブ情報が消えないように)。
+        let _ = crate::persist::write_atomic(&p, &s);
     }
 }

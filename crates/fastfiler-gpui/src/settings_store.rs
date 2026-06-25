@@ -81,8 +81,10 @@ fn store() -> &'static RwLock<AppSettings> {
 /// 起動時に 1 回呼ぶ: ファイルから読み込んで static に格納し、その値を返す。
 pub fn load() -> AppSettings {
     let s = config_path()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str::<AppSettings>(&t).ok())
+        // 本体が壊れていれば .bak から復元する (電源断対策)。
+        .and_then(|p| {
+            crate::persist::load_with_backup(&p, |t| serde_json::from_str::<AppSettings>(t).ok())
+        })
         .unwrap_or_default();
     *store().write().unwrap() = s.clone();
     s
@@ -101,11 +103,9 @@ pub fn update(f: impl FnOnce(&mut AppSettings)) {
         s.clone()
     };
     if let Some(p) = config_path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         if let Ok(text) = serde_json::to_string_pretty(&snapshot) {
-            let _ = std::fs::write(p, text);
+            // アトミック書き込み + .bak 退避 (電源断対策)。
+            let _ = crate::persist::write_atomic(&p, &text);
         }
     }
 }

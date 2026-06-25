@@ -29,7 +29,8 @@ fastfiler/
 │           ├── settings_store.rs  設定の読み書き (gpui_settings.json、即時保存)
 │           ├── hotkeys.rs      ホットキー定義と読み込み (gpui_hotkeys.json)
 │           ├── sink.rs         EventSink → async-channel ブリッジ
-│           ├── session.rs      セッション永続化 (JSON)
+│           ├── persist.rs      設定/セッションのクラッシュ安全な保存 (tmp+fsync+rename / .bak)
+│           ├── session.rs      セッション永続化 (JSON、persist 経由)
 │           └── win32_single_instance.rs  多重起動防止 (既存窓の前面化)
 └── vendor/                     GPUI と依存 18 クレート (zed から完全移植・自己完結)
     └── README.md               取り込み元コミット / 改変点 / 再 vendor 手順

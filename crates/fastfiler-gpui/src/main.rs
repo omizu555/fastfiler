@@ -8,6 +8,7 @@
 mod app;
 mod hotkeys;
 mod pane;
+mod persist;
 mod session;
 mod settings_store;
 mod sink;
