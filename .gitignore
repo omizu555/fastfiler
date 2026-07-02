@@ -9,3 +9,6 @@ tsconfig.tsbuildinfo
 
 experimental/*/target/
 
+# セルフレビューフックのローカルスタンプ (.claude/hooks/selfreview-check.sh)
+.claude/.selfreview-stamp
+

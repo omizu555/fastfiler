@@ -10,8 +10,9 @@ FastFiler を GPUI から iced へ全面移植するプロジェクトの入口�
 
 1. `doc/plan/2026-07-02-iced-rewrite.md` — 計画書 (アーキテクチャ / フェーズ / リスク / 運用)
 2. `doc/plan/2026-07-02-feature-inventory.md` — パリティ正典 (F-xx/U-xx/N-xx チェックリスト)
-3. 担当フェーズの GitHub Issue (マイルストーン `iced-rewrite`) — Exit 条件と発見事項
-4. 必要に応じて: `doc/USAGE.md` (挙動の一次情報) / `doc/spec/` (GPUI 版の逆生成仕様 16 章、
+3. [LESSONS.md](./LESSONS.md) — 過去セッションの学び (ハマりどころ・速い書き方)
+4. 担当フェーズの GitHub Issue (マイルストーン `iced-rewrite`) — Exit 条件と発見事項
+5. 必要に応じて: `doc/USAGE.md` (挙動の一次情報) / `doc/spec/` (GPUI 版の逆生成仕様 16 章、
    `traceability.md` で code 逆引き) / `CONTEXT.md` (用語と価値の優先軸)
 
 ## 鉄則
@@ -50,6 +51,33 @@ cargo build -p fastfiler-gpui --release  # 比較基準 (凍結版)
   ベースライン復帰を確認 (計画書 §9 B-3)。スレッド/ハンドル数は タスクマネージャ or
   `Get-Process fastfiler | Select-Object Threads,HandleCount`。
 - 性能検証: 計画書 §9 のベンチ表 (B-1〜B-5)。GPUI 版と同一マシン・同一フォルダで比較。
+
+## 作業後セルフレビュー (必須 — 自己成長ループ)
+
+Rust コードを変更した作業を終えるときは、停止する前に以下を実施する。
+未実施のまま停止しようとすると **Stop フック** (`.claude/hooks/selfreview-check.sh`) が
+1 回ブロックして差し戻す。
+
+1. **機械チェック**: `cargo fmt --all -- --check` /
+   `cargo clippy -p <触ったクレート> -- -D warnings` /
+   `cargo test -p fastfiler-core -p fastfiler-domain`
+2. **品質レビュー**: 差分が大きい・リスクが高い変更は `/code-review` (バグ検出) や
+   `/simplify` (簡素化) を実行する
+3. **性能チェック**: ホットパス (一覧描画 / listing / アイコン / ソート / 起動) に触れたら
+   該当ベンチ (計画書 §9 の B-1〜B-5) を再計測し、前回値と比較する
+4. **改善提案の報告 (必須)**: 最終報告に「改善提案」節を設け、次の 4 観点で具体的に
+   (file:line 付き)。**提案止まりにする** (勝手にスコープを広げて実装しない):
+   - 高速化 — 「〜すればもう少し高速化できます」
+   - 簡潔化 — 「〜でコードがきれいになります」
+   - 設計 — 計画書の設計原則 (§5 / §10) からの逸脱と直し方
+   - テスト — 不足しているテストケース
+5. **学びの還元 (自己成長)**: 一般化できる知見 (ハマりどころ・iced の癖・速い書き方) は
+   [LESSONS.md](./LESSONS.md) へ追記する。SKILL.md 本体の規約を変えるべきと気づいたら、
+   変更案を報告した上で SKILL.md を更新する (このスキル自体が成長対象)
+6. **スタンプ**: `date > .claude/.selfreview-stamp` (bash で実行。フックの解除)
+
+作業が途中で停止する場合: 現状を一言報告し、スタンプだけ実行して停止してよい
+(セルフレビューは作業完了時にまとめて実施)。
 
 ## コミット規約
 

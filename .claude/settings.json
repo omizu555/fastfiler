@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/selfreview-check.sh",
+            "timeout": 30,
+            "statusMessage": "セルフレビュー実施状況を確認中"
+          }
+        ]
+      }
+    ]
+  }
+}
