@@ -58,13 +58,20 @@ cargo build -p fastfiler-gpui --release  # 比較基準 (凍結版)
 
 ## 技術メモ (ハマりどころの先例)
 
-- **HWND 取得**: `raw_window_handle::HasWindowHandle` をトレイト明示呼び出しで
-  (GPUI 版 pane.rs:3791 `hwnd_of` の先例。iced/winit でも同手法)。
+- **iced は 0.14.0 固定** (IME 初対応・マルチウィンドウ修正はこの版から。0.13 は不可)。
+- **HWND 取得**: iced 0.14 は `window::run` タスク (PR #2718) で native handle に
+  クロージャアクセスする方式 (ハンドルは非 Clone・短命)。**HWND を isize で取り出して
+  保持**し domain へ渡す (GPUI 版 pane.rs:3791 `hwnd_of` と同じ流儀)。
+  `iced::window::raw_window_handle` が re-export されている。
+- **IME**: over-the-spot 方式 (`InputMethod::Enabled { cursor, preedit, .. }`)。
+  Windows の言語切替後に候補ウィンドウ位置が壊れる open バグ iced#3189 に注意
+  (S-1 スパイクの必須確認シナリオ)。
 - **OLE 送信**: `DoDragDrop` は必ず専用スレッド + `AttachThreadInput` (UI スレッド id と
   結合しないと即終了する)。先例: GPUI 版 pane.rs:2341-2388。
-- **OLE 受信**: winit 既定のドロップ登録 (`drag_and_drop`) を無効化してから
-  `domain::ole_dnd::register_drop_target(hwnd, ..)`。右ボタンは `grfKeyState` の
-  MK_RBUTTON で判別。
+- **OLE 受信**: winit 既定のドロップ登録を無効化 (`with_drag_and_drop(false)` 相当。
+  iced の `window::Settings` から指定できるか要確認、不可なら `RevokeDragDrop` → 再登録を
+  検証) してから `domain::ole_dnd::register_drop_target(hwnd, ..)`。右ボタンは
+  `grfKeyState` の MK_RBUTTON で判別。
 - **UI スレッド再入禁止**: ShellExecuteW / プロセス起動 / モーダル系 Win32 呼び出しは
   必ず別スレッド (domain shell.rs が STA ワーカーを持っている。無改造で使う)。
 - **domain イベント**: `ChannelSink` (async-channel) → `iced::Subscription` 1 本に集約し、

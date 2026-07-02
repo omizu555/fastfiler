@@ -65,15 +65,21 @@ GPUI 版 (ADR 0012) は機能一式が完成し、メモリ健全性も達成済
 
 ## 2. 依存の取り込み方針
 
-> このセクションの版数・根拠は 2026-07-02 実施の iced 実力調査 (§13 リスク台帳の根拠) で確定する。
+> 版数・根拠は 2026-07-02 実施の iced 実力調査で確定済み (多ソース 3 票検証。§13 に出典)。
 
-- **iced は crates.io の通常依存**とする (vendor しない)。GPUI と違い公開クレートとして
-  維持されており、fork が必要になった場合のみ `[patch.crates-io]` で git rev 固定に切替。
-- バージョンはリサーチ結果を踏まえ、**IME サポートを含む系列**を最優先条件に選定する
-  (§7)。API 変動リスクを避けるため、採用したらマイナー版を Cargo.toml でピン留め。
+- **iced 0.14.0 (2025-12-07 安定版) を採用し、ピン留めする**。0.14 は必須条件:
+  - IME 対応 (PR [#2777](https://github.com/iced-rs/iced/pull/2777)) は 0.14 が初出。
+    **0.13.x に IME は存在しない**ため選択肢にならない。
+  - マルチウィンドウの致命バグ (#2848) も 0.14 で修正済み (0.13 未バックポート)。
+  - 調査時点で `[Unreleased]` は空 (0.14.0 以降の破壊的変更なし)。master は 0.15.0-dev。
+- **crates.io の通常依存**とする (vendor しない)。fork が必要になった場合のみ
+  `[patch.crates-io]` で git rev 固定に切替。
+- **iced_aw 0.14.1 (2026-06-04、活発に保守中)** を必要に応じて併用可
+  (ContextMenu / DropDown 提供、iced 0.14 対応済み)。ただしメニューは自前オーバーレイ
+  (§4) を第一候補とし、iced_aw は部品の参考実装・保険とする。
 - レンダリング: 既定 (wgpu、失敗時 tiny-skia 系フォールバック) をそのまま使う。
-- toolchain: 1.95.0 のままで開始 (iced の MSRV はこれより低い)。GPUI/vendor 撤去後に
-  edition/toolchain の拘束を見直す。
+  性能実測は未検証情報のため Phase 0-1 のベンチで自前確認 (§13 R-7)。
+- toolchain: 1.95.0 のままで開始。GPUI/vendor 撤去後に edition/toolchain の拘束を見直す。
 - `windows` crate: **workspace 全体で 1 バージョンに統一** (現状 domain 0.58 / gpui 0.61
   の二重化を解消。§10-5)。
 
@@ -85,9 +91,16 @@ GPUI 版 (ADR 0012) は機能一式が完成し、メモリ健全性も達成済
 結果を本ファイル §15 に記録する。
 
 ### S-1: 日本語 IME
-- iced の `text_input` で日本語入力 (未確定文字列表示・変換・確定・カーソル位置) が
-  機能するかを実機確認。
+- iced 0.14 の `text_input` で日本語入力 (未確定文字列表示・変換・確定・カーソル位置) を
+  Windows 11 + MS-IME の実機で確認。iced の IME は **over-the-spot 方式**
+  (未確定文字列はランタイムがオーバーレイ描画、`InputMethod::Enabled { cursor, preedit, .. }`
+  の cursor 矩形が変換候補ウィンドウ位置になる)。
+- **確認必須シナリオ**: 未確定→変換→確定 / 長い未確定文字列 / スクロール中の入力欄 /
+  **キーボード言語切替後の変換ポップアップ位置** (未解決 issue
+  [#3189](https://github.com/iced-rs/iced/issues/3189): 切替後にポップアップが画面右下へ
+  飛ぶ Windows 固有バグが open。再現条件と実害を必ず確認)。
 - 合格基準: インベントリ N-03 (リネーム/新規/パス/検索の 4 用途で使える品質)。
+  #3189 を踏んだ場合は再現条件が「実用上稀」であることの確認 + 回避策メモで条件付き合格可。
 - NG 時の代替: winit の `Ime` イベントを購読する自前入力ウィジェット (現 `text_input.rs`
   と同じ役割を iced の低レベル API で再実装)。それも不可なら計画中止級 (§13 R-1)。
 
@@ -97,9 +110,13 @@ GPUI 版 (ADR 0012) は機能一式が完成し、メモリ健全性も達成済
 - NG 時の代替: 描画のさらなる直接化 (glyph キャッシュ / レイアウト再利用)。
 
 ### S-3: OLE D&D の共存
-- iced ウィンドウで `drag_and_drop` 無効化 (winit の既定 OLE 登録を止める) →
-  `raw-window-handle` で HWND 取得 → domain `ole_dnd::register_drop_target` で
-  自前 IDropTarget を登録 → エクスプローラからのドロップ (左/右ボタン、修飾キー) を受信。
+- iced ウィンドウで winit の既定 OLE 登録を止める (winit の
+  `WindowAttributesExtWindows::with_drag_and_drop(false)` 相当。iced 0.14 の
+  `window::Settings` からの指定可否を確認し、不可なら `RevokeDragDrop` → 再登録の順で検証) →
+  HWND 取得 (iced 0.14 は `window::run` タスク [#2718] で native handle にアクセス。
+  `iced::window::raw_window_handle` モジュールが re-export されている) →
+  domain `ole_dnd::register_drop_target` で自前 IDropTarget を登録 →
+  エクスプローラからのドロップ (左/右ボタン、修飾キー) を受信。
 - 併せて送信側 (`ole_dnd::start_drag` + `AttachThreadInput` ワーカー) が iced の
   イベントループでも機能することを確認。
 - 合格基準: 受信 (効果判定・右ボタン判別 = grfKeyState の MK_RBUTTON) と送信の両立。
@@ -244,7 +261,13 @@ fn update(m: &mut AppModel, msg: Msg) -> Vec<Effect>   // 純ロジック・単�
 GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の既製ウィジェットの
 組み合わせでは作らない** (数万行で widget ツリー構築がボトルネック化するため)。
 
-設計方針 — `FileList`: iced の `Widget` trait を直接実装する单一ウィジェット:
+> 裏付け (2026-07-02 調査): iced 0.14.0 に lazy/virtual リストは**存在しない**。
+> 新設の table/grid/sensor/smart scrollbars も仮想化ではなく、column/row の
+> Primitive culling (#2611) は描画カリングのみでレイアウトとツリー構築は O(n)。
+> コミュニティでは `scrollable` が約 1,000 件で遅延するとの報告 (discourse)。
+> **仮想リストの自作が本移植の工数の中心**であることは調査でも確定した。
+
+設計方針 — `FileList`: iced の `Widget` trait を直接実装する単一ウィジェット:
 
 - **固定行高** (フォントサイズから算出、行高追従は F-902)。総高 = 行数 × 行高で
   スクロールバー領域を確定し、**可視範囲の行だけを `draw` で直接描画**
@@ -267,11 +290,19 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 
 - 現 `text_input.rs` (680 行) は GPUI 固有実装のため全面作り直し。
   **1 実装を 4 用途 (パスバー / リネーム / 新規 / 検索) で共有する構造は維持**する。
+- iced 0.14 の IME の実力 (2026-07-02 調査で 3 票検証済み):
+  - PR #2777 (2025-02 マージ) で CJK 対応が `text_input`/`text_editor` に統合され、
+    0.14.0 に同梱 (公式 FAQ も「IME は 0.14 から対応」と明言)。
+  - 未確定文字列は **over-the-spot** (オーバーレイ描画)。インライン (on-the-spot) は未実装。
+    変換候補ウィンドウはキャレット位置に追従 (初期位置バグは #2793 で修正済み)。
+  - preedit の可変サイズ (#2790)・スクロール時の位置ずれ (#2798) も 0.14.0 で修正済み。
+  - **残存リスク**: メンテナ自身が「Far from perfect」と明言・エッジケース未対応 (FAQ)。
+    Windows 固有の open バグ #3189 (言語切替後の候補ウィンドウ位置)。
 - 採用判断は S-1 スパイクで確定:
-  - iced 標準 `text_input` が日本語 IME (未確定表示・変換位置) を満たす → それを採用し、
-    「F2 で拡張子手前まで初期選択」「Enter/Esc」「ドラッグ部分選択」を上に足す。
+  - iced 標準 `text_input` が実機品質を満たす → それを採用し、「F2 で拡張子手前まで
+    初期選択」「Enter/Esc」「ドラッグ部分選択」を上に足す。
   - 不足する場合 → winit `Ime` イベント (`Preedit`/`Commit`) を購読する自前ウィジェット。
-    marked_range の描画・カーソル管理は現 text_input.rs の仕様 (cc-rsg 第9章) を踏襲。
+    marked_range の描画・カーソル管理は現 text_input.rs の仕様 (doc/spec 第9章) を踏襲。
 - 確定した方式と検証結果 (変換ウィンドウ位置を含む) を §15 に記録する。
 
 ---
@@ -280,7 +311,7 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 
 | 項目 | 方式 | 再利用資産 |
 |---|---|---|
-| HWND 取得 | `raw-window-handle` (iced/winit も `HasWindowHandle` 実装) | 現 `hwnd_of` と同じ手法 (pane.rs:3791 の先例) |
+| HWND 取得 | iced 0.14 の `window::run` タスク (#2718。native handle へのクロージャアクセス。ハンドルは非 Clone・短命なので **HWND を isize で取り出して保持**する) + `iced::window::raw_window_handle` re-export | 現 `hwnd_of` と同じ「Win32 ハンドルを isize 化して domain へ渡す」流儀 (pane.rs:3791 の先例) |
 | OLE 初期化 | 起動時 `init_ole()` (UI スレッド) | main.rs:43 と同じ |
 | 外部 D&D 受信 | winit 既定のドロップ登録を無効化 → `register_drop_target(hwnd, callbacks)` | domain ole_dnd.rs:629-848 (復活) |
 | 右ボタン外部受信 | IDropTarget の `grfKeyState` (MK_RBUTTON) で判別 → ドロップメニュー | 同上 |
@@ -340,7 +371,7 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 ### テスト戦略
 - **core**: 選択モデル (Ctrl/Shift/矩形/名前復元) / BSP 分割・削除・collapse /
   履歴とロックタブ規則 / 衝突解決の一括適用 / Undo 記録条件 / hotkey 正規化 /
-  メニュー木 / セッション serde 往復 — すべて純関数なので单体テストを書く。
+  メニュー木 / セッション serde 往復 — すべて純関数なので単体テストを書く。
 - **domain**: 既存テスト (ユニット + 統合 367 行) を維持。Q-022 修正のテスト追加。
 - **UI**: 自動化しない。スパイク (S-1〜S-3) + フェーズ Exit 条件 + インベントリの
   パリティチェック (手動) で担保。
@@ -417,22 +448,28 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 
 ## 13. リスク台帳
 
-> 致命度・根拠 URL は 2026-07-02 の iced 実力調査で確定させ、ここを更新する。
+> 致命度は 2026-07-02 の iced 実力調査 (5 系統の並列 Web 調査 → 一次ソース取得 →
+> クレーム毎 3 票の反証検証) で確定。判定凡例: **致命** = 不成立なら計画中止級 /
+> **回避策あり** = 設計・スパイクで潰せる / **問題なし** = 検証済みで障害でない。
 
-| ID | リスク | 影響 | 対策 / フォールバック |
+| ID | リスク | 調査判定 | 対策 / フォールバック |
 |---|---|---|---|
-| R-1 | 日本語 IME が iced で成立しない | 致命 (リネーム等が使えない) | S-1 で最初に検証。自前ウィジェット (winit Ime) → それでも不可なら**計画中止・GPUI 継続** |
-| R-2 | 仮想リストの性能不足 | 中核価値 A の毀損 | S-2 で検証。直描き設計 (§6) で回避可能見込み |
-| R-3 | winit の OLE 登録と自前 IDropTarget の衝突 | D&D 縮退 | drag_and_drop 無効化 → 自前登録 (S-3)。最悪 ADR 0011 サブクラス再導入 |
-| R-4 | iced の API 変動 (メジャー間の breaking change) | 追従コスト | 採用版をピン留め。core 分離により被弾面は薄い皮のみ |
-| R-5 | オーバーレイ (メニュー/モーダル) の z 順・クリック外し実装が煩雑 | 工数増 | view 最上段 stack で自前合成に統一 (GPUI 版も自前だった) |
-| R-6 | cosmic-text の日本語フォールバック・フォント選択 | 表示品質 | Phase 1 で System32 + 日本語ファイル名を確認。フォント設定 (F-902) で回避余地 |
-| R-7 | wgpu 初期化が遅い/相性問題 | 起動時間・環境依存 | ソフトウェアレンダラへのフォールバック確認 (B-4) |
-| R-8 | 移行の長期化で main と乖離 | リベースコスト | GPUI 版は凍結 (バグ修正のみ)。ドキュメント/domain の変更は両ブランチへ |
-| R-9 | 「ついで機能追加」でスコープ膨張 | 完成しない | 非ゴール厳守。凍結リストは Phase 7 後に解凍 |
+| R-1 | 日本語 IME が iced で成立しない | **回避策あり・要実機検証**。0.14 で正式対応 ([#2777](https://github.com/iced-rs/iced/pull/2777)、over-the-spot)。修正済み: 候補位置 #2793・スクロール位置 #2798。**open**: Windows 言語切替バグ [#3189](https://github.com/iced-rs/iced/issues/3189)。FAQ 曰くエッジケース残 | S-1 を最初に実施 (シナリオ指定済み §3)。NG なら自前ウィジェット (winit Ime) → それでも不可なら**計画中止・GPUI 継続** |
+| R-2 | 仮想リストの性能不足 | **回避策あり (自作前提)**。0.14 に lazy/virtual 無し・culling は描画のみ・scrollable は ~1,000 件で遅延報告 | 自作 `FileList` (§6、直描き設計)。S-2 で 10 万行検証 |
+| R-3 | winit の OLE 登録と自前 IDropTarget の衝突 | **回避策あり (未検証)**。HWND 取得は `window::run` (#2718) で可能と確認済み。winit 既定登録との共存 (`with_drag_and_drop(false)` の iced からの指定可否 / RevokeDragDrop) が未検証の open question | S-3 で検証。最悪 ADR 0011 サブクラス再導入 |
+| R-4 | iced の API 変動 (0.14 → 0.15-dev) | **問題なし (現時点)**。0.14.0 安定・Unreleased 空。ただし 0.13→0.14 は 15 か月ぶりの大改版だった前例 | 0.14.0 ピン留め。core 分離により被弾面は薄い皮のみ |
+| R-5 | オーバーレイ (メニュー/モーダル) の実装煩雑 | **問題なし**。自前 stack 合成が第一候補 (GPUI 版も自前)。保険として iced_aw 0.14.1 (2026-06 保守中) の ContextMenu/DropDown | view 最上段 stack で統一 |
+| R-6 | cosmic-text の日本語フォールバック・フォント選択 | **未検証** (調査で 3 票検証を通過したクレームなし) | Phase 1 で System32 + 日本語ファイル名 + フォント設定 (F-902) を実機確認 |
+| R-7 | wgpu / tiny-skia の性能・起動時間 | **未検証** (同上) | B-1/B-4 ベンチで自前計測。参考実装として COSMIC Files (libcosmic = iced 系ファイラ) を必要時に読む |
+| R-8 | 移行の長期化で main と乖離 | — | GPUI 版は凍結 (バグ修正のみ)。ドキュメント/domain の変更は両ブランチへ |
+| R-9 | 「ついで機能追加」でスコープ膨張 | — | 非ゴール厳守。凍結リストは Phase 7 後に解凍 |
 
 **撤退基準**: Phase 0 の S-1 が代替案込みで不成立の場合、本計画を中止し ADR に記録する
 (GPUI 版が現役のため実害なし)。
+
+**調査の未回答領域** (計画は上記フォールバックで吸収済み、深掘りは必要時に):
+レンダリングバックエンドの実測性能 / cosmic-text 日本語フォールバック品質 /
+iced 製ファイラの実運用規模感 / GPUI との定量比較。
 
 ---
 
@@ -455,8 +492,14 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 
 ## 15. 実行ログ (Progress)
 
-### 2026-07-02 — 計画策定
+### 2026-07-02 — 計画策定 ✅
 - 現行機能・UI 棚卸し (インベントリ) を作成。正典の層構造を確定。
 - コード構造マップ + GPUI 依存面の全量調査 (再利用資産 / 書き直し対象 / 整理課題トップ 10)。
-- iced 実力調査 (IME / 仮想リスト / OLE 共存 / 事例) を実施 → §2 / §7 / §13 に反映。
-- ブランチ `iced-rewrite` 作成。本計画書を起草。
+- cc-rsg 逆生成仕様 16 章を `doc/spec/` としてリポジトリへ取り込み。
+- iced 実力調査 (多ソース・クレーム毎 3 票の反証検証、一次ソース裏取り) を実施:
+  **iced 0.14.0 (2025-12-07) を採用基盤に確定** (IME 初対応・マルチウィンドウ修正込み)。
+  仮想リスト自作の必然性と OLE 共存の未検証点を特定 → §2 / §3 / §6 / §7 / §8 / §13 に反映。
+- ブランチ `iced-rewrite` 作成・push。本計画書を起草。
+- GitHub マイルストーン `iced-rewrite` + Issue #1〜#8 (Phase 0〜7) を登録。
+- プロジェクトスキル `.claude/skills/iced-rewrite/` を作成 (作業セッションの入口)。
+- 次の一歩: **Issue #1 (Phase 0 — 足場 + 三大スパイク)**。
