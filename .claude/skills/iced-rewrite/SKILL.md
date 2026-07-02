@@ -58,8 +58,9 @@ Rust コードを変更した作業を終えるときは、停止する前に以
 未実施のまま停止しようとすると **Stop フック** (`.claude/hooks/selfreview-check.sh`) が
 1 回ブロックして差し戻す。
 
-1. **機械チェック**: `cargo fmt --all -- --check` /
-   `cargo clippy -p <触ったクレート> -- -D warnings` /
+1. **機械チェック**: `cargo fmt -p <触ったクレート> -- --check` (--all は凍結クレートまで
+   見るので使わない) / `cargo clippy --no-deps -p <触ったクレート> --bins --examples --lib -- -D warnings`
+   (**--no-deps 必須** — 無いと凍結中の domain まで lint されて落ちる) /
    `cargo test -p fastfiler-core -p fastfiler-domain`
 2. **品質レビュー**: 差分が大きい・リスクが高い変更は `/code-review` (バグ検出) や
    `/simplify` (簡素化) を実行する

@@ -1,0 +1,22 @@
+[package]
+name = "fastfiler-iced"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "FastFiler の iced GUI (移行中。Phase 7 で bin 名を fastfiler へ切替予定)"
+
+# 注: 開発期の bin 名は fastfiler-iced (fastfiler-gpui の bin 名 `fastfiler` と
+# target/ 内で衝突させないため)。Phase 7 の切替時に `fastfiler` へ改名する。
+[[bin]]
+name = "fastfiler-iced"
+path = "src/main.rs"
+
+[dependencies]
+# 0.14.0 ピン留め (計画書 §2: IME 初対応がこの版。破壊的変更を避けるため = 指定)
+iced = { version = "=0.14.0", features = ["advanced", "tokio", "image", "advanced-shaping"] }
+fastfiler-core = { path = "../fastfiler-core" }
+fastfiler-win = { path = "../fastfiler-win" }
+fastfiler-domain = { path = "../fastfiler-domain" }
+async-channel = "2.5"
+# 自動クローズ・スパイクのタイマー用 (iced の executor も tokio)
+tokio = { version = "1", features = ["time"] }

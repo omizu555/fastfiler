@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "crates/fastfiler-domain",
     "crates/fastfiler-gpui",
+    "crates/fastfiler-core",
+    "crates/fastfiler-win",
+    "crates/fastfiler-iced",
 ]
 exclude = [
     # GPUI の vendor は独立サブワークスペース。main workspace のメンバーにはしない。
@@ -22,5 +25,7 @@ strip = true
 # 移植元の [patch.crates-io] のうち Windows・最小 gpui グラフに効くのはこれだけ
 # (notify/livekit/calloop 等は当アプリのグラフに現れないため不要)。
 # このパッチはビルドルート (本 workspace) で適用され、vendor 内 gpui にも及ぶ。
+# ⚠ 唯一の実利用者は gpui。iced 系のグラフは async-task を引いていない (2026-07-03 確認)。
+#   Phase 7 で fastfiler-gpui/vendor を撤去するときに、このパッチも必ず削除すること。
 [patch.crates-io]
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }

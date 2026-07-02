@@ -503,3 +503,41 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - GitHub マイルストーン `iced-rewrite` + Issue #1〜#8 (Phase 0〜7) を登録。
 - プロジェクトスキル `.claude/skills/iced-rewrite/` を作成 (作業セッションの入口)。
 - 次の一歩: **Issue #1 (Phase 0 — 足場 + 三大スパイク)**。
+
+### 2026-07-03 — Phase 0: 足場 + 三大スパイク (自動検証パス) ✅
+- **足場**: `fastfiler-core` / `fastfiler-win` / `fastfiler-iced` 新設、iced `=0.14.0`
+  (features: advanced / tokio / image / advanced-shaping。MSRV 1.88 ≤ 1.95 ✓)。
+  初回ビルド一発成功。開発期の bin 名は `fastfiler-iced` (gpui 版 `fastfiler` と
+  target/ 内衝突回避。Phase 7 で改名)。
+- **ウィンドウ起動**: ✅ `WINDOW_OK frames=152` (2.5 秒 ≒ 60fps、日本語表示込み)。
+- **S-2 仮想リスト**: ✅ **合格**。自前 `VirtualList` ウィジェット (可視範囲のみ直描き) で
+  10 万行、毎フレーム 1,237px ジャンプ (全行入れ替え worst case) を 600 フレーム計測:
+  `avg 16.67ms / p50 16.66 / p95 18.15 / max 22.2 / 60fps` (release)。
+  行生成 8.8ms、起動→初回フレーム 580ms。§6 の設計 (widget ツリーを作らない直描き) を実証。
+- **S-3 OLE 共存**: ✅ **自動検証部分パス**。
+  `window::Settings.platform_specific.drag_and_drop = false` は iced 0.14 に存在。
+  `OleInitialize` (UI スレッド、run 前) → `OLE_AVAILABLE true` →
+  `window::raw_id` で HWND → update() 内で `register_drop_target` → **`OLE_REGISTER_OK`**。
+  domain 側は winit 残留登録を `RevokeDragDrop` してから登録する設計 (ole_dnd.rs:832) で
+  二重の保険。**実ドロップ (左/右/修飾キー) は手動確認待ち** (手順は Issue #1)。
+- **S-1 IME**: スパイク実装・起動確認済み (`IME_SPIKE_BUILT_OK`)。
+  **品質判定は実機タイピングの手動確認待ち** (手順は Issue #1。iced#3189 の言語切替
+  シナリオ含む)。0.14 の IME API (`InputMethod`) はコンパイルレベルで存在確認。
+- **実装知見**: iced 0.14 は `application(boot, update, view)` 形式 / `update()` は
+  UI スレッド実行なので COM 登録がそこで安全に行える / `DropTargetRegistration` (!Send)
+  は thread_local 保持 / `window::frames()` は Frame メッセージ→update→再描画の
+  自走ループになる (計測・自動スクロールに好適)。
+- 判定: **GO** (機械検証はすべて合格。S-1/S-3 の手動確認 2 件は Phase 1 と並行で実施可、
+  NG が出た場合のフォールバックは §3/§13 のまま有効)。
+- **セルフレビュー (8 観点・検証付き) → 8 件検出・全件修正済み**。主なもの:
+  - HWND 取得を `window::raw_id` (winit 内部表現依存) から
+    **`window::run` + `HasWindowHandle` の正規経路へ変更** (§8 の表どおり)。
+  - drop_target: OLE 未初期化ガード / 同一・再利用 HWND の登録置換 / `revoke(hwnd)` API
+    (ウィンドウ close 時に必須) / 希望 effect は allowed マスク内から選ぶ規約を明文化。
+  - `fastfiler-core` のライセンスを **MIT OR Apache-2.0** に変更 (GPL コードを一切
+    リンクしない「次の移行を生き残る」クレートに GPL を宣言する理由がない。§0-2 と整合)。
+  - fastfiler-iced を bin+lib 化 (examples が部品を共有可能に。Phase 1 の widgets/ 置き場)。
+- 判明事項: `windows` crate が **3 バージョン並存** (domain+win 0.58 / gpui 0.61 /
+  winit 経由 0.62)。§10-5 の統一作業は「0.62 は winit 支配下で動かせない」前提で
+  スコープすること。root の async-task patch は gpui 専用 — Phase 7 撤去時に必ず削除
+  (Cargo.toml にコメント追記済み)。
