@@ -195,9 +195,12 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
                 } else if !ok {
                     Some("一部の項目を処理できませんでした".into())
                 } else {
-                    None // 成功は無言 (watcher が一覧を追従させる)
+                    None // 成功は無言
                 };
-                vec![]
+                // watcher が効かないフォルダ (ネットワークドライブ等) でも結果を
+                // 反映させるため明示 reload (GPUI 版パリティ。watcher と二重に
+                // なっても世代キャンセルで最後の 1 回だけが反映される)
+                reload(p)
             }
             DomainEvent::Unknown { .. } => vec![],
         },
@@ -283,6 +286,10 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
             p.status_msg = Some(s);
             vec![]
         }
+        PaneMsg::CancelJobRequest => match &p.job {
+            Some(job) => vec![Effect::CancelJob { id: job.id }],
+            None => vec![],
+        },
     }
 }
 
@@ -319,6 +326,7 @@ fn update_overlay(p: &mut PaneState, msg: &PaneMsg) -> Option<Vec<Effect>> {
             | PaneMsg::Domain(_)
             | PaneMsg::ReloadTick(_)
             | PaneMsg::StatusMsg(_)
+            | PaneMsg::CancelJobRequest
     ) {
         return None;
     }
@@ -352,6 +360,20 @@ fn update_overlay(p: &mut PaneState, msg: &PaneMsg) -> Option<Vec<Effect>> {
                 // 空・パス区切りを含む名前は確定させない (モーダルは開いたまま)
                 if name.is_empty() || name.contains(['\\', '/']) {
                     return Some(vec![]);
+                }
+                // 新規ファイル/リネームで既存名は確定拒否 (GPUI 版は create_new /
+                // no_overwrite でエラーにする — 事前検査で同じ結果に。F7 は冪等なので許容)
+                let clashes = p.entries.iter().any(|e| e.name == name);
+                match kind {
+                    ModalKind::NewFile if clashes => {
+                        p.status_msg = Some(format!("「{name}」は既に存在します"));
+                        return Some(vec![]);
+                    }
+                    ModalKind::Rename { original } if clashes && name != *original => {
+                        p.status_msg = Some(format!("「{name}」は既に存在します"));
+                        return Some(vec![]);
+                    }
+                    _ => {}
                 }
                 let kind = kind.clone();
                 p.overlay = None;

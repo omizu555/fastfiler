@@ -10,7 +10,7 @@ use fastfiler_core::transfer::TransferOp;
 use fastfiler_core::{Effect, Entry, PaneMsg};
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
-use fastfiler_domain::undo::{MoveItem, TrashedItem, UndoOp};
+use fastfiler_domain::undo::{TrashedItem, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{file_ops, fs as dfs, icons, shell, templates};
 use iced::Task;
@@ -134,7 +134,9 @@ impl Jobs {
         }
     }
 
-    fn next_id(&self) -> u64 {
+    /// ジョブ id の採番 (呼び出し側が id を先に知り、Undo 候補の登録を
+    /// **スレッド起動前に**済ませられるようにする — JobDone との競合防止)。
+    pub fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 }
@@ -207,58 +209,9 @@ pub fn run(
                 Err(e) => Msg::Pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
             }
         }),
-        Effect::SpawnJob { op, items } => {
-            let job_id = jobs.next_id();
-            let registry = Arc::clone(&jobs.registry);
-            let job_items: Vec<JobItem> = items
-                .iter()
-                .map(|(from, to)| JobItem {
-                    from: from.to_string_lossy().to_string(),
-                    to: to.to_string_lossy().to_string(),
-                })
-                .collect();
-            // 移動は「全件成功時のみ」Undo 記録するため、候補を先に App へ渡す
-            // (JobDone ok で確定 — ADR 0006/0008)
-            let undo_candidate = (op == TransferOp::Move).then(|| {
-                items
-                    .iter()
-                    .map(|(from, to)| MoveItem {
-                        from: from.clone(),
-                        to: to.clone(),
-                    })
-                    .collect::<Vec<_>>()
-            });
-            // domain のジョブは同期関数 + sink emit。専用スレッドで実行 (GPUI 版と同じ)
-            std::thread::spawn(move || {
-                let sink = ChannelSink::new();
-                let r = match op {
-                    TransferOp::Copy => registry.run_copy(&sink, job_id, job_items),
-                    TransferOp::Move => registry.run_move(&sink, job_id, job_items),
-                };
-                if let Err(e) = r {
-                    // run_job 内で done は emit 済みのはずだが、起動前失敗の保険
-                    sink.emit_json(
-                        "fs:job:done",
-                        serde_json::json!({
-                            "job_id": job_id, "kind": "job", "ok": false,
-                            "canceled": false, "error": e.to_string(),
-                            "total_files": 0, "done_files": 0,
-                            "total_bytes": 0, "done_bytes": 0,
-                        }),
-                    );
-                }
-            });
-            match undo_candidate {
-                Some(items) => Task::done(Msg::JobStarted {
-                    job_id,
-                    move_undo: Some(items),
-                }),
-                None => Task::done(Msg::JobStarted {
-                    job_id,
-                    move_undo: None,
-                }),
-            }
-        }
+        // SpawnJob は app.rs run_effects が spawn_job() を直接呼ぶ (Undo 候補の登録を
+        // スレッド起動前に済ませるため)。ここには来ない。
+        Effect::SpawnJob { .. } => Task::none(),
         Effect::CancelJob { id } => {
             jobs.registry.cancel(id);
             Task::none()
@@ -301,15 +254,21 @@ pub fn run(
                 })
                 .collect();
             let n = paths.len();
+            let unrecoverable = n - items.len(); // メタデータ採取に失敗 = Undo 対象外
             file_ops::delete_to_trash(
                 paths
                     .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             )?;
+            let message = if unrecoverable == 0 {
+                format!("{n} 項目をごみ箱へ移動しました")
+            } else {
+                format!("{n} 項目をごみ箱へ移動しました ({unrecoverable} 件は Ctrl+Z で戻せません)")
+            };
             Ok(OpOutcome::Done {
                 record: (!items.is_empty()).then_some(UndoOp::Trash { items }),
-                message: Some(format!("{n} 項目をごみ箱へ移動しました")),
+                message: Some(message),
             })
         }),
         // PerformUndo は App が UndoManager を所有するため app.rs 側で処理する
@@ -331,28 +290,87 @@ fn blocking_op(
     })
 }
 
+/// コピー/移動ジョブを専用スレッドで起動する (GPUI 版と同じ実行形態)。
+/// id は呼び出し側が採番済み — Undo 候補の登録をこの呼び出し**前**に行うこと
+/// (スレッドは即走るため、後から登録すると JobDone に追い越されるレースになる)。
+pub fn spawn_job(jobs: &Jobs, job_id: u64, op: TransferOp, items: Vec<(PathBuf, PathBuf)>) {
+    let registry = Arc::clone(&jobs.registry);
+    let job_items: Vec<JobItem> = items
+        .iter()
+        .map(|(from, to)| JobItem {
+            from: from.to_string_lossy().to_string(),
+            to: to.to_string_lossy().to_string(),
+        })
+        .collect();
+    std::thread::spawn(move || {
+        let sink = ChannelSink::new();
+        let r = match op {
+            TransferOp::Copy => registry.run_copy(&sink, job_id, job_items),
+            TransferOp::Move => registry.run_move(&sink, job_id, job_items),
+        };
+        if let Err(e) = r {
+            // run_job 内で done は emit 済みのはずだが、起動前失敗の保険
+            sink.emit_json(
+                "fs:job:done",
+                serde_json::json!({
+                    "job_id": job_id, "kind": "job", "ok": false,
+                    "canceled": false, "error": e.to_string(),
+                    "total_files": 0, "done_files": 0,
+                    "total_bytes": 0, "done_bytes": 0,
+                }),
+            );
+        }
+    });
+}
+
 /// Undo の逆操作を実行する (Ctrl+Z)。App が pop した op を受け取る。
+///
+/// 部分失敗時は**未処理分 + 失敗項目を新しい UndoOp として record に返す**
+/// (ADR 0008 S2: 履歴に積み直して再 Ctrl+Z で再試行できる)。
 pub fn perform_undo(op: UndoOp) -> Task<Msg> {
     blocking_op(move || {
         let label = op.label();
-        match op {
-            UndoOp::Rename { from, to } => {
-                file_ops::rename_path_no_overwrite(&to, &from)?;
-            }
+        let (record, failed): (Option<UndoOp>, usize) = match op {
+            UndoOp::Rename { from, to } => match file_ops::rename_path_no_overwrite(&to, &from) {
+                Ok(()) => (None, 0),
+                Err(e) => return Err(e),
+            },
             UndoOp::Move { items } => {
-                for it in items.iter().rev() {
-                    file_ops::move_path_no_overwrite(&it.to, &it.from)?;
+                let mut remaining = Vec::new();
+                for it in items.into_iter().rev() {
+                    if file_ops::move_path_no_overwrite(&it.to, &it.from).is_err() {
+                        remaining.push(it);
+                    }
                 }
+                remaining.reverse();
+                let failed = remaining.len();
+                (
+                    (!remaining.is_empty()).then_some(UndoOp::Move { items: remaining }),
+                    failed,
+                )
             }
             UndoOp::Trash { items } => {
-                for it in &items {
-                    file_ops::restore_from_trash(it)?;
+                let mut remaining = Vec::new();
+                for it in items {
+                    if file_ops::restore_from_trash(&it).is_err() {
+                        remaining.push(it);
+                    }
                 }
+                let failed = remaining.len();
+                (
+                    (!remaining.is_empty()).then_some(UndoOp::Trash { items: remaining }),
+                    failed,
+                )
             }
-        }
+        };
+        let message = if failed == 0 {
+            format!("{label}を元に戻しました")
+        } else {
+            format!("{label}を元に戻しました (失敗 {failed} 件 — Ctrl+Z で再試行できます)")
+        };
         Ok(OpOutcome::Done {
-            record: None,
-            message: Some(format!("{label}を元に戻しました")),
+            record,
+            message: Some(message),
         })
     })
 }

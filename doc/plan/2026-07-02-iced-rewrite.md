@@ -550,7 +550,7 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   含まれない** (ドロップ時点でボタン解放済み。実測: ENTER keys=0x02 → DROP keys=0x00)。
   右ボタン判別は **DragEnter/DragOver でラッチ**して Drop で参照する (Issue #6 に転記)。
 
-### 2026-07-03 — Phase 1: core 骨格 + FileList 本実装 (Issue #2)
+### 2026-07-03 — Phase 1: core 骨格 + FileList 本実装 (Issue #2) ✅
 - **core**: Entry (表示テキスト前計算) / 選択モデル (クリック/Ctrl/Shift/キーナビ/名前復元) /
   ソート (dir 先頭、GPUI 同一規則) / update_pane (純 reducer、世代キャンセル、
   親戻り時のカーソル復元) / format (human_size・日時・種類 — GPUI パリティ)。
@@ -571,3 +571,18 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
     -1 行扱い (End=最終行) / Esc・空白クリックはカーソルも解除 / Ctrl+A は anchor=0。
     core テスト 24 本に拡充。
   - 効率: Effect なしメッセージでのアイコンキー集合複製を排除。
+
+### 2026-07-04 — Phase 2: 操作・watcher・ジョブ (Issue #3)
+- **2a (c873f7b)**: 履歴 (戻る/進む、マウス第4·5ボタン、Alt+←→、←→↑ ボタン) / F5 /
+  パスバー直接入力 (Overlay::PathEdit) / **watcher 自動更新** (ChannelSink → 静的チャネル →
+  `Subscription::run`、150ms デバウンス、選択・スクロール維持 reload) /
+  DomainEvent 型付き一元パーサ (§10-8)。実機で自動反映を確認 (実行中の追加 → rows 1→3)。
+  boot 時に watcher が開始されないバグを実機検証で発見・修正。
+- **2b (9ee18b8)**: Ctrl+C/X/V (CF_HDROP) / コピー・移動ジョブ (専用スレッド + JobRegistry
+  キャンセル + 進捗フッタ + Esc 優先キャンセル) / Delete ごみ箱 / F2 (拡張子手前選択
+  `operation::select_range`) / F7/F8 / 同名衝突ダイアログ (core/transfer に計画・一括解決・
+  連番別名を純ロジック実装) / Undo (domain UndoManager 再利用、移動は JobDone 全件成功時
+  のみ記録 — ADR 0006/0008)。core テスト 43 本。
+- 実装メモ: Undo の記録条件は app.rs (iced 層) に置いた — UndoManager を App が所有する
+  ため。純度は §5.3 の原則から半歩譲歩 (条件自体は 3 行)。Phase 3 の AppModel 導入時に
+  core へ引き上げるか再判断。

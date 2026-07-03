@@ -39,7 +39,9 @@ pub enum ConflictChoice {
 }
 
 /// 貼り付け元パスと宛先の既存名から転送計画を作る。
-/// 自分自身への転送 (from == dest/name) は除外する (無意味な上書き事故防止)。
+/// - 同一フォルダへの移動は no-op として除外。
+/// - 同一フォルダへのコピー (自己複製) は**ダイアログを出さず**その場で
+///   `名前 (2).拡張子` を振る (GPUI 版 build_job_items の挙動と同じ)。
 pub fn plan_transfer(
     op: TransferOp,
     sources: &[PathBuf],
@@ -48,19 +50,22 @@ pub fn plan_transfer(
 ) -> TransferPlan {
     let mut items = Vec::new();
     let mut conflicts = Vec::new();
+    // 自己複製の連番は「既存名 + 本バッチで確定した名前」と衝突しないように振る
+    let mut taken: BTreeSet<String> = existing_names.clone();
     for src in sources {
         let Some(name) = src.file_name().map(|s| s.to_string_lossy().to_string()) else {
             continue;
         };
-        if src.parent() == Some(dest) && op == TransferOp::Move {
-            continue; // 同一フォルダへの移動は no-op
-        }
-        if src == &dest.join(&name) {
-            // 同一フォルダへのコピーは常に別名が必要 → 衝突扱いにする
-            conflicts.push(items.len());
+        if src.parent() == Some(dest) {
+            if op == TransferOp::Move {
+                continue; // 同一フォルダへの移動は no-op
+            }
+            // 同一フォルダへのコピー = 即複製 (衝突ダイアログなし)
+            let unique = unique_name(&name, &taken);
+            taken.insert(unique.clone());
             items.push(TransferItem {
                 from: src.clone(),
-                to_name: name,
+                to_name: unique,
             });
             continue;
         }
@@ -181,7 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn copy_into_same_folder_is_conflict_requiring_rename() {
+    fn copy_into_same_folder_duplicates_immediately_without_dialog() {
+        // GPUI 版パリティ: 同一フォルダの Ctrl+C→Ctrl+V はダイアログなしで即 (2)
         let dest = PathBuf::from("C:\\dest");
         let existing = taken(&["a.txt"]);
         let plan = plan_transfer(
@@ -190,12 +196,19 @@ mod tests {
             &dest,
             &existing,
         );
-        assert_eq!(plan.conflicts, vec![0]);
-        // 上書きを選んでも自分自身は除外される (データ破壊防止)
-        assert!(resolve_conflicts(&plan, ConflictChoice::Overwrite, &existing).is_empty());
-        // 別名なら a (2).txt になる
-        let resolved = resolve_conflicts(&plan, ConflictChoice::RenameBoth, &existing);
-        assert_eq!(resolved[0].1, PathBuf::from("C:\\dest\\a (2).txt"));
+        assert!(plan.conflicts.is_empty()); // ダイアログ不要
+        assert_eq!(plan.items[0].to_name, "a (2).txt");
+        // 2 個目の自己複製は (3) に散る
+        let plan2 = plan_transfer(
+            TransferOp::Copy,
+            &[
+                PathBuf::from("C:\\dest\\a.txt"),
+                PathBuf::from("C:\\dest\\a.txt"),
+            ],
+            &dest,
+            &existing,
+        );
+        assert_eq!(plan2.items[1].to_name, "a (3).txt");
     }
 
     #[test]

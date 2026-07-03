@@ -68,11 +68,6 @@ pub enum Msg {
         result: Result<Vec<Entry>, String>,
         icons: IconBytes,
     },
-    /// ジョブ起動通知 (move の Undo 候補を控える)。
-    JobStarted {
-        job_id: u64,
-        move_undo: Option<Vec<fastfiler_domain::undo::MoveItem>>,
-    },
     /// ブロッキング操作の完了 (Undo 記録 + ステータス表示)。
     OpDone(OpOutcome),
     /// Ctrl+Z (UndoManager から pop して逆操作を実行)。
@@ -206,21 +201,18 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             };
             app.apply(m)
         }
-        Msg::JobStarted { job_id, move_undo } => {
-            if let Some(items) = move_undo {
-                app.pending_move_undo.insert(job_id, items);
-            }
-            Task::none()
-        }
         Msg::OpDone(outcome) => match outcome {
             OpOutcome::Done { record, message } => {
                 if let Some(op) = record {
                     app.undo.push(op);
                 }
-                match message {
+                let status = match message {
                     Some(m) => app.apply(PaneMsg::StatusMsg(m)),
                     None => Task::none(),
-                }
+                };
+                // watcher が効かないフォルダでも結果を反映 (明示 reload — GPUI パリティ)
+                let reload = app.apply(PaneMsg::Reload);
+                Task::batch([status, reload])
             }
             OpOutcome::Failed(e) => app.apply(PaneMsg::StatusMsg(format!("エラー: {e}"))),
         },
@@ -294,16 +286,34 @@ impl App {
         }
     }
 
-    fn run_effects(&self, effects: Vec<fastfiler_core::Effect>) -> Task<Msg> {
+    fn run_effects(&mut self, effects: Vec<fastfiler_core::Effect>) -> Task<Msg> {
         if effects.is_empty() {
             return Task::none(); // 大半のメッセージは Effect なし — キー集合の複製を避ける
         }
         let known: HashSet<String> = self.icons.keys().cloned().collect();
-        Task::batch(
-            effects
-                .into_iter()
-                .map(|e| effects::run(e, known.clone(), self.synth, &self.jobs)),
-        )
+        let mut tasks = Vec::new();
+        for e in effects {
+            match e {
+                // ジョブ起動はここで直接行う: id 採番 → Undo 候補の登録 → スレッド起動、
+                // の順を守る (起動後の登録だと速いジョブの JobDone に追い越されるレース)
+                fastfiler_core::Effect::SpawnJob { op, items } => {
+                    let job_id = self.jobs.next_id();
+                    if op == fastfiler_core::transfer::TransferOp::Move {
+                        let undo_items = items
+                            .iter()
+                            .map(|(from, to)| fastfiler_domain::undo::MoveItem {
+                                from: from.clone(),
+                                to: to.clone(),
+                            })
+                            .collect();
+                        self.pending_move_undo.insert(job_id, undo_items);
+                    }
+                    effects::spawn_job(&self.jobs, job_id, op, items);
+                }
+                other => tasks.push(effects::run(other, known.clone(), self.synth, &self.jobs)),
+            }
+        }
+        Task::batch(tasks)
     }
 }
 
@@ -417,16 +427,22 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             "delete" => "削除中",
             _ => "コピー中",
         };
+        // current はフルパスで届くのでファイル名だけ表示 (GPUI パリティ —
+        // 長いパスがキャンセルボタンを押し出さないように)
+        let current = std::path::Path::new(&job.current)
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| job.current.clone());
         row![
             text(format!(
-                "{label}: {}/{} — {}",
-                job.done_files, job.total_files, job.current
+                "{label}: {}/{} — {current}",
+                job.done_files, job.total_files
             ))
             .size(13)
             .width(Length::Fill),
             button(text("キャンセル").size(12))
                 .padding([1, 8])
-                .on_press(Msg::Pane(PaneMsg::ClearSelection)), // Esc と同じ経路 (job 優先)
+                .on_press(Msg::Pane(PaneMsg::CancelJobRequest)), // モーダル中でも効く専用経路
         ]
         .spacing(8)
         .into()
