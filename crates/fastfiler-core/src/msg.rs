@@ -102,4 +102,21 @@ pub enum PaneMsg {
     SearchStarted(u64),
     /// 指定パスへ移動 (ワークスペースツリーのクリック — F-306)。ロック規則適用。
     NavigateTo(std::path::PathBuf),
+    // ---- 右クリックメニュー (Phase 5a) ----
+    /// メニューを開く (GUI 層が templates/commands/can_paste を同期採取して渡す)。
+    OpenMenu {
+        at: (f32, f32),
+        row: Option<usize>,
+        templates: Vec<crate::menu::TemplateInfo>,
+        commands: Vec<crate::menu::CommandInfo>,
+        templates_dir: String,
+        can_paste: bool,
+    },
+    /// メニュー項目クリック (index チェーン)。
+    MenuClicked(Vec<usize>),
+    MenuClose,
+    /// Shift+右クリック: Windows シェルコンテキストメニュー (F-905)。
+    ShellMenuRequest {
+        row: Option<usize>,
+    },
 }

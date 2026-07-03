@@ -46,13 +46,34 @@ const PAD_L: f32 = 8.0;
 /// FileList が発行するイベント。解釈は core (update_pane) が行う。
 #[derive(Debug, Clone)]
 pub enum ListEvent {
-    RowPressed { ix: usize, ctrl: bool, shift: bool },
-    RowDoubleClicked { ix: usize },
+    RowPressed {
+        ix: usize,
+        ctrl: bool,
+        shift: bool,
+    },
+    RowDoubleClicked {
+        ix: usize,
+    },
     BlankPressed,
     HeaderClicked(Column),
-    ColResized { col: Column, width: f32 },
+    ColResized {
+        col: Column,
+        width: f32,
+    },
     Scrolled(f32),
-    ViewportChanged { height: f32 },
+    ViewportChanged {
+        height: f32,
+    },
+    /// 右クリック (行 / 背景)。pos はウィンドウ座標 (メニュー表示位置)。
+    RowRightClicked {
+        ix: usize,
+        x: f32,
+        y: f32,
+    },
+    BlankRightClicked {
+        x: f32,
+        y: f32,
+    },
 }
 
 /// ウィジェット内部状態 (フレーム間で保持したい非・アプリ状態のみ)。
@@ -291,6 +312,25 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     }
                 }
                 shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                let Some(pos) = cursor.position_over(bounds) else {
+                    return;
+                };
+                if pos.y >= bounds.y + HEADER_H {
+                    match self.row_at(&list, pos) {
+                        Some(ix) => shell.publish((self.on_event)(ListEvent::RowRightClicked {
+                            ix,
+                            x: pos.x,
+                            y: pos.y,
+                        })),
+                        None => shell.publish((self.on_event)(ListEvent::BlankRightClicked {
+                            x: pos.x,
+                            y: pos.y,
+                        })),
+                    }
+                    shell.capture_event();
+                }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging.is_some() => {
                 if let (Some(col), Some(pos)) = (state.dragging, cursor.position()) {

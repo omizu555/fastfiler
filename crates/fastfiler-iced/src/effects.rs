@@ -264,6 +264,33 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
                 message: None,
             })
         }),
+        Effect::CreateFromTemplate { dir, template } => blocking_op(move || {
+            templates::create_file_from_template(
+                template,
+                dir.to_string_lossy().to_string(),
+                None,
+            )?;
+            Ok(OpOutcome::Done {
+                record: None,
+                message: None,
+            })
+        }),
+        Effect::RunUserCommand { id, paths, cwd } => blocking_op(move || {
+            let ctx = fastfiler_domain::user_commands::RunCtx {
+                paths: paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+                cwd: cwd.to_string_lossy().to_string(),
+            };
+            fastfiler_domain::user_commands::run_user_command(id, ctx)?;
+            Ok(OpOutcome::Done {
+                record: None,
+                message: None,
+            })
+        }),
+        // ShowShellMenu は UI スレッド同期実行が必要 → app.rs run_effects 側で処理
+        Effect::ShowShellMenu { .. } => Task::none(),
         Effect::CreateFile { dir, name } => blocking_op(move || {
             templates::create_empty_file(dir.to_string_lossy().to_string(), name, None)?;
             Ok(OpOutcome::Done {
@@ -322,6 +349,44 @@ fn blocking_op(
             Err(e) => Msg::OpDone(OpOutcome::Failed(format!("操作タスクの失敗: {e}"))),
         }
     })
+}
+
+/// 右クリックメニューの文脈を同期採取する (templates / commands / can_paste)。
+/// いずれも軽量なローカル I/O (GPUI 版もメニュー展開時に同期取得)。
+pub fn collect_menu_context() -> (
+    Vec<fastfiler_core::menu::TemplateInfo>,
+    Vec<fastfiler_core::menu::CommandInfo>,
+    String,
+    bool,
+) {
+    let templates = templates::list_templates()
+        .map(|v| {
+            v.into_iter()
+                .map(|t| fastfiler_core::menu::TemplateInfo {
+                    name: t.name,
+                    path: t.path,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let commands = fastfiler_domain::user_commands::list_user_commands()
+        .map(|v| {
+            v.into_iter()
+                .map(|c| fastfiler_core::menu::CommandInfo {
+                    id: c.id,
+                    label: c.label,
+                    when: c.when,
+                    extensions: c.extensions,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let tdir = templates::templates_dir().unwrap_or_default();
+    let can_paste = matches!(
+        fastfiler_domain::win_clipboard::clipboard_read_paths(),
+        Ok(Some(_))
+    );
+    (templates, commands, tdir, can_paste)
 }
 
 /// 検索を開始する (Everything → 内蔵の自動フォールバックは domain 側 — F-702)。

@@ -139,6 +139,17 @@ pub enum Overlay {
     Modal { kind: ModalKind, value: String },
     /// 同名衝突ダイアログ (F-503)。
     Conflict { plan: crate::transfer::TransferPlan },
+    /// 右クリックメニュー (F-904)。at はウィンドウ座標。
+    ContextMenu {
+        items: Vec<crate::menu::MenuItem>,
+        at: (f32, f32),
+        /// クリックで開いているサブメニューの index チェーン (最大 3 階層)。
+        open_path: Vec<usize>,
+        /// 行の上で開いた場合の行 index (開く/リネーム等の対象)。
+        target_row: Option<usize>,
+        /// テンプレートフォルダのパス (OpenTemplatesDir 用)。
+        templates_dir: String,
+    },
 }
 
 /// 入力モーダルの種類 (GPUI 版 ModalKind と同じ 3 種)。

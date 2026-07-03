@@ -21,6 +21,7 @@ use iced::widget::{button, column, container, image, row, stack, text, text_inpu
 use iced::{mouse, window, Element, Event, Length, Size, Subscription, Task};
 
 use crate::effects::{self, domain_channel, IconBytes, Jobs, OpOutcome, PaneWatcher};
+use crate::widgets::context_menu::{ContextMenu, MenuEvent};
 use crate::widgets::drag_handle::DragHandle;
 use crate::widgets::file_list::{FileList, ListEvent, HEADER_H};
 use crate::widgets::tab_bar::{TabBar, TabBarEvent, TabItem, CELL_H};
@@ -67,6 +68,8 @@ pub struct App {
     restore_maximized: bool,
     /// メインウィンドウ Id (is_maximized 問い合わせ用)。
     window_id: Option<window::Id>,
+    /// Win32 HWND (シェルメニュー / OLE 用。WindowOpened 後に確定)。
+    hwnd: Option<isize>,
     /// セッション保存のデバウンス世代 (800ms)。
     save_seq: u64,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
@@ -107,6 +110,7 @@ pub enum Msg {
     DoSessionSave(bool),
     /// メインウィンドウが開いた (Id 記録 + 位置復元)。
     WindowOpened(window::Id),
+    GotHwnd(Option<isize>),
     Frame(Instant),
     AutoClose,
 }
@@ -163,6 +167,7 @@ pub fn boot() -> (App, Task<Msg>) {
         saved_bounds,
         restore_maximized,
         window_id: None,
+        hwnd: None,
         save_seq: 0,
         synth,
         bench,
@@ -233,6 +238,43 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 ListEvent::ColResized { col, width } => PaneMsg::ColResized { col, width },
                 ListEvent::Scrolled(o) => PaneMsg::Scrolled(o),
                 ListEvent::ViewportChanged { height } => PaneMsg::ViewportChanged { height },
+                ListEvent::RowRightClicked { ix, x, y } => {
+                    if app.modifiers.shift() {
+                        // Shift+右クリック = Windows シェルメニュー (F-905)
+                        return app.apply(AppMsg::Pane(
+                            pane,
+                            PaneMsg::ShellMenuRequest { row: Some(ix) },
+                        ));
+                    }
+                    let (templates, commands, templates_dir, can_paste) =
+                        effects::collect_menu_context();
+                    return app.apply(AppMsg::Pane(
+                        pane,
+                        PaneMsg::OpenMenu {
+                            at: (x, y),
+                            row: Some(ix),
+                            templates,
+                            commands,
+                            templates_dir,
+                            can_paste,
+                        },
+                    ));
+                }
+                ListEvent::BlankRightClicked { x, y } => {
+                    let (templates, commands, templates_dir, can_paste) =
+                        effects::collect_menu_context();
+                    return app.apply(AppMsg::Pane(
+                        pane,
+                        PaneMsg::OpenMenu {
+                            at: (x, y),
+                            row: None,
+                            templates,
+                            commands,
+                            templates_dir,
+                            can_paste,
+                        },
+                    ));
+                }
             };
             app.apply(AppMsg::Pane(pane, pane_msg))
         }
@@ -327,6 +369,13 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         }
         Msg::WindowOpened(id) => {
             app.window_id = Some(id);
+            // HWND を正規経路で取得 (シェルメニュー / Phase 5c の OLE 用)
+            let hwnd_task = window::run(id, |w| {
+                w.window_handle()
+                    .ok()
+                    .and_then(|h| fastfiler_win::window_interop::hwnd_from_raw(h.as_raw()))
+            })
+            .map(Msg::GotHwnd);
             // ウィンドウ位置・サイズ・最大化の復元
             let mut tasks = Vec::new();
             if let Some([x, y, w, h]) = app.saved_bounds {
@@ -336,7 +385,12 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             if app.restore_maximized {
                 tasks.push(window::maximize::<Msg>(id, true));
             }
+            tasks.push(hwnd_task);
             Task::batch(tasks)
+        }
+        Msg::GotHwnd(h) => {
+            app.hwnd = h;
+            Task::none()
         }
         Msg::SessionSaveTick(seq) => {
             if seq == app.save_seq {
@@ -598,6 +652,17 @@ impl App {
                         );
                     }
                 }
+                Effect::ShowShellMenu { paths } => {
+                    if let Some(hwnd) = self.hwnd {
+                        let paths: Vec<String> = paths
+                            .iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+                        // TrackPopupMenu はウィンドウ所有スレッド (=UI) で回す必要がある。
+                        // メニュー表示中は自前のメッセージループが回る (GPUI 版と同じ)
+                        let _ = fastfiler_domain::shell::show_shell_context_menu(hwnd, paths);
+                    }
+                }
                 Effect::ScheduleSessionSave => {
                     tasks.push(self.bump_save_seq());
                 }
@@ -760,6 +825,21 @@ pub fn view(app: &App) -> Element<'_, Msg> {
     // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
     let focused = app.model.focused_pane();
     match app.model.panes.get(focused).and_then(|p| p.overlay.clone()) {
+        Some(Overlay::ContextMenu {
+            items,
+            at,
+            open_path,
+            ..
+        }) => {
+            let pane = focused;
+            let menu = ContextMenu::new(items, at, open_path, move |ev| match ev {
+                MenuEvent::Clicked(path) => {
+                    Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
+                }
+                MenuEvent::Close => Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClose)),
+            });
+            stack![root, Element::new(menu)].into()
+        }
         Some(Overlay::Modal { kind, value }) => {
             let (title, placeholder) = match kind {
                 ModalKind::Rename { .. } => ("名前の変更", "新しい名前"),

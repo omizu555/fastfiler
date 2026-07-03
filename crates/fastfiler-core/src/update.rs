@@ -2,6 +2,7 @@
 
 use crate::domain_event::DomainEvent;
 use crate::effect::Effect;
+use crate::menu::{self, MenuAction, MenuItem};
 use crate::model::{
     sort_entries, Column, Entry, JobStatus, ModalKind, Overlay, PaneId, PaneState, SearchUi,
     COL_W_MAX, COL_W_MIN,
@@ -414,6 +415,69 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             }
             navigate_or_new_tab(p, id, locked, path)
         }
+        PaneMsg::OpenMenu {
+            at,
+            row,
+            templates,
+            commands,
+            templates_dir,
+            can_paste,
+        } => {
+            // 選択に含まれない行での右クリックは単一選択にしてから開く
+            if let Some(ix) = row {
+                if !p.selected.contains(&ix) {
+                    p.click_row(ix, false, false);
+                }
+            }
+            let row_ctx = row.and_then(|ix| {
+                let list = if p.showing_search() {
+                    return None; // 検索結果ではメニューを出さない (操作対象が別空間)
+                } else {
+                    &p.entries
+                };
+                list.get(ix).map(|e| (e.is_dir, e.ext.clone()))
+            });
+            if row.is_some() && row_ctx.is_none() && !p.showing_search() {
+                return vec![];
+            }
+            let ctx = menu::MenuContext {
+                row: row_ctx.as_ref().map(|(d, e)| (*d, e.as_deref())),
+                can_paste,
+                templates: &templates,
+                commands: &commands,
+            };
+            let items = menu::build_menu(&ctx);
+            p.overlay = Some(Overlay::ContextMenu {
+                items,
+                at,
+                open_path: vec![],
+                target_row: row,
+                templates_dir,
+            });
+            vec![]
+        }
+        PaneMsg::ShellMenuRequest { row } => {
+            if p.showing_search() {
+                return vec![];
+            }
+            if let Some(ix) = row {
+                if !p.selected.contains(&ix) {
+                    p.click_row(ix, false, false);
+                }
+            }
+            let paths: Vec<std::path::PathBuf> = p
+                .selected
+                .iter()
+                .filter_map(|&i| p.entries.get(i))
+                .map(|e| p.cur_path.join(&e.name))
+                .collect();
+            if paths.is_empty() {
+                return vec![];
+            }
+            vec![Effect::ShowShellMenu { paths }]
+        }
+        // overlay なし状態で届いたメニュー操作は無視
+        PaneMsg::MenuClicked(_) | PaneMsg::MenuClose => vec![],
         PaneMsg::CancelJobRequest => match &p.job {
             Some(job) => vec![Effect::CancelJob { id: job.id }],
             None => vec![],
@@ -518,6 +582,51 @@ fn update_overlay(
             }
             _ => Some(vec![]),
         },
+        Overlay::ContextMenu {
+            items,
+            open_path,
+            target_row,
+            templates_dir,
+            ..
+        } => match msg {
+            PaneMsg::MenuClicked(path) => {
+                // index チェーンで項目を解決
+                let mut cur: &[MenuItem] = items;
+                let mut found: Option<&MenuItem> = None;
+                for &ix in path {
+                    let Some(item) = cur.get(ix) else {
+                        return Some(vec![]);
+                    };
+                    found = Some(item);
+                    cur = &item.children;
+                }
+                let Some(item) = found else {
+                    return Some(vec![]);
+                };
+                if !item.enabled {
+                    return Some(vec![]);
+                }
+                if !item.children.is_empty() {
+                    // サブメニューのクリック開閉 (同じなら閉じ、別なら切替 — USAGE §2)
+                    if open_path.as_slice() == path.as_slice() {
+                        open_path.clear();
+                    } else {
+                        *open_path = path.clone();
+                    }
+                    return Some(vec![]);
+                }
+                let action = item.action.clone();
+                let target = *target_row;
+                let tdir = templates_dir.clone();
+                p.overlay = None;
+                Some(run_menu_action(p, id, locked, action, target, tdir))
+            }
+            PaneMsg::MenuClose | PaneMsg::ClearSelection | PaneMsg::BlankPressed => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
         Overlay::Conflict { plan } => match msg {
             PaneMsg::Conflict(choice) => {
                 let plan = plan.clone();
@@ -572,6 +681,52 @@ fn commit_modal(p: &mut PaneState, kind: ModalKind, name: String) -> Vec<Effect>
                 name,
             }]
         }
+    }
+}
+
+/// メニュー項目の実行 (メニューは閉じた後に呼ばれる)。
+fn run_menu_action(
+    p: &mut PaneState,
+    id: PaneId,
+    locked: bool,
+    action: MenuAction,
+    target_row: Option<usize>,
+    templates_dir: String,
+) -> Vec<Effect> {
+    match action {
+        MenuAction::Open => match target_row.or(p.cursor) {
+            Some(ix) => activate(p, id, locked, ix),
+            None => vec![],
+        },
+        MenuAction::Copy => clipboard_write(p, "copy"),
+        MenuAction::Cut => clipboard_write(p, "cut"),
+        MenuAction::Paste => vec![Effect::ClipboardRead { pane: id }],
+        MenuAction::Rename => update_pane(p, id, locked, PaneMsg::OpenRename),
+        MenuAction::Delete => update_pane(p, id, locked, PaneMsg::RequestDelete),
+        MenuAction::Refresh => reload(p, id),
+        MenuAction::NewFolder => update_pane(p, id, locked, PaneMsg::OpenNewFolder),
+        MenuAction::NewFileEmpty => update_pane(p, id, locked, PaneMsg::OpenNewFile),
+        MenuAction::NewFileTemplate(template) => vec![Effect::CreateFromTemplate {
+            dir: p.cur_path.clone(),
+            template,
+        }],
+        MenuAction::OpenTemplatesDir => {
+            navigate_or_new_tab(p, id, locked, std::path::PathBuf::from(templates_dir))
+        }
+        MenuAction::UserCommand(cmd_id) => {
+            let paths: Vec<std::path::PathBuf> = p
+                .selected
+                .iter()
+                .filter_map(|&i| p.entries.get(i))
+                .map(|e| p.cur_path.join(&e.name))
+                .collect();
+            vec![Effect::RunUserCommand {
+                id: cmd_id,
+                paths,
+                cwd: p.cur_path.clone(),
+            }]
+        }
+        MenuAction::Submenu => vec![], // キャンセル等 (閉じるだけ)
     }
 }
 

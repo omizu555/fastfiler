@@ -11,6 +11,7 @@ pub mod bsp;
 pub mod domain_event;
 pub mod effect;
 pub mod format;
+pub mod menu;
 pub mod model;
 pub mod msg;
 pub mod persist;

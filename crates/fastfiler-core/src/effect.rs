@@ -85,4 +85,20 @@ pub enum Effect {
         root: PathBuf,
         query: String,
     },
+    // ---- メニュー / シェル統合 (Phase 5a) ----
+    /// テンプレートから新規ファイル (同名は domain が連番)。
+    CreateFromTemplate {
+        dir: PathBuf,
+        template: String,
+    },
+    /// ユーザーコマンド実行 (commands.json — F-904)。
+    RunUserCommand {
+        id: String,
+        paths: Vec<PathBuf>,
+        cwd: PathBuf,
+    },
+    /// Windows シェルコンテキストメニュー (F-905。UI スレッドで同期実行)。
+    ShowShellMenu {
+        paths: Vec<PathBuf>,
+    },
 }
