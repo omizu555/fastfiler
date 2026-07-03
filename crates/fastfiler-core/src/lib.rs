@@ -12,6 +12,7 @@ pub mod format;
 pub mod model;
 pub mod msg;
 pub mod selection;
+pub mod transfer;
 pub mod update;
 
 pub use domain_event::DomainEvent;

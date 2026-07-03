@@ -61,4 +61,30 @@ pub enum PaneMsg {
     Domain(DomainEvent),
     /// デバウンス満了 (Effect::Debounce の返し)。seq が現在値なら reload する。
     ReloadTick(u64),
+    // ---- ファイル操作 (Phase 2b) ----
+    /// F2 (カーソル行のリネーム)。
+    OpenRename,
+    /// F7 / F8。
+    OpenNewFolder,
+    OpenNewFile,
+    ModalInput(String),
+    ModalCommit,
+    ModalCancel,
+    /// Ctrl+C / Ctrl+X / Ctrl+V。
+    RequestCopy,
+    RequestCut,
+    RequestPaste,
+    /// クリップボード読み取り結果 (Effect::ClipboardRead の返し)。op: "copy"|"cut"。
+    PasteRead {
+        paths: Vec<String>,
+        op: String,
+    },
+    /// 衝突ダイアログの選択。
+    Conflict(crate::transfer::ConflictChoice),
+    /// Delete (選択をごみ箱へ)。
+    RequestDelete,
+    /// Ctrl+Z。
+    Undo,
+    /// フッタへの一時メッセージ (操作結果の通知)。
+    StatusMsg(String),
 }

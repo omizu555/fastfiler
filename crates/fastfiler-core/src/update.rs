@@ -2,8 +2,11 @@
 
 use crate::domain_event::DomainEvent;
 use crate::effect::Effect;
-use crate::model::{sort_entries, Column, Overlay, PaneState, COL_W_MAX, COL_W_MIN};
+use crate::model::{
+    sort_entries, Column, JobStatus, ModalKind, Overlay, PaneState, COL_W_MAX, COL_W_MIN,
+};
 use crate::msg::PaneMsg;
+use crate::transfer::{self, ConflictChoice, TransferOp};
 
 /// watcher 変化 → reload のデバウンス間隔 (現行値を変えない — LESSONS/計画書)。
 pub const RELOAD_DEBOUNCE_MS: u64 = 150;
@@ -109,7 +112,17 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
             p.select_all();
             vec![]
         }
-        PaneMsg::ClearSelection | PaneMsg::BlankPressed => {
+        PaneMsg::ClearSelection => {
+            // Esc の優先順位: 実行中ジョブのキャンセル > 選択解除 (USAGE.md 固定キー表)
+            if let Some(job) = &p.job {
+                return vec![Effect::CancelJob { id: job.id }];
+            }
+            p.status_msg = None;
+            p.clear_selection();
+            vec![]
+        }
+        PaneMsg::BlankPressed => {
+            p.status_msg = None;
             p.clear_selection();
             vec![]
         }
@@ -148,8 +161,45 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
                     millis: RELOAD_DEBOUNCE_MS,
                 }]
             }
-            // ジョブ進捗/完了は Phase 2b で配線
-            _ => vec![],
+            DomainEvent::JobProgress {
+                job_id,
+                kind,
+                done_files,
+                total_files,
+                done_bytes,
+                total_bytes,
+                current,
+            } => {
+                p.job = Some(JobStatus {
+                    id: job_id,
+                    kind,
+                    done_files,
+                    total_files,
+                    done_bytes,
+                    total_bytes,
+                    current,
+                });
+                vec![]
+            }
+            DomainEvent::JobDone {
+                ok,
+                canceled,
+                error,
+                ..
+            } => {
+                p.job = None;
+                p.status_msg = if canceled {
+                    Some("キャンセルしました".into())
+                } else if let Some(e) = error {
+                    Some(format!("エラー: {e}"))
+                } else if !ok {
+                    Some("一部の項目を処理できませんでした".into())
+                } else {
+                    None // 成功は無言 (watcher が一覧を追従させる)
+                };
+                vec![]
+            }
+            DomainEvent::Unknown { .. } => vec![],
         },
         PaneMsg::ReloadTick(seq) => {
             if seq == p.reload_seq {
@@ -158,40 +208,211 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
                 vec![] // より新しい変化が控えている (デバウンス継続)
             }
         }
+        PaneMsg::OpenRename => {
+            let Some(name) = p
+                .cursor
+                .and_then(|i| p.entries.get(i))
+                .map(|e| e.name.clone())
+            else {
+                return vec![];
+            };
+            p.overlay = Some(Overlay::Modal {
+                kind: ModalKind::Rename {
+                    original: name.clone(),
+                },
+                value: name,
+            });
+            vec![]
+        }
+        PaneMsg::OpenNewFolder => {
+            p.overlay = Some(Overlay::Modal {
+                kind: ModalKind::NewFolder,
+                value: String::new(),
+            });
+            vec![]
+        }
+        PaneMsg::OpenNewFile => {
+            p.overlay = Some(Overlay::Modal {
+                kind: ModalKind::NewFile,
+                value: String::new(),
+            });
+            vec![]
+        }
+        // overlay なし状態で届いたモーダル系は無視
+        PaneMsg::ModalInput(_) | PaneMsg::ModalCommit | PaneMsg::ModalCancel => vec![],
+        PaneMsg::Conflict(_) => vec![],
+        PaneMsg::RequestCopy => clipboard_write(p, "copy"),
+        PaneMsg::RequestCut => clipboard_write(p, "cut"),
+        PaneMsg::RequestPaste => vec![Effect::ClipboardRead],
+        PaneMsg::PasteRead { paths, op } => {
+            let op = if op == "cut" {
+                TransferOp::Move
+            } else {
+                TransferOp::Copy
+            };
+            let sources: Vec<std::path::PathBuf> =
+                paths.into_iter().map(std::path::PathBuf::from).collect();
+            let existing = existing_names(p);
+            let plan = transfer::plan_transfer(op, &sources, &p.cur_path, &existing);
+            if plan.items.is_empty() {
+                return vec![];
+            }
+            if plan.conflicts.is_empty() {
+                let items =
+                    transfer::resolve_conflicts(&plan, ConflictChoice::Overwrite, &existing);
+                vec![Effect::SpawnJob { op, items }]
+            } else {
+                p.overlay = Some(Overlay::Conflict { plan });
+                vec![]
+            }
+        }
+        PaneMsg::RequestDelete => {
+            let paths: Vec<std::path::PathBuf> = p
+                .selected
+                .iter()
+                .filter_map(|&i| p.entries.get(i))
+                .map(|e| p.cur_path.join(&e.name))
+                .collect();
+            if paths.is_empty() {
+                return vec![];
+            }
+            vec![Effect::DeleteToTrash { paths }]
+        }
+        PaneMsg::Undo => vec![Effect::PerformUndo],
+        PaneMsg::StatusMsg(s) => {
+            p.status_msg = Some(s);
+            vec![]
+        }
     }
+}
+
+/// 選択パスをクリップボードへ (選択が空なら何もしない)。
+fn clipboard_write(p: &PaneState, op: &str) -> Vec<Effect> {
+    let paths: Vec<std::path::PathBuf> = p
+        .selected
+        .iter()
+        .filter_map(|&i| p.entries.get(i))
+        .map(|e| p.cur_path.join(&e.name))
+        .collect();
+    if paths.is_empty() {
+        return vec![];
+    }
+    vec![Effect::ClipboardWrite {
+        paths,
+        op: op.to_string(),
+    }]
+}
+
+fn existing_names(p: &PaneState) -> std::collections::BTreeSet<String> {
+    p.entries.iter().map(|e| e.name.clone()).collect()
 }
 
 /// オーバーレイ表示中のメッセージ処理。`None` を返すと通常処理へフォールスルー。
 fn update_overlay(p: &mut PaneState, msg: &PaneMsg) -> Option<Vec<Effect>> {
-    let Some(Overlay::PathEdit { value }) = &mut p.overlay else {
-        return None;
-    };
-    match msg {
-        PaneMsg::PathEditInput(v) => {
-            *value = v.clone();
-            Some(vec![])
-        }
-        PaneMsg::PathEditCommit => {
-            let target = std::path::PathBuf::from(value.trim());
-            p.overlay = None;
-            if target.as_os_str().is_empty() || target == p.cur_path {
-                return Some(vec![]);
-            }
-            Some(navigate(p, target))
-        }
-        PaneMsg::PathEditCancel | PaneMsg::ClearSelection => {
-            p.overlay = None;
-            Some(vec![])
-        }
-        // 入力中でも一覧の読み込み結果・スクロール・ビューポートは通す
+    // どのオーバーレイでも通すもの (読み込み結果・幾何・domain イベント)
+    if matches!(
+        msg,
         PaneMsg::Loaded { .. }
-        | PaneMsg::LoadFailed { .. }
-        | PaneMsg::Scrolled(_)
-        | PaneMsg::ViewportChanged { .. }
-        | PaneMsg::Domain(_)
-        | PaneMsg::ReloadTick(_) => None,
-        // それ以外の一覧操作 (キーナビ・クリック等) はオーバーレイ中は無効
-        _ => Some(vec![]),
+            | PaneMsg::LoadFailed { .. }
+            | PaneMsg::Scrolled(_)
+            | PaneMsg::ViewportChanged { .. }
+            | PaneMsg::Domain(_)
+            | PaneMsg::ReloadTick(_)
+            | PaneMsg::StatusMsg(_)
+    ) {
+        return None;
+    }
+    match p.overlay.as_mut()? {
+        Overlay::PathEdit { value } => match msg {
+            PaneMsg::PathEditInput(v) => {
+                *value = v.clone();
+                Some(vec![])
+            }
+            PaneMsg::PathEditCommit => {
+                let target = std::path::PathBuf::from(value.trim());
+                p.overlay = None;
+                if target.as_os_str().is_empty() || target == p.cur_path {
+                    return Some(vec![]);
+                }
+                Some(navigate(p, target))
+            }
+            PaneMsg::PathEditCancel | PaneMsg::ClearSelection => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
+        Overlay::Modal { kind, value } => match msg {
+            PaneMsg::ModalInput(v) => {
+                *value = v.clone();
+                Some(vec![])
+            }
+            PaneMsg::ModalCommit => {
+                let name = value.trim().to_string();
+                // 空・パス区切りを含む名前は確定させない (モーダルは開いたまま)
+                if name.is_empty() || name.contains(['\\', '/']) {
+                    return Some(vec![]);
+                }
+                let kind = kind.clone();
+                p.overlay = None;
+                Some(commit_modal(p, kind, name))
+            }
+            PaneMsg::ModalCancel | PaneMsg::ClearSelection => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
+        Overlay::Conflict { plan } => match msg {
+            PaneMsg::Conflict(choice) => {
+                let plan = plan.clone();
+                p.overlay = None;
+                if *choice == ConflictChoice::Cancel {
+                    return Some(vec![]);
+                }
+                let existing = existing_names(p);
+                let items = transfer::resolve_conflicts(&plan, *choice, &existing);
+                if items.is_empty() {
+                    return Some(vec![]);
+                }
+                Some(vec![Effect::SpawnJob { op: plan.op, items }])
+            }
+            PaneMsg::ClearSelection => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
+    }
+}
+
+/// 入力モーダルの確定 (F2/F7/F8)。作成/リネーム後は watcher reload で
+/// その名前へカーソルが乗るよう pending_cursor_name を仕込む。
+fn commit_modal(p: &mut PaneState, kind: ModalKind, name: String) -> Vec<Effect> {
+    match kind {
+        ModalKind::Rename { original } => {
+            if name == original {
+                return vec![];
+            }
+            p.pending_cursor_name = Some(name.clone());
+            vec![Effect::Rename {
+                from: p.cur_path.join(original),
+                to: p.cur_path.join(name),
+            }]
+        }
+        ModalKind::NewFolder => {
+            p.pending_cursor_name = Some(name.clone());
+            vec![Effect::CreateDir {
+                path: p.cur_path.join(name),
+            }]
+        }
+        ModalKind::NewFile => {
+            p.pending_cursor_name = Some(name.clone());
+            vec![Effect::CreateFile {
+                dir: p.cur_path.clone(),
+                name,
+            }]
+        }
     }
 }
 
@@ -540,6 +761,154 @@ mod tests {
         update_pane(&mut p, PaneMsg::OpenPathEdit);
         let fx = update_pane(&mut p, PaneMsg::PathEditCommit);
         assert!(fx.is_empty());
+    }
+
+    #[test]
+    fn rename_modal_commit_emits_effect_and_pending_cursor() {
+        let mut p = pane_with(&[("old.txt", false)]);
+        p.click_row(0, false, false);
+        update_pane(&mut p, PaneMsg::OpenRename);
+        assert!(matches!(p.overlay, Some(Overlay::Modal { .. })));
+        update_pane(&mut p, PaneMsg::ModalInput("new.txt".into()));
+        let fx = update_pane(&mut p, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::Rename {
+                from: PathBuf::from("C:\\root\\old.txt"),
+                to: PathBuf::from("C:\\root\\new.txt"),
+            }]
+        );
+        assert_eq!(p.pending_cursor_name.as_deref(), Some("new.txt"));
+        assert!(p.overlay.is_none());
+        // 不正な名前 (区切り文字) は確定されずモーダルが残る
+        update_pane(&mut p, PaneMsg::OpenNewFolder);
+        update_pane(&mut p, PaneMsg::ModalInput("a\\b".into()));
+        assert!(update_pane(&mut p, PaneMsg::ModalCommit).is_empty());
+        assert!(p.overlay.is_some());
+    }
+
+    #[test]
+    fn paste_without_conflict_spawns_job_directly() {
+        use crate::transfer::TransferOp;
+        let mut p = pane_with(&[("existing.txt", false)]);
+        let fx = update_pane(
+            &mut p,
+            PaneMsg::PasteRead {
+                paths: vec!["D:\\src\\new.txt".into()],
+                op: "copy".into(),
+            },
+        );
+        assert_eq!(
+            fx,
+            vec![Effect::SpawnJob {
+                op: TransferOp::Copy,
+                items: vec![(
+                    PathBuf::from("D:\\src\\new.txt"),
+                    PathBuf::from("C:\\root\\new.txt")
+                )],
+            }]
+        );
+        assert!(p.overlay.is_none());
+    }
+
+    #[test]
+    fn paste_with_conflict_opens_dialog_then_rename_both() {
+        use crate::transfer::{ConflictChoice, TransferOp};
+        let mut p = pane_with(&[("a.txt", false)]);
+        let fx = update_pane(
+            &mut p,
+            PaneMsg::PasteRead {
+                paths: vec!["D:\\src\\a.txt".into()],
+                op: "cut".into(),
+            },
+        );
+        assert!(fx.is_empty());
+        assert!(matches!(p.overlay, Some(Overlay::Conflict { .. })));
+        let fx = update_pane(&mut p, PaneMsg::Conflict(ConflictChoice::RenameBoth));
+        assert_eq!(
+            fx,
+            vec![Effect::SpawnJob {
+                op: TransferOp::Move,
+                items: vec![(
+                    PathBuf::from("D:\\src\\a.txt"),
+                    PathBuf::from("C:\\root\\a (2).txt")
+                )],
+            }]
+        );
+        assert!(p.overlay.is_none());
+    }
+
+    #[test]
+    fn esc_cancels_running_job_before_clearing_selection() {
+        use crate::domain_event::DomainEvent;
+        let mut p = pane_with(&[("a.txt", false)]);
+        p.click_row(0, false, false);
+        update_pane(
+            &mut p,
+            PaneMsg::Domain(DomainEvent::JobProgress {
+                job_id: 9,
+                kind: "copy".into(),
+                done_files: 1,
+                total_files: 5,
+                done_bytes: 0,
+                total_bytes: 0,
+                current: "x".into(),
+            }),
+        );
+        assert!(p.job.is_some());
+        // 1 回目の Esc = ジョブキャンセル (選択は残る)
+        let fx = update_pane(&mut p, PaneMsg::ClearSelection);
+        assert_eq!(fx, vec![Effect::CancelJob { id: 9 }]);
+        assert!(!p.selected.is_empty());
+        // JobDone (キャンセル) で job が消え、次の Esc は選択解除
+        update_pane(
+            &mut p,
+            PaneMsg::Domain(DomainEvent::JobDone {
+                job_id: 9,
+                kind: "copy".into(),
+                ok: false,
+                canceled: true,
+                error: None,
+                done_files: 1,
+                total_files: 5,
+            }),
+        );
+        assert!(p.job.is_none());
+        assert_eq!(p.status_msg.as_deref(), Some("キャンセルしました"));
+        assert!(update_pane(&mut p, PaneMsg::ClearSelection).is_empty());
+        assert!(p.selected.is_empty());
+    }
+
+    #[test]
+    fn copy_cut_delete_use_selection() {
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
+        p.click_row(0, false, false);
+        p.click_row(1, true, false);
+        let fx = update_pane(&mut p, PaneMsg::RequestCopy);
+        assert_eq!(
+            fx,
+            vec![Effect::ClipboardWrite {
+                paths: vec![
+                    PathBuf::from("C:\\root\\a.txt"),
+                    PathBuf::from("C:\\root\\b.txt")
+                ],
+                op: "copy".into(),
+            }]
+        );
+        let fx = update_pane(&mut p, PaneMsg::RequestDelete);
+        assert_eq!(
+            fx,
+            vec![Effect::DeleteToTrash {
+                paths: vec![
+                    PathBuf::from("C:\\root\\a.txt"),
+                    PathBuf::from("C:\\root\\b.txt")
+                ],
+            }]
+        );
+        // 選択なしなら何も出ない
+        p.clear_selection();
+        assert!(update_pane(&mut p, PaneMsg::RequestCut).is_empty());
+        assert!(update_pane(&mut p, PaneMsg::RequestDelete).is_empty());
     }
 
     #[test]

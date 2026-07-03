@@ -3,12 +3,16 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use fastfiler_core::transfer::TransferOp;
 use fastfiler_core::{Effect, Entry, PaneMsg};
 use fastfiler_domain::events::EventSink;
+use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
+use fastfiler_domain::undo::{MoveItem, TrashedItem, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
-use fastfiler_domain::{fs as dfs, icons, shell};
+use fastfiler_domain::{file_ops, fs as dfs, icons, shell, templates};
 use iced::Task;
 
 use crate::app::Msg;
@@ -116,7 +120,47 @@ impl Default for PaneWatcher {
     }
 }
 
-pub fn run(effect: Effect, known_icons: HashSet<String>, synth: Option<usize>) -> Task<Msg> {
+/// ファイルジョブの共有資源 (キャンセル用レジストリ + 通し番号)。
+pub struct Jobs {
+    pub registry: Arc<JobRegistry>,
+    next_id: AtomicU64,
+}
+
+impl Jobs {
+    pub fn new() -> Self {
+        Self {
+            registry: Arc::new(JobRegistry::default()),
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    fn next_id(&self) -> u64 {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+impl Default for Jobs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Undo 実行や操作完了の通知。record は成功時に UndoManager へ積む操作。
+#[derive(Debug, Clone)]
+pub enum OpOutcome {
+    Done {
+        record: Option<UndoOp>,
+        message: Option<String>,
+    },
+    Failed(String),
+}
+
+pub fn run(
+    effect: Effect,
+    known_icons: HashSet<String>,
+    synth: Option<usize>,
+    jobs: &Jobs,
+) -> Task<Msg> {
     match effect {
         Effect::LoadDir { generation, path } => {
             Task::future(load_dir(generation, path, known_icons, synth))
@@ -130,7 +174,187 @@ pub fn run(effect: Effect, known_icons: HashSet<String>, synth: Option<usize>) -
             tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
             Msg::Pane(PaneMsg::ReloadTick(seq))
         }),
+        Effect::ClipboardWrite { paths, op } => blocking_op(move || {
+            let n = paths.len();
+            let paths: Vec<String> = paths
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+            fastfiler_domain::win_clipboard::clipboard_write_paths(paths, op.clone())?;
+            Ok(OpOutcome::Done {
+                record: None,
+                message: Some(if op == "cut" {
+                    format!("{n} 項目を切り取りました")
+                } else {
+                    format!("{n} 項目をコピーしました")
+                }),
+            })
+        }),
+        Effect::ClipboardRead => Task::future(async {
+            let read =
+                tokio::task::spawn_blocking(fastfiler_domain::win_clipboard::clipboard_read_paths)
+                    .await;
+            match read {
+                Ok(Ok(Some(cb))) => Msg::Pane(PaneMsg::PasteRead {
+                    paths: cb.paths,
+                    op: cb.op,
+                }),
+                // クリップボードにファイルなし → 無言 (貼り付け淡色相当)
+                Ok(Ok(None)) => Msg::Pane(PaneMsg::StatusMsg(
+                    "クリップボードにファイルがありません".into(),
+                )),
+                Ok(Err(e)) => Msg::Pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
+                Err(e) => Msg::Pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
+            }
+        }),
+        Effect::SpawnJob { op, items } => {
+            let job_id = jobs.next_id();
+            let registry = Arc::clone(&jobs.registry);
+            let job_items: Vec<JobItem> = items
+                .iter()
+                .map(|(from, to)| JobItem {
+                    from: from.to_string_lossy().to_string(),
+                    to: to.to_string_lossy().to_string(),
+                })
+                .collect();
+            // 移動は「全件成功時のみ」Undo 記録するため、候補を先に App へ渡す
+            // (JobDone ok で確定 — ADR 0006/0008)
+            let undo_candidate = (op == TransferOp::Move).then(|| {
+                items
+                    .iter()
+                    .map(|(from, to)| MoveItem {
+                        from: from.clone(),
+                        to: to.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            });
+            // domain のジョブは同期関数 + sink emit。専用スレッドで実行 (GPUI 版と同じ)
+            std::thread::spawn(move || {
+                let sink = ChannelSink::new();
+                let r = match op {
+                    TransferOp::Copy => registry.run_copy(&sink, job_id, job_items),
+                    TransferOp::Move => registry.run_move(&sink, job_id, job_items),
+                };
+                if let Err(e) = r {
+                    // run_job 内で done は emit 済みのはずだが、起動前失敗の保険
+                    sink.emit_json(
+                        "fs:job:done",
+                        serde_json::json!({
+                            "job_id": job_id, "kind": "job", "ok": false,
+                            "canceled": false, "error": e.to_string(),
+                            "total_files": 0, "done_files": 0,
+                            "total_bytes": 0, "done_bytes": 0,
+                        }),
+                    );
+                }
+            });
+            match undo_candidate {
+                Some(items) => Task::done(Msg::JobStarted {
+                    job_id,
+                    move_undo: Some(items),
+                }),
+                None => Task::done(Msg::JobStarted {
+                    job_id,
+                    move_undo: None,
+                }),
+            }
+        }
+        Effect::CancelJob { id } => {
+            jobs.registry.cancel(id);
+            Task::none()
+        }
+        Effect::Rename { from, to } => blocking_op(move || {
+            file_ops::rename_path_no_overwrite(&from, &to)?;
+            Ok(OpOutcome::Done {
+                record: Some(UndoOp::Rename { from, to }),
+                message: None,
+            })
+        }),
+        Effect::CreateDir { path } => blocking_op(move || {
+            file_ops::create_dir(&path)?;
+            Ok(OpOutcome::Done {
+                record: None,
+                message: None,
+            })
+        }),
+        Effect::CreateFile { dir, name } => blocking_op(move || {
+            templates::create_empty_file(dir.to_string_lossy().to_string(), name, None)?;
+            Ok(OpOutcome::Done {
+                record: None,
+                message: None,
+            })
+        }),
+        Effect::DeleteToTrash { paths } => blocking_op(move || {
+            // Undo 用のメタデータをごみ箱送り前に採取 (restore_from_trash の照合キー)
+            let items: Vec<TrashedItem> = paths
+                .iter()
+                .filter_map(|p| {
+                    let meta = std::fs::symlink_metadata(p).ok()?;
+                    Some(TrashedItem {
+                        original_path: p.clone(),
+                        file_name: p.file_name()?.to_os_string(),
+                        size: meta.len(),
+                        modified: meta.modified().ok()?,
+                        is_dir: meta.is_dir(),
+                        deleted_at: std::time::SystemTime::now(),
+                    })
+                })
+                .collect();
+            let n = paths.len();
+            file_ops::delete_to_trash(
+                paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            )?;
+            Ok(OpOutcome::Done {
+                record: (!items.is_empty()).then_some(UndoOp::Trash { items }),
+                message: Some(format!("{n} 項目をごみ箱へ移動しました")),
+            })
+        }),
+        // PerformUndo は App が UndoManager を所有するため app.rs 側で処理する
+        Effect::PerformUndo => Task::done(Msg::PerformUndo),
     }
+}
+
+/// ブロッキングなファイル操作を背景スレッドで実行し、結果を OpDone で返す。
+fn blocking_op(
+    f: impl FnOnce() -> Result<OpOutcome, fastfiler_domain::error::AppError> + Send + 'static,
+) -> Task<Msg> {
+    Task::future(async move {
+        let outcome = tokio::task::spawn_blocking(f).await;
+        match outcome {
+            Ok(Ok(o)) => Msg::OpDone(o),
+            Ok(Err(e)) => Msg::OpDone(OpOutcome::Failed(e.to_string())),
+            Err(e) => Msg::OpDone(OpOutcome::Failed(format!("操作タスクの失敗: {e}"))),
+        }
+    })
+}
+
+/// Undo の逆操作を実行する (Ctrl+Z)。App が pop した op を受け取る。
+pub fn perform_undo(op: UndoOp) -> Task<Msg> {
+    blocking_op(move || {
+        let label = op.label();
+        match op {
+            UndoOp::Rename { from, to } => {
+                file_ops::rename_path_no_overwrite(&to, &from)?;
+            }
+            UndoOp::Move { items } => {
+                for it in items.iter().rev() {
+                    file_ops::move_path_no_overwrite(&it.to, &it.from)?;
+                }
+            }
+            UndoOp::Trash { items } => {
+                for it in &items {
+                    file_ops::restore_from_trash(it)?;
+                }
+            }
+        }
+        Ok(OpOutcome::Done {
+            record: None,
+            message: Some(format!("{label}を元に戻しました")),
+        })
+    })
 }
 
 async fn load_dir(

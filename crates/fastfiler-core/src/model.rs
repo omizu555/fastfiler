@@ -135,6 +135,30 @@ pub fn sort_entries(entries: &mut [Entry], sort: SortState) {
 pub enum Overlay {
     /// パスバー直接入力 (F-304)。
     PathEdit { value: String },
+    /// 入力モーダル (F2 リネーム / F7 新規フォルダ / F8 新規ファイル)。
+    Modal { kind: ModalKind, value: String },
+    /// 同名衝突ダイアログ (F-503)。
+    Conflict { plan: crate::transfer::TransferPlan },
+}
+
+/// 入力モーダルの種類 (GPUI 版 ModalKind と同じ 3 種)。
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModalKind {
+    Rename { original: String },
+    NewFolder,
+    NewFile,
+}
+
+/// 実行中のファイルジョブ (フッタの進捗表示 + キャンセル対象)。
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobStatus {
+    pub id: u64,
+    pub kind: String,
+    pub done_files: u64,
+    pub total_files: u64,
+    pub done_bytes: u64,
+    pub total_bytes: u64,
+    pub current: String,
 }
 
 /// 1 ペインの一覧状態 (Phase 1〜2 スコープ)。
@@ -155,6 +179,10 @@ pub struct PaneState {
     pub overlay: Option<Overlay>,
     /// watcher デバウンスの通し番号 (150ms 以内の連続変化を 1 回の reload に潰す)。
     pub reload_seq: u64,
+    /// 実行中ジョブ (高々 1 つ — GPUI 版と同じ)。
+    pub job: Option<JobStatus>,
+    /// フッタの一時メッセージ (エラー / 完了通知)。
+    pub status_msg: Option<String>,
     // ---- 選択モデル (selection.rs に操作を実装) ----
     pub cursor: Option<usize>,
     pub selected: BTreeSet<usize>,
@@ -191,6 +219,8 @@ impl PaneState {
             history_fwd: Vec::new(),
             overlay: None,
             reload_seq: 0,
+            job: None,
+            status_msg: None,
             cursor: None,
             selected: BTreeSet::new(),
             anchor: None,
