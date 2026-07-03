@@ -385,6 +385,8 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     // メニューは Released で出す (右ボタンドラッグと区別するため —
                     // 閾値を超えたらドラッグ、超えなければメニュー)
                     match self.row_at(&list, pos) {
+                        // 左ドラッグ進行中の右押下は無視 (ボタン種別の取り違え防止)
+                        Some(_) if state.row_pressed.is_some() => {}
                         Some(ix) => {
                             state.row_pressed = Some((pos, ix, true));
                         }
@@ -443,11 +445,16 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     }
                 }
             }
-            Event::Mouse(mouse::Event::CursorLeft) if state.row_dragging => {
+            Event::Mouse(mouse::Event::CursorLeft) if state.row_pressed.is_some() => {
+                // 閾値未満のままウィンドウ外へ出た場合も押下状態を破棄する
+                // (外での Released は届かないため、残すと幽霊ドラッグが始まる)
+                let was_dragging = state.row_dragging;
                 state.row_dragging = false;
                 state.row_pressed = None;
-                shell.publish((self.on_event)(ListEvent::DragExitedWindow));
-                shell.capture_event();
+                if was_dragging {
+                    shell.publish((self.on_event)(ListEvent::DragExitedWindow));
+                    shell.capture_event();
+                }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging.is_some() => {
                 if let (Some(col), Some(pos)) = (state.dragging, cursor.position()) {

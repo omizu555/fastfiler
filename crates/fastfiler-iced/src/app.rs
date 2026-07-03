@@ -118,6 +118,9 @@ pub enum Msg {
     /// メインウィンドウが開いた (Id 記録 + 位置復元)。
     WindowOpened(window::Id),
     GotHwnd(Option<(isize, f32)>),
+    GotScale(f32),
+    /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
+    GlobalMouseUp,
     Frame(Instant),
     AutoClose,
 }
@@ -407,7 +410,12 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 }
                 window::Event::Resized(size) => {
                     app.window_size = size;
-                    return app.schedule_save();
+                    // モニタ移動 (per-monitor DPI) で scale が変わり得るため再取得
+                    let scale = app
+                        .window_id
+                        .map(|id| window::scale_factor(id).map(Msg::GotScale))
+                        .unwrap_or_else(Task::none);
+                    return Task::batch([app.schedule_save(), scale]);
                 }
                 window::Event::Moved(pos) => {
                     app.window_pos = Some(pos);
@@ -443,6 +451,20 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             }
             tasks.push(hwnd_task);
             Task::batch(tasks)
+        }
+        Msg::GotScale(s) => {
+            app.scale_factor = s;
+            app.refresh_ole_snapshot();
+            Task::none()
+        }
+        Msg::GlobalMouseUp => {
+            // FileList の bounds 外 (ヘッダ/フッタ/タブバー等) でのリリース:
+            // どのペインも DragDropped を出さないため、ここで確実に破棄する。
+            // 正当なドロップは widget が先に処理済み (drag は既に None) なので無害
+            if app.model.drag.is_some() {
+                let _ = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+            }
+            Task::none()
         }
         Msg::GotHwnd(h) => {
             if let Some((hwnd, scale)) = h {
@@ -689,6 +711,7 @@ impl App {
         let Some(pane) = self
             .pane_rects
             .iter()
+            .filter(|(id, _)| self.model.panes.contains_key(**id))
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, _)| *id)
         else {
@@ -956,6 +979,12 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
     let mut subs = vec![
         keyboard::listen().map(Msg::Key),
         window::events().map(|(_id, ev)| Msg::Window(ev)),
+        iced::event::listen_with(|ev, _status, _id| match ev {
+            Event::Mouse(mouse::Event::ButtonReleased(
+                mouse::Button::Left | mouse::Button::Right,
+            )) => Some(Msg::GlobalMouseUp),
+            _ => None,
+        }),
         window::open_events().map(Msg::WindowOpened),
         // domain (watcher / ジョブ) イベント: アプリ単一チャネルの受信端
         Subscription::run(domain_events).map(|(e, p)| Msg::Domain(e, p)),

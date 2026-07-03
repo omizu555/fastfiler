@@ -317,6 +317,11 @@ pub(crate) fn start_drop_transfer(
     let Some(p) = m.panes.get_mut(pane) else {
         return vec![];
     };
+    // 自己ネストのガード: ドラッグ項目自身/その配下へのドロップは不正 (フォルダを
+    // 自分の子孫へ移動/コピーしてしまう)。エクスプローラ同様 no-op にする
+    if paths.iter().any(|src| dest.starts_with(src)) {
+        return vec![];
+    }
     // dest がペインの表示フォルダと違う (フォルダ行ドロップ) 場合、既存名は不明 →
     // 空集合で計画し衝突は上書き確認なしになるため、表示フォルダのときだけ検出する。
     // フォルダ行ドロップの衝突は domain のジョブが上書きで処理 (GPUI 版と同等)。
@@ -545,6 +550,31 @@ mod tests {
         update_app(&mut m, AppMsg::Tab(TabMsg::Close(1)));
         // 閉じたペイン宛の遅延メッセージは無害
         let fx = update_app(&mut m, AppMsg::Pane(doomed, PaneMsg::Reload));
+        assert!(fx.is_empty());
+    }
+
+    #[test]
+    fn drop_into_own_subtree_is_rejected() {
+        use crate::transfer::TransferOp;
+        let mut m = AppModel::new(std::path::PathBuf::from(r"C:\a"));
+        let pane = m.focused_pane();
+        // C:\a\sub をドラッグして dest = 自分自身 / 自分の配下
+        let src = vec![std::path::PathBuf::from(r"C:\a\sub")];
+        let fx = start_drop_transfer(
+            &mut m,
+            pane,
+            TransferOp::Move,
+            src.clone(),
+            std::path::PathBuf::from(r"C:\a\sub"),
+        );
+        assert!(fx.is_empty());
+        let fx = start_drop_transfer(
+            &mut m,
+            pane,
+            TransferOp::Copy,
+            src,
+            std::path::PathBuf::from(r"C:\a\sub\inner"),
+        );
         assert!(fx.is_empty());
     }
 }
