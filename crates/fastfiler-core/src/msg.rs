@@ -1,6 +1,7 @@
 //! メッセージ定義 (計画書 §5.3)。Phase 1 は単一ペイン分のみ。
 //! Phase 3 で `Msg::Pane(PaneId, PaneMsg)` の階層に載る。
 
+use crate::domain_event::DomainEvent;
 use crate::model::{Column, Entry};
 use crate::selection::NavKey;
 
@@ -44,4 +45,20 @@ pub enum PaneMsg {
     ClearSelection,
     /// 一覧の空白部分をクリック (選択解除)。
     BlankPressed,
+    // ---- ナビゲーション (Phase 2a) ----
+    /// 履歴を戻る (Alt+← / マウス第4ボタン)。
+    GoBack,
+    /// 履歴を進む (Alt+→ / マウス第5ボタン)。
+    GoForward,
+    /// F5 再読み込み (選択・スクロールは維持)。
+    Reload,
+    /// パスバークリック → 直接入力を開く。
+    OpenPathEdit,
+    PathEditInput(String),
+    PathEditCommit,
+    PathEditCancel,
+    // ---- domain イベント (Phase 2a) ----
+    Domain(DomainEvent),
+    /// デバウンス満了 (Effect::Debounce の返し)。seq が現在値なら reload する。
+    ReloadTick(u64),
 }

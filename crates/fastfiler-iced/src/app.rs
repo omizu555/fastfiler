@@ -9,12 +9,12 @@ use std::time::Instant;
 
 use fastfiler_core::model::DEFAULT_ROW_H;
 use fastfiler_core::update::{navigate, update_pane};
-use fastfiler_core::{Entry, NavKey, PaneMsg, PaneState};
+use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneMsg, PaneState};
 use iced::keyboard::{self, key::Named, Key};
-use iced::widget::{column, container, image, row, text};
-use iced::{window, Element, Length, Subscription, Task};
+use iced::widget::{button, column, container, image, row, text, text_input};
+use iced::{mouse, window, Element, Event, Length, Subscription, Task};
 
-use crate::effects::{self, IconBytes};
+use crate::effects::{self, domain_channel, IconBytes, PaneWatcher};
 use crate::widgets::file_list::{FileList, ListEvent};
 
 pub struct App {
@@ -22,6 +22,8 @@ pub struct App {
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
+    /// ペインの watcher 資源 (navigate で付け替え。Phase 3 で PaneId → watcher 表へ)。
+    watcher: PaneWatcher,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
     synth: Option<usize>,
     bench: Option<Bench>,
@@ -37,8 +39,14 @@ struct Bench {
 #[derive(Debug, Clone)]
 pub enum Msg {
     List(ListEvent),
+    /// core メッセージの直接投入 (デバウンス tick・パス入力・履歴ボタン等)。
+    Pane(PaneMsg),
     Key(keyboard::Event),
     Window(window::Event),
+    /// マウス第 4/5 ボタン (戻る/進む) — ウィンドウ全体で有効。
+    MouseNav(PaneMsg),
+    /// domain イベント (watcher / ジョブ)。
+    Domain(String, serde_json::Value),
     DirLoaded {
         generation: u64,
         result: Result<Vec<Entry>, String>,
@@ -69,11 +77,13 @@ pub fn boot() -> (App, Task<Msg>) {
         pane,
         icons: HashMap::new(),
         modifiers: keyboard::Modifiers::default(),
+        watcher: PaneWatcher::new(),
         synth,
         bench,
     };
     // 初期フォルダの読み込み (通常のナビゲーションと同じ経路)
     let effects = navigate(&mut app.pane, start);
+    app.watcher.watch(&app.pane.cur_path); // apply() を通らないため明示的に監視開始
     let load = app.run_effects(effects);
     let auto = crate::dev::autoclose_task(Msg::AutoClose);
     (app, Task::batch([load, auto]))
@@ -103,6 +113,11 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 ListEvent::ViewportChanged { height } => PaneMsg::ViewportChanged { height },
             };
             app.apply(pane_msg)
+        }
+        Msg::Pane(m) | Msg::MouseNav(m) => app.apply(m),
+        Msg::Domain(event, payload) => {
+            let ev = domain_event::parse(&event, &payload);
+            app.apply(PaneMsg::Domain(ev))
         }
         Msg::Key(keyboard::Event::ModifiersChanged(m)) => {
             app.modifiers = m;
@@ -173,6 +188,13 @@ impl App {
     /// core の update を呼び、返った Effect を Task に変換する。
     fn apply(&mut self, msg: PaneMsg) -> Task<Msg> {
         let effects = update_pane(&mut self.pane, msg);
+        // 読み込み Effect が出たら watcher の監視先も現在フォルダへ追従
+        if effects
+            .iter()
+            .any(|e| matches!(e, fastfiler_core::Effect::LoadDir { .. }))
+        {
+            self.watcher.watch(&self.pane.cur_path);
+        }
         self.run_effects(effects)
     }
 
@@ -189,12 +211,14 @@ impl App {
     }
 }
 
-/// キー入力 → core メッセージ (Phase 1 の固定キー。ホットキー設定は Phase 6)。
+/// キー入力 → core メッセージ (固定キー。ホットキー設定は Phase 6)。
 fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<PaneMsg> {
     let shift = m.shift();
     match key.as_ref() {
         Key::Named(Named::ArrowUp) => Some(PaneMsg::Nav(NavKey::Up, shift)),
         Key::Named(Named::ArrowDown) => Some(PaneMsg::Nav(NavKey::Down, shift)),
+        Key::Named(Named::ArrowLeft) if m.alt() => Some(PaneMsg::GoBack),
+        Key::Named(Named::ArrowRight) if m.alt() => Some(PaneMsg::GoForward),
         Key::Named(Named::PageUp) => Some(PaneMsg::Nav(NavKey::PageUp, shift)),
         Key::Named(Named::PageDown) => Some(PaneMsg::Nav(NavKey::PageDown, shift)),
         Key::Named(Named::Home) => Some(PaneMsg::Nav(NavKey::Home, shift)),
@@ -202,7 +226,7 @@ fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<PaneMsg> {
         Key::Named(Named::Enter) => Some(PaneMsg::ActivateCursor),
         Key::Named(Named::Backspace) => Some(PaneMsg::GoParent),
         Key::Named(Named::Escape) => Some(PaneMsg::ClearSelection),
-        Key::Named(Named::F5) => None, // F5 再読み込みは watcher と併せて Phase 2
+        Key::Named(Named::F5) => Some(PaneMsg::Reload),
         // CapsLock ON では "A" が届くため大文字小文字を無視して比較
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("a") => Some(PaneMsg::SelectAll),
         _ => None,
@@ -213,6 +237,18 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
     let mut subs = vec![
         keyboard::listen().map(Msg::Key),
         window::events().map(|(_id, ev)| Msg::Window(ev)),
+        // domain (watcher / ジョブ) イベント: アプリ単一チャネルの受信端
+        Subscription::run(domain_events).map(|(e, p)| Msg::Domain(e, p)),
+        // マウス第 4/5 ボタン = 戻る/進む (F-303。ウィンドウ全域で有効)
+        iced::event::listen_with(|event, _status, _id| match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) => {
+                Some(Msg::MouseNav(PaneMsg::GoBack))
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Forward)) => {
+                Some(Msg::MouseNav(PaneMsg::GoForward))
+            }
+            _ => None,
+        }),
     ];
     if app.bench.is_some() {
         subs.push(window::frames().map(Msg::Frame));
@@ -220,10 +256,46 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
     Subscription::batch(subs)
 }
 
+/// domain チャネルの受信ストリーム (プロセスで 1 回だけ subscribe される)。
+fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Value)> {
+    domain_channel::take_receiver()
+}
+
 pub fn view(app: &App) -> Element<'_, Msg> {
-    let path_bar = container(text(app.pane.cur_path.to_string_lossy().to_string()).size(14))
-        .padding([4, 8])
-        .width(Length::Fill);
+    // パスバー: 通常はテキスト + クリックで直接入力 (F-304)、
+    // PathEdit オーバーレイ中は text_input (Enter 確定 / Esc 取消)
+    let path_bar: Element<'_, Msg> = match &app.pane.overlay {
+        Some(Overlay::PathEdit { value }) => text_input("パスを入力…", value)
+            .on_input(|v| Msg::Pane(PaneMsg::PathEditInput(v)))
+            .on_submit(Msg::Pane(PaneMsg::PathEditCommit))
+            .size(14)
+            .padding([2, 6])
+            .into(),
+        _ => button(text(app.pane.cur_path.to_string_lossy().to_string()).size(14))
+            .style(button::text)
+            .padding([2, 6])
+            .width(Length::Fill)
+            .on_press(Msg::Pane(PaneMsg::OpenPathEdit))
+            .into(),
+    };
+    let nav_btn = |label: &'static str, enabled: bool, msg: PaneMsg| {
+        button(text(label).size(14))
+            .style(button::text)
+            .padding([2, 8])
+            .on_press_maybe(enabled.then_some(Msg::Pane(msg)))
+    };
+    let path_row = container(
+        row![
+            nav_btn("←", !app.pane.history_back.is_empty(), PaneMsg::GoBack),
+            nav_btn("→", !app.pane.history_fwd.is_empty(), PaneMsg::GoForward),
+            nav_btn("↑", app.pane.cur_path.parent().is_some(), PaneMsg::GoParent),
+            path_bar,
+        ]
+        .spacing(4)
+        .align_y(iced::Alignment::Center),
+    )
+    .padding([4, 8])
+    .width(Length::Fill);
 
     let list: Element<'_, Msg> = FileList::new(&app.pane, &app.icons, Msg::List).into();
 
@@ -244,5 +316,5 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         .padding([4, 8])
         .width(Length::Fill);
 
-    column![path_bar, list, footer].into()
+    column![path_row, list, footer].into()
 }

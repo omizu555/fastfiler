@@ -6,6 +6,7 @@
 //! - `update` は I/O をしない。副作用は `Effect` として返し、GUI 層が実行する。
 //! - ここに置いたものには単体テストを書く。
 
+pub mod domain_event;
 pub mod effect;
 pub mod format;
 pub mod model;
@@ -13,7 +14,8 @@ pub mod msg;
 pub mod selection;
 pub mod update;
 
+pub use domain_event::DomainEvent;
 pub use effect::Effect;
-pub use model::{Column, Entry, PaneId, PaneState, SortState};
+pub use model::{Column, Entry, Overlay, PaneId, PaneState, SortState};
 pub use msg::PaneMsg;
 pub use selection::NavKey;

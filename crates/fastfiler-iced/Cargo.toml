@@ -18,5 +18,7 @@ fastfiler-core = { path = "../fastfiler-core" }
 fastfiler-win = { path = "../fastfiler-win" }
 fastfiler-domain = { path = "../fastfiler-domain" }
 async-channel = "2.5"
+once_cell = "1"
+serde_json = "1"
 # 自動クローズ・スパイクのタイマー用 (iced の executor も tokio)
 tokio = { version = "1", features = ["time"] }

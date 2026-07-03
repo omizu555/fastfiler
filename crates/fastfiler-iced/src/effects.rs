@@ -3,8 +3,11 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use fastfiler_core::{Effect, Entry};
+use fastfiler_core::{Effect, Entry, PaneMsg};
+use fastfiler_domain::events::EventSink;
+use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{fs as dfs, icons, shell};
 use iced::Task;
 
@@ -12,6 +15,106 @@ use crate::app::Msg;
 
 /// アイコンの生バイト列 (key → PNG)。ハンドル化は UI 側で行う。
 pub type IconBytes = Vec<(String, Vec<u8>)>;
+
+/// domain → GUI のイベント配管 (計画書 §5.3)。
+/// 送信端は watcher 等の sink、受信端は `Subscription::run` が 1 回だけ取り出す。
+pub mod domain_channel {
+    use std::sync::Mutex;
+
+    use async_channel::{Receiver, Sender};
+    use once_cell::sync::Lazy;
+    use serde_json::Value;
+
+    pub type DomainRawEvent = (String, Value);
+    type ChannelPair = (
+        Sender<DomainRawEvent>,
+        Mutex<Option<Receiver<DomainRawEvent>>>,
+    );
+
+    static CHANNEL: Lazy<ChannelPair> = Lazy::new(|| {
+        let (tx, rx) = async_channel::unbounded();
+        (tx, Mutex::new(Some(rx)))
+    });
+
+    pub fn sender() -> Sender<DomainRawEvent> {
+        CHANNEL.0.clone()
+    }
+
+    /// Subscription 用の受信ストリーム (1 回だけ取り出せる)。
+    pub fn take_receiver() -> Receiver<DomainRawEvent> {
+        CHANNEL
+            .1
+            .lock()
+            .unwrap()
+            .take()
+            .expect("domain_channel receiver already taken")
+    }
+}
+
+/// `EventSink` → アプリ単一チャネルのブリッジ (GPUI 版 sink.rs の移植)。
+pub struct ChannelSink(async_channel::Sender<domain_channel::DomainRawEvent>);
+
+impl ChannelSink {
+    pub fn new() -> Self {
+        Self(domain_channel::sender())
+    }
+}
+
+impl Default for ChannelSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EventSink for ChannelSink {
+    fn emit_json(&self, event: &str, payload: serde_json::Value) {
+        let _ = self.0.try_send((event.to_string(), payload));
+    }
+}
+
+/// ペインが持つ watcher 資源。navigate のたびに監視先を付け替え、
+/// drop で監視が止まる (メモリ健全性 N-02 の検証対象)。
+pub struct PaneWatcher {
+    core: WatcherCore,
+    sink: Arc<dyn EventSink>,
+    watching: Option<String>,
+}
+
+impl PaneWatcher {
+    pub fn new() -> Self {
+        Self {
+            core: WatcherCore::default(),
+            sink: Arc::new(ChannelSink::new()),
+            watching: None,
+        }
+    }
+
+    /// 監視先を path へ付け替える (同一パスなら何もしない)。
+    pub fn watch(&mut self, path: &Path) {
+        let path = path.to_string_lossy().to_string();
+        if self.watching.as_deref() == Some(path.as_str()) {
+            return;
+        }
+        if let Some(old) = self.watching.take() {
+            self.core.unwatch(&old);
+        }
+        // ネットワークドライブ等で watch できない場合は自動更新なし (F5 で手動更新 —
+        // USAGE.md §6 のトラブルシューティングと同じ縮退)
+        if self
+            .core
+            .watch_with_sink(path.clone(), self.sink.clone())
+            .is_ok()
+        {
+            self.watching = Some(path);
+        }
+    }
+}
+
+impl Default for PaneWatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub fn run(effect: Effect, known_icons: HashSet<String>, synth: Option<usize>) -> Task<Msg> {
     match effect {
@@ -23,6 +126,10 @@ pub fn run(effect: Effect, known_icons: HashSet<String>, synth: Option<usize>) -
             shell::open_with_shell_async(path.to_string_lossy().to_string());
             Task::none()
         }
+        Effect::Debounce { seq, millis } => Task::future(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
+            Msg::Pane(PaneMsg::ReloadTick(seq))
+        }),
     }
 }
 

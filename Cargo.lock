@@ -1666,6 +1666,8 @@ dependencies = [
  "fastfiler-domain",
  "fastfiler-win",
  "iced",
+ "once_cell",
+ "serde_json",
  "tokio",
 ]
 

@@ -129,7 +129,15 @@ pub fn sort_entries(entries: &mut [Entry], sort: SortState) {
     });
 }
 
-/// 1 ペインの一覧状態 (Phase 1 スコープ)。
+/// ペインのオーバーレイ状態 (計画書 §10-3: 8 個の Option を 1 enum に)。
+/// 常に高々 1 つ。キー入力は「Overlay があれば Overlay へ、なければ一覧へ」。
+#[derive(Debug, Clone, PartialEq)]
+pub enum Overlay {
+    /// パスバー直接入力 (F-304)。
+    PathEdit { value: String },
+}
+
+/// 1 ペインの一覧状態 (Phase 1〜2 スコープ)。
 #[derive(Debug)]
 pub struct PaneState {
     pub cur_path: PathBuf,
@@ -140,6 +148,13 @@ pub struct PaneState {
     pub load_gen: u64,
     pub load_error: Option<String>,
     pub sort: SortState,
+    // ---- ナビゲーション履歴 (F-303。ペイン単位、GPUI 版と同じ) ----
+    pub history_back: Vec<PathBuf>,
+    pub history_fwd: Vec<PathBuf>,
+    // ---- オーバーレイ (モーダル系。§10-3) ----
+    pub overlay: Option<Overlay>,
+    /// watcher デバウンスの通し番号 (150ms 以内の連続変化を 1 回の reload に潰す)。
+    pub reload_seq: u64,
     // ---- 選択モデル (selection.rs に操作を実装) ----
     pub cursor: Option<usize>,
     pub selected: BTreeSet<usize>,
@@ -172,6 +187,10 @@ impl PaneState {
             load_gen: 0,
             load_error: None,
             sort: SortState::default(),
+            history_back: Vec::new(),
+            history_fwd: Vec::new(),
+            overlay: None,
+            reload_seq: 0,
             cursor: None,
             selected: BTreeSet::new(),
             anchor: None,
