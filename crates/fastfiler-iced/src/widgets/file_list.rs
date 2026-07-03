@@ -90,6 +90,15 @@ pub enum ListEvent {
         x: f32,
         y: f32,
     },
+    /// 行ドラッグ中にカーソルがウィンドウ外へ出た (外部への OLE 送信起点 — F-603)。
+    DragExitedWindow,
+    /// 一覧部分のウィンドウ内矩形 (外部 D&D のペインヒットテスト用 — F-602)。
+    BoundsChanged {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
 }
 
 /// ウィジェット内部状態 (フレーム間で保持したい非・アプリ状態のみ)。
@@ -104,6 +113,8 @@ struct State {
     row_pressed: Option<(Point, usize, bool)>,
     /// このペイン発の行ドラッグが進行中か (DragStarted 発行済み)。
     row_dragging: bool,
+    /// 通知済みの一覧矩形。
+    notified_rect: Option<Rectangle>,
     /// 通知済みのビューポート高 (変化時のみ publish)。
     notified_h: f32,
 }
@@ -284,6 +295,25 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 height: list.height,
             }));
         }
+        // 一覧矩形の変化を App へ (外部 D&D のヒットテスト表)
+        if state
+            .notified_rect
+            .map(|r| {
+                (r.x - list.x).abs() > 0.5
+                    || (r.y - list.y).abs() > 0.5
+                    || (r.width - list.width).abs() > 0.5
+                    || (r.height - list.height).abs() > 0.5
+            })
+            .unwrap_or(true)
+        {
+            state.notified_rect = Some(list);
+            shell.publish((self.on_event)(ListEvent::BoundsChanged {
+                x: list.x,
+                y: list.y,
+                w: list.width,
+                h: list.height,
+            }));
+        }
 
         match event {
             Event::Mouse(mouse::Event::WheelScrolled { delta })
@@ -412,6 +442,12 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                         shell.publish((self.on_event)(ListEvent::DragHover { row }));
                     }
                 }
+            }
+            Event::Mouse(mouse::Event::CursorLeft) if state.row_dragging => {
+                state.row_dragging = false;
+                state.row_pressed = None;
+                shell.publish((self.on_event)(ListEvent::DragExitedWindow));
+                shell.capture_event();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging.is_some() => {
                 if let (Some(col), Some(pos)) = (state.dragging, cursor.position()) {

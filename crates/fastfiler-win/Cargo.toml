@@ -12,4 +12,4 @@ raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # domain と同じ 0.58 に揃える (HWND/POINTL の型を共有するため。計画書 §10-5 で統一予定)
-windows = { version = "0.58", features = ["Win32_Foundation"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }

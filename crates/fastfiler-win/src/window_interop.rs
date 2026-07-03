@@ -22,3 +22,14 @@ pub fn hwnd_from_raw(handle: RawWindowHandle) -> Option<isize> {
         _ => None,
     }
 }
+
+/// スクリーン座標 → クライアント座標 (物理 px)。OLE D&D コールバックの
+/// POINTL (スクリーン) をペインヒットテスト用のウィンドウ座標へ変換する。
+/// iced の論理座標にするには呼び出し側で scale factor で割ること。
+pub fn screen_to_client(hwnd: isize, x: i32, y: i32) -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::Graphics::Gdi::ScreenToClient;
+    let mut pt = POINT { x, y };
+    let ok = unsafe { ScreenToClient(HWND(hwnd as *mut _), &mut pt) };
+    ok.as_bool().then_some((pt.x, pt.y))
+}

@@ -9,10 +9,20 @@
 use fastfiler_iced::app;
 
 pub fn main() -> iced::Result {
+    // winit イベントループ開始前 = 将来の UI スレッドで OLE を初期化 (S-3 実証済み)
+    fastfiler_domain::ole_dnd::init_ole();
     iced::application(app::boot, app::update, app::view)
         .title("FastFiler (iced)")
         .subscription(app::subscription)
         .exit_on_close_request(false) // 終了時セッション保存のため CloseRequested を受ける
+        .window(iced::window::Settings {
+            platform_specific: iced::window::settings::PlatformSpecific {
+                // winit 既定の IDropTarget 登録を無効化 (自前 OLE 登録と競合させない)
+                drag_and_drop: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
         .window_size((960.0, 640.0))
         .run()
 }

@@ -45,6 +45,19 @@ pub enum DragMsg {
     },
     /// ウィンドウ外リリース等でのキャンセル。
     Cancel,
+    /// 外部 (OLE) からのドロップ確定 (F-602)。ペイン解決は GUI 層が行う。
+    External {
+        pane: PaneId,
+        paths: Vec<std::path::PathBuf>,
+        /// DROPEFFECT: 1=コピー / 2=移動
+        effect: u32,
+        /// 右ボタンドロップ (メニューで効果を選ぶ)。
+        right_button: bool,
+        at: (f32, f32),
+        commands: Vec<crate::menu::CommandInfo>,
+    },
+    /// 外部への OLE ドラッグが MOVE で完了した (F-606: 安全側削除)。
+    ExternalMoveDone { paths: Vec<std::path::PathBuf> },
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +214,46 @@ fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
         DragMsg::Cancel => {
             m.drag = None;
             vec![]
+        }
+        DragMsg::External {
+            pane,
+            paths,
+            effect,
+            right_button,
+            at,
+            commands,
+        } => {
+            let Some(p) = m.panes.get_mut(pane) else {
+                return vec![];
+            };
+            let dest = p.cur_path.clone();
+            // 自分のフォルダへのドロップは無視 (エクスプローラ同様)
+            if paths.iter().all(|src| src.parent() == Some(dest.as_path())) {
+                return vec![];
+            }
+            if right_button {
+                let items = crate::menu::build_drop_menu(&commands);
+                p.overlay = Some(crate::model::Overlay::DropMenu {
+                    items,
+                    at,
+                    paths,
+                    dest,
+                });
+                m.tabs[m.active].focused = pane;
+                return vec![];
+            }
+            let op = if effect == 2 {
+                TransferOp::Move
+            } else {
+                TransferOp::Copy
+            };
+            start_drop_transfer(m, pane, op, paths, dest)
+        }
+        DragMsg::ExternalMoveDone { paths } => {
+            // 外部への MOVE 完了: PerformedDropEffect==MOVE のときだけ呼ばれる
+            // (判定は domain ole_dnd — F-606 の安全側削除)。元をゴミ箱へ送る
+            // (完全削除より安全側に倒す。エクスプローラの挙動とも一致)
+            vec![Effect::DeleteToTrash { paths }]
         }
         DragMsg::Dropped {
             pane,

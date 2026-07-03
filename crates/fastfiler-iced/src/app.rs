@@ -70,6 +70,13 @@ pub struct App {
     window_id: Option<window::Id>,
     /// Win32 HWND (シェルメニュー / OLE 用。WindowOpened 後に確定)。
     hwnd: Option<isize>,
+    /// DPI スケール (OLE ドロップの物理→論理座標変換用)。
+    scale_factor: f32,
+    /// 各ペインの一覧矩形 (論理座標。外部 D&D のヒットテスト用)。
+    pane_rects: HashMap<PaneId, iced::Rectangle>,
+    /// OLE コールバック (UI スレッドの DoDragDrop モーダルループ内) と共有する
+    /// ヒットテスト表: (pane 矩形 [物理px], cur_path)。enter/over の effect 決定用。
+    ole_snapshot: std::sync::Arc<std::sync::Mutex<Vec<(iced::Rectangle, PathBuf)>>>,
     /// セッション保存のデバウンス世代 (800ms)。
     save_seq: u64,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
@@ -110,7 +117,7 @@ pub enum Msg {
     DoSessionSave(bool),
     /// メインウィンドウが開いた (Id 記録 + 位置復元)。
     WindowOpened(window::Id),
-    GotHwnd(Option<isize>),
+    GotHwnd(Option<(isize, f32)>),
     Frame(Instant),
     AutoClose,
 }
@@ -168,6 +175,9 @@ pub fn boot() -> (App, Task<Msg>) {
         restore_maximized,
         window_id: None,
         hwnd: None,
+        scale_factor: 1.0,
+        pane_rects: HashMap::new(),
+        ole_snapshot: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         save_seq: 0,
         synth,
         bench,
@@ -260,6 +270,17 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                         },
                     ));
                 }
+                ListEvent::BoundsChanged { x, y, w, h } => {
+                    app.pane_rects
+                        .insert(pane, iced::Rectangle::new((x, y).into(), Size::new(w, h)));
+                    app.refresh_ole_snapshot();
+                    return Task::none();
+                }
+                ListEvent::DragExitedWindow => {
+                    // 外部への OLE 送信 (F-603)。DoDragDrop は UI スレッドで
+                    // モーダルループを回す (エクスプローラ等がドロップ先)
+                    return app.start_external_drag();
+                }
                 ListEvent::DragStarted { ix, right_button } => {
                     return app.apply(AppMsg::Drag(DragMsg::Started {
                         pane,
@@ -306,6 +327,10 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         }
         Msg::Core(m) => app.apply(m),
         Msg::Domain(event, payload) => {
+            // OLE 受信イベントは GUI 専用 (core の DomainEvent には流さない)
+            if event == "ole:drop" {
+                return app.handle_ole_drop(&payload);
+            }
             let ev = domain_event::parse(&event, &payload);
             match &ev {
                 domain_event::DomainEvent::FsChange { .. } => {
@@ -404,7 +429,9 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                     .ok()
                     .and_then(|h| fastfiler_win::window_interop::hwnd_from_raw(h.as_raw()))
             })
-            .map(Msg::GotHwnd);
+            .then(move |hwnd| {
+                window::scale_factor(id).map(move |s| Msg::GotHwnd(hwnd.map(|h| (h, s))))
+            });
             // ウィンドウ位置・サイズ・最大化の復元
             let mut tasks = Vec::new();
             if let Some([x, y, w, h]) = app.saved_bounds {
@@ -418,7 +445,11 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::batch(tasks)
         }
         Msg::GotHwnd(h) => {
-            app.hwnd = h;
+            if let Some((hwnd, scale)) = h {
+                app.hwnd = Some(hwnd);
+                app.scale_factor = scale;
+                app.register_ole_drop_target(hwnd);
+            }
             Task::none()
         }
         Msg::SessionSaveTick(seq) => {
@@ -531,6 +562,7 @@ impl App {
         if !overlay_before {
             task = Task::batch([task, self.overlay_focus_task()]);
         }
+        self.refresh_ole_snapshot();
         let search_now = self
             .model
             .panes
@@ -540,6 +572,180 @@ impl App {
             task = Task::batch([task, iced::widget::operation::focus(search_input_id())]);
         }
         task
+    }
+
+    /// OLE ヒットテスト表を最新化する (ペイン矩形 [物理px] + 表示フォルダ)。
+    fn refresh_ole_snapshot(&self) {
+        let scale = self.scale_factor;
+        let mut rows: Vec<(iced::Rectangle, PathBuf)> = Vec::new();
+        for (id, rect) in &self.pane_rects {
+            if let Some(p) = self.model.panes.get(*id) {
+                rows.push((
+                    iced::Rectangle::new(
+                        (rect.x * scale, rect.y * scale).into(),
+                        Size::new(rect.width * scale, rect.height * scale),
+                    ),
+                    p.cur_path.clone(),
+                ));
+            }
+        }
+        if let Ok(mut snap) = self.ole_snapshot.lock() {
+            *snap = rows;
+        }
+    }
+
+    /// 自前 IDropTarget を登録する (S-3 実証の本配線 — F-602)。
+    /// enter/over はスナップショットから effect を即答し、drop はチャネルで
+    /// update() へ運ぶ (コールバックは DoDragDrop のモーダルループ内で走る)。
+    fn register_ole_drop_target(&self, hwnd: isize) {
+        use fastfiler_win::drop_target::{self, DropCallbacks, DROPEFFECT_NONE};
+        let snap = std::sync::Arc::clone(&self.ole_snapshot);
+        let effect_at = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
+            let Some((cx, cy)) =
+                fastfiler_win::window_interop::screen_to_client(hwnd, pos.0, pos.1)
+            else {
+                return DROPEFFECT_NONE;
+            };
+            let point = iced::Point::new(cx as f32, cy as f32);
+            let Ok(rows) = snap.lock() else {
+                return DROPEFFECT_NONE;
+            };
+            match rows.iter().find(|(rect, _)| rect.contains(point)) {
+                Some((_, dest)) => fastfiler_core::transfer::decide_drop_effect(
+                    keys,
+                    allowed,
+                    paths.first().map(|p| p.as_path()),
+                    dest,
+                ),
+                None => DROPEFFECT_NONE,
+            }
+        };
+        let on_enter = effect_at.clone();
+        let on_over = effect_at.clone();
+        let on_drop = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
+            let effect = effect_at(paths, pos, keys, allowed);
+            if effect != DROPEFFECT_NONE {
+                // update() へ運ぶ (既存 domain チャネル — Subscription が拾う)
+                use fastfiler_domain::events::EventSink as _;
+                let sink = effects::ChannelSink::new();
+                sink.emit_json(
+                    "ole:drop",
+                    serde_json::json!({
+                        "paths": paths
+                            .iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect::<Vec<_>>(),
+                        "x": pos.0,
+                        "y": pos.1,
+                        "keys": keys,
+                        "effect": effect,
+                    }),
+                );
+            }
+            effect
+        };
+        let r = drop_target::register(
+            hwnd,
+            DropCallbacks {
+                on_enter: Box::new(on_enter),
+                on_over: Box::new(on_over),
+                on_leave: Box::new(|| {}),
+                on_drop: Box::new(on_drop),
+            },
+        );
+        if let Err(e) = r {
+            eprintln!("OLE 受信登録に失敗: {e}");
+        }
+    }
+
+    /// 外部からのドロップ確定 (ole:drop チャネルイベント)。
+    fn handle_ole_drop(&mut self, payload: &serde_json::Value) -> Task<Msg> {
+        let paths: Vec<PathBuf> = payload["paths"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if paths.is_empty() {
+            return Task::none();
+        }
+        let keys = payload["keys"].as_u64().unwrap_or(0) as u32;
+        let effect = payload["effect"].as_u64().unwrap_or(1) as u32;
+        let (sx, sy) = (
+            payload["x"].as_i64().unwrap_or(0) as i32,
+            payload["y"].as_i64().unwrap_or(0) as i32,
+        );
+        // ペイン解決 (論理座標で pane_rects から)
+        let Some(hwnd) = self.hwnd else {
+            return Task::none();
+        };
+        let Some((cx, cy)) = fastfiler_win::window_interop::screen_to_client(hwnd, sx, sy) else {
+            return Task::none();
+        };
+        let point = iced::Point::new(cx as f32 / self.scale_factor, cy as f32 / self.scale_factor);
+        let Some(pane) = self
+            .pane_rects
+            .iter()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(id, _)| *id)
+        else {
+            return Task::none();
+        };
+        let right_button = keys & fastfiler_win::drop_target::MK_RBUTTON != 0;
+        let commands = if right_button {
+            effects::collect_menu_context().1
+        } else {
+            vec![]
+        };
+        self.apply(AppMsg::Drag(DragMsg::External {
+            pane,
+            paths,
+            effect,
+            right_button,
+            at: (point.x, point.y),
+            commands,
+        }))
+    }
+
+    /// 外部への OLE ドラッグ開始 (F-603/F-606)。UI スレッドで同期 (モーダルループ)。
+    fn start_external_drag(&mut self) -> Task<Msg> {
+        use fastfiler_domain::ole_dnd::{
+            self, DragButton, DragOutcome, DragRequest, PreferredEffect,
+        };
+        let Some(drag) = self.model.drag.clone() else {
+            return Task::none();
+        };
+        let _ = update_app(&mut self.model, AppMsg::Drag(DragMsg::Cancel));
+        let req = DragRequest {
+            paths: drag.paths.clone(),
+            preferred: PreferredEffect::Copy,
+            button: if drag.right_button {
+                DragButton::Right
+            } else {
+                DragButton::Left
+            },
+        };
+        match ole_dnd::start_drag(req) {
+            Ok(DragOutcome::Move {
+                delete_source: true,
+            }) => {
+                // PerformedDropEffect==MOVE のときだけ元を削除 (安全側 — F-606)
+                self.apply(AppMsg::Drag(DragMsg::ExternalMoveDone {
+                    paths: drag.paths,
+                }))
+            }
+            Ok(_) => Task::none(),
+            Err(e) => {
+                let id = self.model.focused_pane();
+                self.apply(AppMsg::Pane(
+                    id,
+                    PaneMsg::StatusMsg(format!("ドラッグできません: {e}")),
+                ))
+            }
+        }
     }
 
     /// セッション保存を 800ms デバウンスで予約する。

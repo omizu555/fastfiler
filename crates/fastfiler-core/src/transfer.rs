@@ -120,6 +120,34 @@ pub fn resolve_conflicts(
     }
 }
 
+/// 外部 D&D (OLE) の希望 DROPEFFECT を決める (F-604。spike_ole の TODO 回収)。
+/// keys は MK_* フラグ、allowed は許可マスク。マスク外を返すと NONE に丸められ
+/// ドロップ拒否になるため、必ず allowed 内から選ぶ。
+/// 値は Win32 定義: MK_SHIFT=0x04 / MK_CONTROL=0x08、COPY=1 / MOVE=2。
+pub fn decide_drop_effect(keys: u32, allowed: u32, src: Option<&Path>, dest: &Path) -> u32 {
+    const MK_SHIFT: u32 = 0x04;
+    const MK_CONTROL: u32 = 0x08;
+    const COPY: u32 = 1;
+    const MOVE: u32 = 2;
+    let desired = if keys & MK_CONTROL != 0 {
+        COPY
+    } else if keys & MK_SHIFT != 0 || src.is_some_and(|s| same_volume(s, dest)) {
+        // Shift 明示 or 同一ドライブの既定 = 移動 (F-604)
+        MOVE
+    } else {
+        COPY
+    };
+    if desired & allowed != 0 {
+        desired
+    } else if allowed & COPY != 0 {
+        COPY
+    } else if allowed & MOVE != 0 {
+        MOVE
+    } else {
+        0
+    }
+}
+
 /// 同一ボリューム判定 (F-604: 修飾キーなしの既定 = 同一ドライブなら移動)。
 /// ドライブレター (大文字小文字無視) または UNC の `\\server\share` を比較する。
 /// GPUI 版は domain path_util::volume_key — core は domain 非依存のため同等実装。
@@ -260,6 +288,33 @@ mod tests {
         let resolved = resolve_conflicts(&plan, ConflictChoice::RenameBoth, &existing);
         assert_eq!(resolved[0].1, PathBuf::from("C:\\dest\\x (2).txt"));
         assert_eq!(resolved[1].1, PathBuf::from("C:\\dest\\x (3).txt"));
+    }
+
+    #[test]
+    fn drop_effect_rules() {
+        const COPY: u32 = 1;
+        const MOVE: u32 = 2;
+        let c = Path::new("C:\\src\\a.txt");
+        let dest_same = Path::new("C:\\dst");
+        let dest_other = Path::new("D:\\dst");
+        // 修飾キーなし: 同一ドライブ=MOVE / 別ドライブ=COPY
+        assert_eq!(decide_drop_effect(0, COPY | MOVE, Some(c), dest_same), MOVE);
+        assert_eq!(
+            decide_drop_effect(0, COPY | MOVE, Some(c), dest_other),
+            COPY
+        );
+        // Ctrl=COPY / Shift=MOVE が優先
+        assert_eq!(
+            decide_drop_effect(0x08, COPY | MOVE, Some(c), dest_same),
+            COPY
+        );
+        assert_eq!(
+            decide_drop_effect(0x04, COPY | MOVE, Some(c), dest_other),
+            MOVE
+        );
+        // allowed マスク外は許可側へフォールバック
+        assert_eq!(decide_drop_effect(0x04, COPY, Some(c), dest_other), COPY);
+        assert_eq!(decide_drop_effect(0, 0, Some(c), dest_same), 0);
     }
 
     #[test]
