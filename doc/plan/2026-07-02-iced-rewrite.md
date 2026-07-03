@@ -596,3 +596,13 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   ウィンドウ位置・最大化復元。**gpui_session.json からの自動移行を実機確認** (26 ペイン)。
 - **B-3 (N-02) 実測合格**: STRESS=50 (実 watcher 込み) で panes 1→1 / watchers 1→1 /
   Threads 58→58 / Handles 690→690 / WS +0.8MB。**完全ベースライン復帰**。
+
+### 2026-07-04 — Phase 4: ワークスペースツリー + 検索 (Issue #5) ✅
+- **core (69 テスト)**: tree.rs (遅延展開 / UNC 自動登録・グルーピング・解除 / reveal 追従) /
+  SearchUi (Ctrl+F バー・結果リスト・job_id 突き合わせ) / NavigateTo (ロック規則適用) /
+  セッションに show_tree・tree_width・unc_shares。
+- **iced**: TreeList widget / 検索バー UI / entries_override / LoadDrives・
+  LoadTreeChildren・start_search (Everything→内蔵フォールバック = domain 再利用)。
+- **セルフレビュー 5 件修正**: 検索結果中の Ctrl+C/Delete が無関係ファイルを対象にする
+  破壊的バグ (visible_len 統一 + 操作禁止) / 検索連打の旧結果混入 (job_id ガード) /
+  UNC reveal のサーバノード展開 / 遅延ロード後の追従再計算 / ツリー幅とリサイズ感度。
