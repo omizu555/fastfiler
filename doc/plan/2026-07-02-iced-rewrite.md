@@ -606,3 +606,15 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - **セルフレビュー 5 件修正**: 検索結果中の Ctrl+C/Delete が無関係ファイルを対象にする
   破壊的バグ (visible_len 統一 + 操作禁止) / 検索連打の旧結果混入 (job_id ガード) /
   UNC reveal のサーバノード展開 / 遅延ロード後の追従再計算 / ツリー幅とリサイズ感度。
+
+### 2026-07-04 — Phase 5a+5b: メニュー / シェル統合 / 内部 D&D (Issue #6)
+- **5a (132eb51)**: core/menu.rs にメニュー木を一本化 (§10-9、行/背景/ドロップの 3 種 +
+  when 6 種フィルタをテストで検証)。ContextMenu widget (全画面レイヤ直描き、
+  画面端フリップ、サブメニュー 3 階層クリック開閉)。Shift+右クリック = シェルメニュー
+  (HWND 正規経路 + UI スレッド同期 TrackPopupMenu)。テンプレート新規 / ユーザーコマンド
+  (domain 無改造)。
+- **5b (c8e07c9)**: AppModel.drag 状態機械 (§10-7 の static 置換)。選択全体を運ぶ /
+  フォルダ行ドロップ / 修飾キー規則 (same_volume 実装) / 右ボタンチューザー
+  (Overlay::DropMenu + when:"drop")。衝突検出は plan_transfer 経路で全経路共通 (F-503)。
+- 残: **5c** — 外部 OLE D&D (受信 register_drop_target 本配線 + ペイン/行ヒットテスト +
+  右ボタンラッチ (Phase 0 知見) / 送信 start_drag + ウィンドウ外検出 / 安全側削除 F-606)。
