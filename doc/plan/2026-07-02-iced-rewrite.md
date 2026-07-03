@@ -586,3 +586,13 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - 実装メモ: Undo の記録条件は app.rs (iced 層) に置いた — UndoManager を App が所有する
   ため。純度は §5.3 の原則から半歩譲歩 (条件自体は 3 行)。Phase 3 の AppModel 導入時に
   core へ引き上げるか再判断。
+
+### 2026-07-04 — Phase 3: 縦タブ + BSP 分割 + セッション (Issue #4) — メモリ関門合格 ✅
+- **core (66 テスト)**: bsp.rs (n-ary 分割/昇格/リサイズ) / AppModel (SlotMap 単一所有 +
+  PANES_ALIVE) / update_app (AppMsg/TabMsg、ロックタブの新タブ逃がし) /
+  session.rs (GPUI スキーマ互換 + 往復テスト) / persist.rs ポート。
+- **iced**: TabBar・DragHandle ウィジェット / BSP 再帰描画 / ペイン毎ヘッダ・フッタ・
+  青枠 / watcher のペイン毎資源表 / 800ms デバウンス保存 + 終了時保存 +
+  ウィンドウ位置・最大化復元。**gpui_session.json からの自動移行を実機確認** (26 ペイン)。
+- **B-3 (N-02) 実測合格**: STRESS=50 (実 watcher 込み) で panes 1→1 / watchers 1→1 /
+  Threads 58→58 / Handles 690→690 / WS +0.8MB。**完全ベースライン復帰**。
