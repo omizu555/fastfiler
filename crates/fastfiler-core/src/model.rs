@@ -1,9 +1,293 @@
-//! アプリ状態の骨格。Phase 1 で本実装する (計画書 §5.2)。
+//! アプリ状態の骨格 (計画書 §5.2)。
+//!
+//! Phase 1: 単一ペインの一覧状態 (`PaneState`) と行モデル (`Entry`)。
+//! Phase 3 で `AppModel` (タブ + BSP) がこの上に乗る。
+
+use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use slotmap::new_key_type;
+
+use crate::format;
 
 new_key_type! {
     /// ペインの識別子。GPUI 版の `EntityId` に相当する。
     /// 所有は常に `AppModel` の SlotMap にあり、ID はただの参照。
     pub struct PaneId;
+}
+
+/// 一覧の 1 行。表示テキストとソートキーは生成時に前計算する (計画書 §9-4)。
+///
+/// domain の `fs::FileEntry` から GUI 層で変換する (core は domain に依存しない —
+/// GPL コードを一切リンクしない層を保つため。計画書 §5.1)。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    /// unix 秒 (0 以下 = 不明)。
+    pub modified: i64,
+    /// 拡張子 (小文字、ドットなし)。
+    pub ext: Option<String>,
+    pub hidden: bool,
+    // ---- 前計算 (表示・ソート用) ----
+    pub name_lower: String,
+    pub size_text: String,
+    pub modified_text: String,
+    pub kind_text: String,
+    /// アイコン共有キー: フォルダ = "/" / 拡張子あり = ext 小文字 / なし = ""。
+    /// ("/" はファイル名に使えない文字なので拡張子と衝突しない)
+    pub icon_key: String,
+}
+
+impl Entry {
+    pub fn new(
+        name: String,
+        is_dir: bool,
+        size: u64,
+        modified: i64,
+        ext: Option<String>,
+        hidden: bool,
+    ) -> Self {
+        let ext = ext.map(|e| e.to_lowercase());
+        let name_lower = name.to_lowercase();
+        let size_text = if is_dir {
+            String::new()
+        } else {
+            format::human_size(size)
+        };
+        let modified_text = format::format_modified(modified);
+        let kind_text = format::kind_text(is_dir, ext.as_deref());
+        let icon_key = if is_dir {
+            "/".to_string()
+        } else {
+            ext.clone().unwrap_or_default()
+        };
+        Self {
+            name,
+            is_dir,
+            size,
+            modified,
+            ext,
+            hidden,
+            name_lower,
+            size_text,
+            modified_text,
+            kind_text,
+            icon_key,
+        }
+    }
+}
+
+/// ソート対象の列 (GPUI 版 SortCol と同一)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Column {
+    Name,
+    Modified,
+    Size,
+    Type,
+}
+
+/// ソート状態。列見出しクリックで同列なら昇降トグル、別列なら昇順から。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SortState {
+    pub col: Column,
+    pub asc: bool,
+}
+
+impl Default for SortState {
+    fn default() -> Self {
+        Self {
+            col: Column::Name,
+            asc: true,
+        }
+    }
+}
+
+/// フォルダ常に先頭 + 列キー比較 (GPUI 版 pane.rs:525 と同一規則)。
+pub fn sort_entries(entries: &mut [Entry], sort: SortState) {
+    use std::cmp::Ordering;
+    entries.sort_by(|a, b| {
+        let dir_ord = b.is_dir.cmp(&a.is_dir); // dir(true) を先頭へ
+        if dir_ord != Ordering::Equal {
+            return dir_ord;
+        }
+        let ord = match sort.col {
+            Column::Name => a.name_lower.cmp(&b.name_lower),
+            Column::Modified => a.modified.cmp(&b.modified),
+            Column::Size => a.size.cmp(&b.size),
+            Column::Type => a
+                .ext
+                .cmp(&b.ext)
+                .then_with(|| a.name_lower.cmp(&b.name_lower)),
+        };
+        if sort.asc {
+            ord
+        } else {
+            ord.reverse()
+        }
+    });
+}
+
+/// 1 ペインの一覧状態 (Phase 1 スコープ)。
+#[derive(Debug)]
+pub struct PaneState {
+    pub cur_path: PathBuf,
+    pub entries: Vec<Entry>,
+    /// 読み込み中 (連続ナビゲーションのキャンセルは世代番号で行う)。
+    pub loading: bool,
+    /// 読み込み世代。navigate のたびに +1 し、古い世代の結果は捨てる。
+    pub load_gen: u64,
+    pub load_error: Option<String>,
+    pub sort: SortState,
+    // ---- 選択モデル (selection.rs に操作を実装) ----
+    pub cursor: Option<usize>,
+    pub selected: BTreeSet<usize>,
+    pub anchor: Option<usize>,
+    /// 次回 Loaded 時にこの名前へカーソルを合わせる (親へ戻ったとき等)。
+    pub pending_cursor_name: Option<String>,
+    // ---- ビュー幾何 (スクロールは core が所有し、単体テスト可能にする) ----
+    /// 列幅 [更新日時, サイズ, 種類] px (F-402。名前列が残りを吸収)。
+    pub col_widths: [f32; 3],
+    pub scroll_offset: f32,
+    /// 一覧ビューポートの高さ px (FileList から通知される)。
+    pub viewport_h: f32,
+    /// 行高 px (Phase 6 でフォントサイズ追従)。
+    pub row_h: f32,
+}
+
+/// GPUI 版の既定列幅 (セッション未保存時)。
+pub const DEFAULT_COL_WIDTHS: [f32; 3] = [140.0, 90.0, 90.0];
+pub const DEFAULT_ROW_H: f32 = 24.0;
+/// 列幅ドラッグの範囲 (USAGE.md §2: 40〜400px)。
+pub const COL_W_MIN: f32 = 40.0;
+pub const COL_W_MAX: f32 = 400.0;
+
+impl PaneState {
+    pub fn new(cur_path: PathBuf) -> Self {
+        Self {
+            cur_path,
+            entries: Vec::new(),
+            loading: false,
+            load_gen: 0,
+            load_error: None,
+            sort: SortState::default(),
+            cursor: None,
+            selected: BTreeSet::new(),
+            anchor: None,
+            pending_cursor_name: None,
+            col_widths: DEFAULT_COL_WIDTHS,
+            scroll_offset: 0.0,
+            viewport_h: 0.0,
+            row_h: DEFAULT_ROW_H,
+        }
+    }
+
+    /// スクロール可能量の上限。
+    pub fn max_scroll(&self) -> f32 {
+        (self.entries.len() as f32 * self.row_h - self.viewport_h).max(0.0)
+    }
+
+    /// カーソル行が可視範囲に入るよう scroll_offset を調整する。
+    pub fn ensure_cursor_visible(&mut self) {
+        let Some(ix) = self.cursor else { return };
+        let top = ix as f32 * self.row_h;
+        let bottom = top + self.row_h;
+        if top < self.scroll_offset {
+            self.scroll_offset = top;
+        } else if self.viewport_h > 0.0 && bottom > self.scroll_offset + self.viewport_h {
+            self.scroll_offset = bottom - self.viewport_h;
+        }
+        self.scroll_offset = self.scroll_offset.clamp(0.0, self.max_scroll());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    pub(crate) fn e(name: &str, is_dir: bool) -> Entry {
+        let ext = (!is_dir)
+            .then(|| name.rsplit_once('.').map(|(_, e)| e.to_string()))
+            .flatten();
+        Entry::new(name.to_string(), is_dir, 10, 1_700_000_000, ext, false)
+    }
+
+    #[test]
+    fn sort_dirs_first_then_name_case_insensitive() {
+        let mut v = vec![e("b.txt", false), e("Alpha", true), e("A.txt", false)];
+        sort_entries(&mut v, SortState::default());
+        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "A.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn sort_desc_keeps_dirs_first() {
+        let mut v = vec![e("a.txt", false), e("dir", true), e("z.txt", false)];
+        sort_entries(
+            &mut v,
+            SortState {
+                col: Column::Name,
+                asc: false,
+            },
+        );
+        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["dir", "z.txt", "a.txt"]);
+    }
+
+    #[test]
+    fn sort_by_type_uses_ext_then_name() {
+        let mut v = vec![e("b.zip", false), e("a.txt", false), e("c.txt", false)];
+        sort_entries(
+            &mut v,
+            SortState {
+                col: Column::Type,
+                asc: true,
+            },
+        );
+        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, ["a.txt", "c.txt", "b.zip"]);
+    }
+
+    #[test]
+    fn ensure_cursor_visible_scrolls_both_directions() {
+        let mut p = PaneState::new(PathBuf::from("C:\\"));
+        p.entries = (0..100).map(|i| e(&format!("f{i}.txt"), false)).collect();
+        p.viewport_h = 240.0; // 10 行
+        p.row_h = 24.0;
+        // 下方向
+        p.cursor = Some(50);
+        p.ensure_cursor_visible();
+        assert_eq!(p.scroll_offset, 50.0 * 24.0 + 24.0 - 240.0);
+        // 上方向
+        p.cursor = Some(3);
+        p.ensure_cursor_visible();
+        assert_eq!(p.scroll_offset, 72.0);
+        // 可視内なら動かない
+        let before = p.scroll_offset;
+        p.cursor = Some(5);
+        p.ensure_cursor_visible();
+        assert_eq!(p.scroll_offset, before);
+    }
+
+    #[test]
+    fn entry_precomputes_display_fields() {
+        let x = Entry::new(
+            "Read Me.TXT".into(),
+            false,
+            2048,
+            0,
+            Some("TXT".into()),
+            false,
+        );
+        assert_eq!(x.name_lower, "read me.txt");
+        assert_eq!(x.size_text, "2.0 KB");
+        assert_eq!(x.modified_text, "");
+        assert_eq!(x.kind_text, "TXT");
+        assert_eq!(x.icon_key, "txt");
+        let d = Entry::new("dir".into(), true, 0, 0, None, false);
+        assert_eq!(d.size_text, "");
+        assert_eq!(d.kind_text, "フォルダ");
+        assert_eq!(d.icon_key, "/");
+    }
 }

@@ -13,3 +13,5 @@ description = "FastFiler のフレームワーク非依存コア (状態 + 純�
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 slotmap = "1"
+# 更新日時のローカル時刻表記 (GPUI 版は Win32 API 直叩きだった。core は OS 非依存にする)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

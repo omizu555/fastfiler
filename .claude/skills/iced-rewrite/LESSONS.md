@@ -11,6 +11,19 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
 
 ## 2026-07-03
 
+- **iced/winit 入力の癖** (Phase 1 レビューで確定):
+  - `keyboard::listen()` は**フォーカス喪失中の ModifiersChanged を届けない** →
+    追跡している修飾キーは `window::Event::Focused/Unfocused` でリセットする
+    (Alt+Tab 復帰後の stale Ctrl+クリック事故)。
+  - logical key は CapsLock/Shift の影響を受ける ("a" が "A" で届く) →
+    ショートカット比較は `eq_ignore_ascii_case`。
+  - マウスイベントに modifiers は乗らない → App が ModifiersChanged を追跡して焼き込む。
+  - 自前ダブルクリック判定は「同一行 + 500ms」だけでは不十分 — **一覧の世代 (load_gen)
+    も同一性に含める** (フォルダ移動直後の同座標クリック誤爆)。
+- **パリティは正典 (doc/spec + GPUI ソース) と機械的に突き合わせる**: Phase 1 の
+  レビューで選択モデルの齟齬 4 件 (PageUp/Dn=固定±10 / 未設定カーソル=-1 扱い /
+  Esc はカーソルも解除 / Ctrl+A は anchor=0) を検出。実装前に GPUI の該当メソッドを
+  読むほうが安い。
 - **iced 0.14 API の実地知見** (Phase 0 スパイクで確認):
   - エントリは `iced::application(boot, update, view)` — boot は `Fn() -> (State, Task<Msg>)`。
     builder に `.subscription(fn)` / `.window(Settings)` / `.window_size()` / `.title()`。
@@ -37,6 +50,9 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
   (p95 18.15ms)。行 widget を作らない方針 (計画書 §6) のまま Phase 1 へ。
 - domain の `register_drop_target` は**最初から winit 対策済み** (Revoke→Register、
   ole_dnd.rs:832)。`drag_and_drop=false` と併用で二重の保険。
+- **OLE Drop 時に MK_RBUTTON は取れない** (実機確認 2026-07-03): ボタンはドロップ前に
+  離されるため `Drop()` の grfKeyState は 0x00。右ボタン D&D 判別は
+  **DragEnter/DragOver の keys をラッチ**して Drop で参照する (Phase 5 の DragState 要件)。
 - **OLE D&D の作法** (レビューで確定、fastfiler-win/drop_target.rs に実装済み):
   register 前に `is_ole_available()` を検査 (MTA 衝突で init_ole が失敗し得る) /
   ウィンドウ close 時に `revoke(hwnd)` (HWND 再利用の巻き添え解除防止) /

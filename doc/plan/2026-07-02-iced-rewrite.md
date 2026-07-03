@@ -541,3 +541,33 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   winit 経由 0.62)。§10-5 の統一作業は「0.62 は winit 支配下で動かせない」前提で
   スコープすること。root の async-task patch は gpui 専用 — Phase 7 撤去時に必ず削除
   (Cargo.toml にコメント追記済み)。
+
+### 2026-07-03 — Phase 0 手動確認完了 → Issue #1 close ✅ (三大スパイク全合格)
+- **S-1 IME**: 実機合格 (日本語入力・変換・確定 OK。iced#3189 は再現せず)。
+  フォント品質は要改善だが後回し (ユーザー合意) → Phase 6 F-902 で対応 (Issue #7)。
+- **S-3 実ドロップ**: 実機合格。左/右/Ctrl/Shift/Ctrl+Shift の全経路で受信・効果判定 OK。
+- **Phase 5 への重要知見**: `IDropTarget::Drop` の grfKeyState に **MK_RBUTTON は
+  含まれない** (ドロップ時点でボタン解放済み。実測: ENTER keys=0x02 → DROP keys=0x00)。
+  右ボタン判別は **DragEnter/DragOver でラッチ**して Drop で参照する (Issue #6 に転記)。
+
+### 2026-07-03 — Phase 1: core 骨格 + FileList 本実装 (Issue #2)
+- **core**: Entry (表示テキスト前計算) / 選択モデル (クリック/Ctrl/Shift/キーナビ/名前復元) /
+  ソート (dir 先頭、GPUI 同一規則) / update_pane (純 reducer、世代キャンセル、
+  親戻り時のカーソル復元) / format (human_size・日時・種類 — GPUI パリティ)。
+  **単体テスト 23 本**。domain 非依存 (MIT ライセンスの根拠を維持)。
+- **iced**: `FileList` 本実装 (ヘッダ + ソート表示 + 列幅ドラッグ (右端逆算・GPUI 同式) +
+  仮想描画 + 選択/カーソル/縞 + アイコン + ダブルクリック + スクロールバー)。
+  app.rs (薄い皮: Msg 変換と Effect 実行のみ) / effects.rs (spawn_blocking で
+  list_dir + 拡張子単位アイコン取得)。
+- **ベンチ (release)**: B-1 System32 (4,890 件) open 677ms / paint 678ms
+  — 起動 (wgpu ~580ms) 込みなので **増分 ≈ 100ms**。
+  B-2 合成 10 万件 open 618ms / paint 638ms — **増分 ≈ 60ms**。いずれも Exit 条件内。
+- **セルフレビュー (2 観点並列) → 10 件検出・全件修正**:
+  - 正確性: ダブルクリック判定に一覧の世代を含める (フォルダ移動直後の誤爆防止) /
+    修飾キーを Focused/Unfocused でリセット (Alt+Tab 復帰後の stale Ctrl) /
+    Ctrl+A の CapsLock 対応 (eq_ignore_ascii_case) / 狭ウィンドウで名前列の最小幅を確保
+    (負幅クリップ・ヘッダ誤判定の防止)
+  - **GPUI パリティ齟齬 4 件を是正**: PageUp/Dn は固定 ±10 行 / カーソル未設定は
+    -1 行扱い (End=最終行) / Esc・空白クリックはカーソルも解除 / Ctrl+A は anchor=0。
+    core テスト 24 本に拡充。
+  - 効率: Effect なしメッセージでのアイコンキー集合複製を排除。
