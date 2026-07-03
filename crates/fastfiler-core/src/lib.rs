@@ -6,6 +6,8 @@
 //! - `update` は I/O をしない。副作用は `Effect` として返し、GUI 層が実行する。
 //! - ここに置いたものには単体テストを書く。
 
+pub mod app_model;
+pub mod bsp;
 pub mod domain_event;
 pub mod effect;
 pub mod format;
@@ -14,9 +16,13 @@ pub mod msg;
 pub mod selection;
 pub mod transfer;
 pub mod update;
+pub mod update_app;
 
+pub use app_model::{AppModel, TabState};
+pub use bsp::{PaneNode, SplitDir};
 pub use domain_event::DomainEvent;
 pub use effect::Effect;
 pub use model::{Column, Entry, Overlay, PaneId, PaneState, SortState};
 pub use msg::PaneMsg;
 pub use selection::NavKey;
+pub use update_app::{AppMsg, TabMsg};

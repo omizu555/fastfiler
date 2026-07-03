@@ -3,12 +3,15 @@
 
 use std::path::PathBuf;
 
+use crate::model::PaneId;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// フォルダ一覧の読み込み (domain fs::list_dir + アイコン取得)。
     /// gen が古くなった結果は捨てる (連続ナビゲーションのキャンセル)。
     /// 実行側は watcher の監視先もこのパスへ付け替える。
     LoadDir {
+        pane: PaneId,
         generation: u64,
         path: PathBuf,
     },
@@ -16,8 +19,9 @@ pub enum Effect {
     OpenFile {
         path: PathBuf,
     },
-    /// millis 後に `PaneMsg::ReloadTick(seq)` を返す (watcher 150ms デバウンス)。
+    /// millis 後に該当ペインへ `PaneMsg::ReloadTick(seq)` を返す (150ms デバウンス)。
     Debounce {
+        pane: PaneId,
         seq: u64,
         millis: u64,
     },
@@ -27,8 +31,10 @@ pub enum Effect {
         paths: Vec<PathBuf>,
         op: String,
     },
-    /// クリップボードを読む → `PaneMsg::PasteRead` が返る。
-    ClipboardRead,
+    /// クリップボードを読む → 該当ペインへ `PaneMsg::PasteRead` が返る。
+    ClipboardRead {
+        pane: PaneId,
+    },
     /// コピー/移動ジョブを起動する (進捗は DomainEvent 経由)。
     SpawnJob {
         op: crate::transfer::TransferOp,
@@ -56,4 +62,13 @@ pub enum Effect {
     },
     /// Undo スタックの先頭を取り消す (実行側が逆操作)。
     PerformUndo,
+    // ---- タブ / ペイン (Phase 3) ----
+    /// ロックタブの移動を新タブへ逃がす (F-104)。update_app が展開する。
+    OpenTabFor {
+        path: PathBuf,
+    },
+    /// ペインが閉じた (GUI 層は watcher 等の付随リソースを解放する)。
+    PaneClosed(PaneId),
+    /// セッション保存の予約 (800ms デバウンス — 実行側でタイマー管理)。
+    ScheduleSessionSave,
 }

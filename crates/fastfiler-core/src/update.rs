@@ -3,7 +3,7 @@
 use crate::domain_event::DomainEvent;
 use crate::effect::Effect;
 use crate::model::{
-    sort_entries, Column, JobStatus, ModalKind, Overlay, PaneState, COL_W_MAX, COL_W_MIN,
+    sort_entries, Column, JobStatus, ModalKind, Overlay, PaneId, PaneState, COL_W_MAX, COL_W_MIN,
 };
 use crate::msg::PaneMsg;
 use crate::transfer::{self, ConflictChoice, TransferOp};
@@ -12,10 +12,12 @@ use crate::transfer::{self, ConflictChoice, TransferOp};
 pub const RELOAD_DEBOUNCE_MS: u64 = 150;
 
 /// ペインへの入力を状態遷移 + 副作用列に変換する。
-pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
+/// `locked` はタブのロック状態 (F-104): 移動系は `Effect::OpenTabFor` へ逃がし、
+/// 履歴 (戻る/進む) は「タブはロックされています」表示で不動作。
+pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) -> Vec<Effect> {
     // オーバーレイ表示中は、一覧向けのキー操作を横取りしない (§10-3 の 2 段ディスパッチ)
     if p.overlay.is_some() {
-        if let Some(r) = update_overlay(p, &msg) {
+        if let Some(r) = update_overlay(p, id, locked, &msg) {
             return r;
         }
     }
@@ -51,9 +53,9 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
             p.click_row(ix, ctrl, shift);
             vec![]
         }
-        PaneMsg::RowDoubleClicked { ix } => activate(p, ix),
+        PaneMsg::RowDoubleClicked { ix } => activate(p, id, locked, ix),
         PaneMsg::ActivateCursor => match p.cursor {
-            Some(ix) => activate(p, ix),
+            Some(ix) => activate(p, id, locked, ix),
             None => vec![],
         },
         PaneMsg::GoParent => {
@@ -61,7 +63,10 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
             match p.cur_path.parent() {
                 Some(parent) => {
                     let parent = parent.to_path_buf();
-                    let effects = navigate(p, parent);
+                    if locked {
+                        return vec![Effect::OpenTabFor { path: parent }];
+                    }
+                    let effects = navigate(p, id, parent);
                     // 親へ戻ったら、元いたフォルダにカーソルを合わせたいが
                     // 一覧はまだ無い → Loaded 後の復元に載せる (名前だけ先に設定)。
                     if let Some(name) = from.file_name().map(|s| s.to_string_lossy().to_string()) {
@@ -127,20 +132,28 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
             vec![]
         }
         PaneMsg::GoBack => {
+            if locked {
+                p.status_msg = Some("タブはロックされています".into());
+                return vec![];
+            }
             let Some(prev) = p.history_back.pop() else {
                 return vec![];
             };
             p.history_fwd.push(p.cur_path.clone());
-            set_path_and_load(p, prev)
+            set_path_and_load(p, id, prev)
         }
         PaneMsg::GoForward => {
+            if locked {
+                p.status_msg = Some("タブはロックされています".into());
+                return vec![];
+            }
             let Some(next) = p.history_fwd.pop() else {
                 return vec![];
             };
             p.history_back.push(p.cur_path.clone());
-            set_path_and_load(p, next)
+            set_path_and_load(p, id, next)
         }
-        PaneMsg::Reload => reload(p),
+        PaneMsg::Reload => reload(p, id),
         PaneMsg::OpenPathEdit => {
             p.overlay = Some(Overlay::PathEdit {
                 value: p.cur_path.to_string_lossy().to_string(),
@@ -157,6 +170,7 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
                 }
                 p.reload_seq += 1;
                 vec![Effect::Debounce {
+                    pane: id,
                     seq: p.reload_seq,
                     millis: RELOAD_DEBOUNCE_MS,
                 }]
@@ -200,13 +214,13 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
                 // watcher が効かないフォルダ (ネットワークドライブ等) でも結果を
                 // 反映させるため明示 reload (GPUI 版パリティ。watcher と二重に
                 // なっても世代キャンセルで最後の 1 回だけが反映される)
-                reload(p)
+                reload(p, id)
             }
             DomainEvent::Unknown { .. } => vec![],
         },
         PaneMsg::ReloadTick(seq) => {
             if seq == p.reload_seq {
-                reload(p)
+                reload(p, id)
             } else {
                 vec![] // より新しい変化が控えている (デバウンス継続)
             }
@@ -246,7 +260,7 @@ pub fn update_pane(p: &mut PaneState, msg: PaneMsg) -> Vec<Effect> {
         PaneMsg::Conflict(_) => vec![],
         PaneMsg::RequestCopy => clipboard_write(p, "copy"),
         PaneMsg::RequestCut => clipboard_write(p, "cut"),
-        PaneMsg::RequestPaste => vec![Effect::ClipboardRead],
+        PaneMsg::RequestPaste => vec![Effect::ClipboardRead { pane: id }],
         PaneMsg::PasteRead { paths, op } => {
             let op = if op == "cut" {
                 TransferOp::Move
@@ -315,7 +329,12 @@ fn existing_names(p: &PaneState) -> std::collections::BTreeSet<String> {
 }
 
 /// オーバーレイ表示中のメッセージ処理。`None` を返すと通常処理へフォールスルー。
-fn update_overlay(p: &mut PaneState, msg: &PaneMsg) -> Option<Vec<Effect>> {
+fn update_overlay(
+    p: &mut PaneState,
+    id: PaneId,
+    locked: bool,
+    msg: &PaneMsg,
+) -> Option<Vec<Effect>> {
     // どのオーバーレイでも通すもの (読み込み結果・幾何・domain イベント)
     if matches!(
         msg,
@@ -342,7 +361,7 @@ fn update_overlay(p: &mut PaneState, msg: &PaneMsg) -> Option<Vec<Effect>> {
                 if target.as_os_str().is_empty() || target == p.cur_path {
                     return Some(vec![]);
                 }
-                Some(navigate(p, target))
+                Some(navigate_or_new_tab(p, id, locked, target))
             }
             PaneMsg::PathEditCancel | PaneMsg::ClearSelection => {
                 p.overlay = None;
@@ -443,49 +462,65 @@ fn self_gen(p: &PaneState) -> u64 {
 }
 
 /// 行の活性化: フォルダ = 移動 / ファイル = 既定アプリで開く (F-301)。
-fn activate(p: &mut PaneState, ix: usize) -> Vec<Effect> {
+/// ロックタブではフォルダ進入を新タブへ逃がす (F-104)。
+fn activate(p: &mut PaneState, id: PaneId, locked: bool, ix: usize) -> Vec<Effect> {
     let Some(entry) = p.entries.get(ix) else {
         return vec![];
     };
     let target = p.cur_path.join(&entry.name);
     if entry.is_dir {
-        navigate(p, target)
+        navigate_or_new_tab(p, id, locked, target)
     } else {
         vec![Effect::OpenFile { path: target }]
     }
 }
 
+/// ロックタブなら移動せず `OpenTabFor` を返す (F-104)。
+fn navigate_or_new_tab(
+    p: &mut PaneState,
+    id: PaneId,
+    locked: bool,
+    path: std::path::PathBuf,
+) -> Vec<Effect> {
+    if locked {
+        vec![Effect::OpenTabFor { path }]
+    } else {
+        navigate(p, id, path)
+    }
+}
+
 /// フォルダ移動: 履歴に現在地を積んでから移動する (F-303)。
-pub fn navigate(p: &mut PaneState, path: std::path::PathBuf) -> Vec<Effect> {
+pub fn navigate(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<Effect> {
     if path != p.cur_path {
         p.history_back.push(p.cur_path.clone());
         p.history_fwd.clear();
     }
-    set_path_and_load(p, path)
+    set_path_and_load(p, id, path)
 }
 
 /// 履歴操作用: 履歴を触らずにパスを差し替えて読み込む。
-fn set_path_and_load(p: &mut PaneState, path: std::path::PathBuf) -> Vec<Effect> {
+fn set_path_and_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<Effect> {
     p.cur_path = path.clone();
     p.cursor = None;
     p.anchor = None;
     p.selected.clear();
     p.pending_cursor_name = None;
     p.scroll_offset = 0.0;
-    start_load(p, path)
+    start_load(p, id, path)
 }
 
 /// F5 / watcher の再読み込み: 選択・カーソル・スクロールを維持したまま読み直す
 /// (選択は Loaded 側で名前復元される — USAGE.md §2)。
-pub fn reload(p: &mut PaneState) -> Vec<Effect> {
-    start_load(p, p.cur_path.clone())
+pub fn reload(p: &mut PaneState, id: PaneId) -> Vec<Effect> {
+    start_load(p, id, p.cur_path.clone())
 }
 
-fn start_load(p: &mut PaneState, path: std::path::PathBuf) -> Vec<Effect> {
+fn start_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<Effect> {
     p.load_gen += 1;
     p.loading = true;
     p.load_error = None;
     vec![Effect::LoadDir {
+        pane: id,
         generation: p.load_gen,
         path,
     }]
@@ -514,12 +549,18 @@ mod tests {
     #[test]
     fn double_click_dir_navigates_and_bumps_generation() {
         let mut p = pane_with(&[("sub", true), ("a.txt", false)]);
-        let fx = update_pane(&mut p, PaneMsg::RowDoubleClicked { ix: 0 });
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
         assert_eq!(p.cur_path, PathBuf::from("C:\\root\\sub"));
         assert!(p.loading);
         assert_eq!(
             fx,
             vec![Effect::LoadDir {
+                pane: PaneId::default(),
                 generation: 1,
                 path: PathBuf::from("C:\\root\\sub")
             }]
@@ -529,7 +570,12 @@ mod tests {
     #[test]
     fn double_click_file_opens() {
         let mut p = pane_with(&[("a.txt", false)]);
-        let fx = update_pane(&mut p, PaneMsg::RowDoubleClicked { ix: 0 });
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
         assert_eq!(
             fx,
             vec![Effect::OpenFile {
@@ -543,10 +589,12 @@ mod tests {
     fn stale_generation_result_is_dropped() {
         let mut p = pane_with(&[]);
         // 2 回ナビゲート → gen=2。gen=1 の結果は捨てる
-        navigate(&mut p, PathBuf::from("C:\\a"));
-        navigate(&mut p, PathBuf::from("C:\\b"));
+        navigate(&mut p, PaneId::default(), PathBuf::from("C:\\a"));
+        navigate(&mut p, PaneId::default(), PathBuf::from("C:\\b"));
         let fx = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Loaded {
                 generation: 1,
                 entries: vec![entry("stale.txt", false)],
@@ -558,6 +606,8 @@ mod tests {
         // 現世代は反映される
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Loaded {
                 generation: 2,
                 entries: vec![entry("fresh.txt", false)],
@@ -573,6 +623,8 @@ mod tests {
         p.click_row(0, false, false); // b.txt を選択
         let fx = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Loaded {
                 generation: 0,
                 entries: vec![
@@ -596,7 +648,7 @@ mod tests {
     #[test]
     fn go_parent_sets_pending_cursor_to_source_folder() {
         let mut p = pane_with(&[]);
-        let fx = update_pane(&mut p, PaneMsg::GoParent);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::GoParent);
         assert_eq!(p.cur_path, PathBuf::from("C:\\"));
         assert_eq!(p.pending_cursor_name.as_deref(), Some("root"));
         assert_eq!(fx.len(), 1);
@@ -604,6 +656,8 @@ mod tests {
         let generation = p.load_gen;
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Loaded {
                 generation,
                 entries: vec![entry("other", true), entry("root", true)],
@@ -615,7 +669,12 @@ mod tests {
     #[test]
     fn header_click_toggles_and_switches_column() {
         let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
-        update_pane(&mut p, PaneMsg::HeaderClicked(Column::Name));
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::HeaderClicked(Column::Name),
+        );
         assert_eq!(
             p.sort,
             SortState {
@@ -624,7 +683,12 @@ mod tests {
             }
         );
         assert_eq!(p.entries[0].name, "b.txt");
-        update_pane(&mut p, PaneMsg::HeaderClicked(Column::Size));
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::HeaderClicked(Column::Size),
+        );
         assert_eq!(
             p.sort,
             SortState {
@@ -639,6 +703,8 @@ mod tests {
         let mut p = pane_with(&[]);
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::ColResized {
                 col: Column::Size,
                 width: 10.0,
@@ -647,6 +713,8 @@ mod tests {
         assert_eq!(p.col_widths[1], COL_W_MIN);
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::ColResized {
                 col: Column::Modified,
                 width: 9999.0,
@@ -656,6 +724,8 @@ mod tests {
         let before = p.col_widths;
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::ColResized {
                 col: Column::Name,
                 width: 100.0,
@@ -668,30 +738,45 @@ mod tests {
     fn history_back_and_forward_roundtrip() {
         let mut p = pane_with(&[("sub", true)]);
         // C:\root → C:\root\sub → 戻る → 進む
-        update_pane(&mut p, PaneMsg::RowDoubleClicked { ix: 0 });
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
         assert_eq!(p.history_back, vec![PathBuf::from("C:\\root")]);
-        let fx = update_pane(&mut p, PaneMsg::GoBack);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::GoBack);
         assert_eq!(p.cur_path, PathBuf::from("C:\\root"));
         assert_eq!(p.history_fwd, vec![PathBuf::from("C:\\root\\sub")]);
         assert_eq!(fx.len(), 1);
-        update_pane(&mut p, PaneMsg::GoForward);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::GoForward);
         assert_eq!(p.cur_path, PathBuf::from("C:\\root\\sub"));
         assert!(p.history_fwd.is_empty());
         // 履歴が空なら何もしない
         let mut q = pane_with(&[]);
-        assert!(update_pane(&mut q, PaneMsg::GoBack).is_empty());
-        assert!(update_pane(&mut q, PaneMsg::GoForward).is_empty());
+        assert!(update_pane(&mut q, PaneId::default(), false, PaneMsg::GoBack).is_empty());
+        assert!(update_pane(&mut q, PaneId::default(), false, PaneMsg::GoForward).is_empty());
     }
 
     #[test]
     fn navigate_clears_forward_history() {
         let mut p = pane_with(&[("a", true), ("b", true)]);
-        update_pane(&mut p, PaneMsg::RowDoubleClicked { ix: 0 }); // → a
-        update_pane(&mut p, PaneMsg::GoBack); // → root (fwd=[a])
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        ); // → a
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::GoBack); // → root (fwd=[a])
         assert_eq!(p.history_fwd.len(), 1);
         // ここで別フォルダへ移動すると進む履歴は消える
         p.entries = vec![entry("b", true)];
-        update_pane(&mut p, PaneMsg::RowDoubleClicked { ix: 0 }); // → b
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        ); // → b
         assert!(p.history_fwd.is_empty());
     }
 
@@ -701,12 +786,14 @@ mod tests {
         p.click_row(1, false, false);
         p.scroll_offset = 12.0;
         p.viewport_h = 24.0;
-        let fx = update_pane(&mut p, PaneMsg::Reload);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::Reload);
         assert!(matches!(fx[0], Effect::LoadDir { generation: 1, .. }));
         assert_eq!(p.scroll_offset, 12.0); // reload はスクロールを保つ
         let generation = p.load_gen;
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Loaded {
                 generation,
                 entries: vec![entry("b.txt", false), entry("a.txt", false)],
@@ -728,30 +815,41 @@ mod tests {
         let cur = p.cur_path.to_string_lossy().to_string();
         let fx1 = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Domain(DomainEvent::FsChange { path: cur.clone() }),
         );
         assert_eq!(
             fx1,
             vec![Effect::Debounce {
+                pane: PaneId::default(),
                 seq: 1,
                 millis: 150
             }]
         );
-        let fx2 = update_pane(&mut p, PaneMsg::Domain(DomainEvent::FsChange { path: cur }));
+        let fx2 = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Domain(DomainEvent::FsChange { path: cur }),
+        );
         assert_eq!(
             fx2,
             vec![Effect::Debounce {
+                pane: PaneId::default(),
                 seq: 2,
                 millis: 150
             }]
         );
         // 古い tick は無視、新しい tick で reload
-        assert!(update_pane(&mut p, PaneMsg::ReloadTick(1)).is_empty());
-        let fx3 = update_pane(&mut p, PaneMsg::ReloadTick(2));
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ReloadTick(1)).is_empty());
+        let fx3 = update_pane(&mut p, PaneId::default(), false, PaneMsg::ReloadTick(2));
         assert!(matches!(fx3[0], Effect::LoadDir { .. }));
         // 監視外パスの変化は無視
         let fx4 = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Domain(DomainEvent::FsChange {
                 path: "D:\\other".into(),
             }),
@@ -762,26 +860,36 @@ mod tests {
     #[test]
     fn path_edit_overlay_flow() {
         let mut p = pane_with(&[("x.txt", false)]);
-        update_pane(&mut p, PaneMsg::OpenPathEdit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
         assert!(matches!(p.overlay, Some(Overlay::PathEdit { .. })));
         // オーバーレイ中は一覧キー操作が無効
-        update_pane(&mut p, PaneMsg::Nav(crate::NavKey::Down, false));
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Nav(crate::NavKey::Down, false),
+        );
         assert_eq!(p.cursor, None);
         // 入力 → 確定で navigate
-        update_pane(&mut p, PaneMsg::PathEditInput("D:\\data".into()));
-        let fx = update_pane(&mut p, PaneMsg::PathEditCommit);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::PathEditInput("D:\\data".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::PathEditCommit);
         assert!(p.overlay.is_none());
         assert_eq!(p.cur_path, PathBuf::from("D:\\data"));
         assert_eq!(fx.len(), 1);
         assert_eq!(p.history_back.last(), Some(&PathBuf::from("C:\\root")));
         // Esc (ClearSelection) はオーバーレイを閉じるだけ
-        update_pane(&mut p, PaneMsg::OpenPathEdit);
-        update_pane(&mut p, PaneMsg::ClearSelection);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::ClearSelection);
         assert!(p.overlay.is_none());
         assert_eq!(p.cur_path, PathBuf::from("D:\\data"));
         // 同一パスで確定 → 移動しない
-        update_pane(&mut p, PaneMsg::OpenPathEdit);
-        let fx = update_pane(&mut p, PaneMsg::PathEditCommit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::PathEditCommit);
         assert!(fx.is_empty());
     }
 
@@ -789,10 +897,15 @@ mod tests {
     fn rename_modal_commit_emits_effect_and_pending_cursor() {
         let mut p = pane_with(&[("old.txt", false)]);
         p.click_row(0, false, false);
-        update_pane(&mut p, PaneMsg::OpenRename);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenRename);
         assert!(matches!(p.overlay, Some(Overlay::Modal { .. })));
-        update_pane(&mut p, PaneMsg::ModalInput("new.txt".into()));
-        let fx = update_pane(&mut p, PaneMsg::ModalCommit);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("new.txt".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
         assert_eq!(
             fx,
             vec![Effect::Rename {
@@ -803,9 +916,14 @@ mod tests {
         assert_eq!(p.pending_cursor_name.as_deref(), Some("new.txt"));
         assert!(p.overlay.is_none());
         // 不正な名前 (区切り文字) は確定されずモーダルが残る
-        update_pane(&mut p, PaneMsg::OpenNewFolder);
-        update_pane(&mut p, PaneMsg::ModalInput("a\\b".into()));
-        assert!(update_pane(&mut p, PaneMsg::ModalCommit).is_empty());
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("a\\b".into()),
+        );
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
         assert!(p.overlay.is_some());
     }
 
@@ -815,6 +933,8 @@ mod tests {
         let mut p = pane_with(&[("existing.txt", false)]);
         let fx = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::PasteRead {
                 paths: vec!["D:\\src\\new.txt".into()],
                 op: "copy".into(),
@@ -839,6 +959,8 @@ mod tests {
         let mut p = pane_with(&[("a.txt", false)]);
         let fx = update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::PasteRead {
                 paths: vec!["D:\\src\\a.txt".into()],
                 op: "cut".into(),
@@ -846,7 +968,12 @@ mod tests {
         );
         assert!(fx.is_empty());
         assert!(matches!(p.overlay, Some(Overlay::Conflict { .. })));
-        let fx = update_pane(&mut p, PaneMsg::Conflict(ConflictChoice::RenameBoth));
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Conflict(ConflictChoice::RenameBoth),
+        );
         assert_eq!(
             fx,
             vec![Effect::SpawnJob {
@@ -867,6 +994,8 @@ mod tests {
         p.click_row(0, false, false);
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Domain(DomainEvent::JobProgress {
                 job_id: 9,
                 kind: "copy".into(),
@@ -879,12 +1008,14 @@ mod tests {
         );
         assert!(p.job.is_some());
         // 1 回目の Esc = ジョブキャンセル (選択は残る)
-        let fx = update_pane(&mut p, PaneMsg::ClearSelection);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ClearSelection);
         assert_eq!(fx, vec![Effect::CancelJob { id: 9 }]);
         assert!(!p.selected.is_empty());
         // JobDone (キャンセル) で job が消え、次の Esc は選択解除
         update_pane(
             &mut p,
+            PaneId::default(),
+            false,
             PaneMsg::Domain(DomainEvent::JobDone {
                 job_id: 9,
                 kind: "copy".into(),
@@ -897,7 +1028,7 @@ mod tests {
         );
         assert!(p.job.is_none());
         assert_eq!(p.status_msg.as_deref(), Some("キャンセルしました"));
-        assert!(update_pane(&mut p, PaneMsg::ClearSelection).is_empty());
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ClearSelection).is_empty());
         assert!(p.selected.is_empty());
     }
 
@@ -906,7 +1037,7 @@ mod tests {
         let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
         p.click_row(0, false, false);
         p.click_row(1, true, false);
-        let fx = update_pane(&mut p, PaneMsg::RequestCopy);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::RequestCopy);
         assert_eq!(
             fx,
             vec![Effect::ClipboardWrite {
@@ -917,7 +1048,7 @@ mod tests {
                 op: "copy".into(),
             }]
         );
-        let fx = update_pane(&mut p, PaneMsg::RequestDelete);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::RequestDelete);
         assert_eq!(
             fx,
             vec![Effect::DeleteToTrash {
@@ -929,17 +1060,17 @@ mod tests {
         );
         // 選択なしなら何も出ない
         p.clear_selection();
-        assert!(update_pane(&mut p, PaneMsg::RequestCut).is_empty());
-        assert!(update_pane(&mut p, PaneMsg::RequestDelete).is_empty());
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::RequestCut).is_empty());
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::RequestDelete).is_empty());
     }
 
     #[test]
     fn scroll_clamps_to_content() {
         let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
         p.viewport_h = 24.0; // 1 行分
-        update_pane(&mut p, PaneMsg::Scrolled(9999.0));
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::Scrolled(9999.0));
         assert_eq!(p.scroll_offset, 24.0); // 2 行 - 1 行分
-        update_pane(&mut p, PaneMsg::Scrolled(-5.0));
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::Scrolled(-5.0));
         assert_eq!(p.scroll_offset, 0.0);
     }
 }
