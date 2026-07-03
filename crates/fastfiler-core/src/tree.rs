@@ -120,6 +120,13 @@ impl TreeState {
             }
             TreeMsg::ChildrenLoaded { path, dirs } => {
                 self.children.insert(path, dirs);
+                // 遅延ロード完了後に現在地の行位置を再計算 (深いパスへの初回追従)
+                if let Some(cur) = self.current.clone() {
+                    self.reveal_ix = self
+                        .rows()
+                        .iter()
+                        .position(|r| r.path.as_deref() == Some(cur.as_path()));
+                }
                 vec![]
             }
             TreeMsg::Scrolled(o) => {
@@ -168,6 +175,13 @@ impl TreeState {
     pub fn reveal(&mut self, path: &Path) -> Vec<Effect> {
         self.current = Some(path.to_path_buf());
         let mut effects = Vec::new();
+        // UNC はサーバコンテナノード (\\server) も展開しないと share 行が現れない
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix("\\\\") {
+            if let Some((server, _)) = rest.split_once('\\') {
+                self.expanded.insert(PathBuf::from(format!("\\\\{server}")));
+            }
+        }
         // 祖先チェーン (ルート → path の親まで) を展開
         let mut anc = Vec::new();
         let mut cur = path.to_path_buf();

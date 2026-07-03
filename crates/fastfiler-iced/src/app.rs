@@ -590,6 +590,12 @@ impl App {
                         effects::start_search(&self.search, root, query, self.everything_port)
                     {
                         self.search_owner.insert(job_id, pane);
+                        // job_id を core に確定させる (旧検索の遅延イベント混入ガード)。
+                        // 同期に反映したいので update_app を直接回す (Effect は出ない)
+                        let _ = update_app(
+                            &mut self.model,
+                            AppMsg::Pane(pane, PaneMsg::SearchStarted(job_id)),
+                        );
                     }
                 }
                 Effect::ScheduleSessionSave => {
@@ -712,7 +718,12 @@ pub fn view(app: &App) -> Element<'_, Msg> {
 
     // ---- ペイン領域 (BSP 再帰) ----
     let tab = app.model.active_tab();
-    let pane_area_w = (app.window_size.width - app.model.tab_width - 6.0).max(100.0);
+    let tree_w = if app.model.tree.visible {
+        app.model.tree.width + 6.0
+    } else {
+        0.0
+    };
+    let pane_area_w = (app.window_size.width - app.model.tab_width - 6.0 - tree_w).max(100.0);
     let pane_area_h = (app.window_size.height - 24.0).max(100.0);
     let pane_area = render_node(
         app,

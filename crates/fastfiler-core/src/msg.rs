@@ -98,6 +98,8 @@ pub enum PaneMsg {
     SearchCommit,
     /// Esc / ×: 検索を閉じて一覧へ戻る。
     SearchClose,
+    /// 検索が開始された (job_id の確定 — 実行側から返る)。
+    SearchStarted(u64),
     /// 指定パスへ移動 (ワークスペースツリーのクリック — F-306)。ロック規則適用。
     NavigateTo(std::path::PathBuf),
 }

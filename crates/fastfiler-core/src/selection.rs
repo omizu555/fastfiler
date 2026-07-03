@@ -25,7 +25,7 @@ pub enum NavKey {
 impl PaneState {
     /// 行クリック (左ボタン)。
     pub fn click_row(&mut self, ix: usize, ctrl: bool, shift: bool) {
-        if ix >= self.entries.len() {
+        if ix >= self.visible_len() {
             return;
         }
         if shift {
@@ -55,10 +55,10 @@ impl PaneState {
     /// カーソル未設定は「-1 行目にいる」扱い (GPUI 版 move_cursor と同じ:
     /// 未設定から Down/PageDown/End はそれぞれ 0 行目 / 9 行目 / 最終行へ)。
     pub fn key_nav(&mut self, key: NavKey, shift: bool) {
-        if self.entries.is_empty() {
+        if self.visible_len() == 0 {
             return;
         }
-        let last = (self.entries.len() - 1) as isize;
+        let last = (self.visible_len() - 1) as isize;
         let base = self.cursor.map(|c| c as isize).unwrap_or(-1);
         let next = match key {
             NavKey::Up => base - 1,
@@ -84,10 +84,10 @@ impl PaneState {
     /// 全選択 (Ctrl+A)。GPUI 版 pane.rs:672 と同じく anchor=0、
     /// カーソル未設定なら 0 行目に置く (直後の Shift+移動が先頭起点になる)。
     pub fn select_all(&mut self) {
-        if self.entries.is_empty() {
+        if self.visible_len() == 0 {
             return;
         }
-        self.selected = (0..self.entries.len()).collect();
+        self.selected = (0..self.visible_len()).collect();
         self.anchor = Some(0);
         if self.cursor.is_none() {
             self.cursor = Some(0);
@@ -104,7 +104,7 @@ impl PaneState {
 
     fn select_range(&mut self, a: usize, b: usize) {
         let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
-        self.selected = (lo..=hi.min(self.entries.len().saturating_sub(1))).collect();
+        self.selected = (lo..=hi.min(self.visible_len().saturating_sub(1))).collect();
     }
 
     /// 現在の選択・カーソルの名前スナップショット (reload 前に取る)。

@@ -250,9 +250,23 @@ impl PaneState {
         }
     }
 
+    /// 表示中リストの行数 (検索結果リスト表示中は hits — F-701)。
+    /// 選択・キーナビ・スクロールはこの長さを基準にする。
+    pub fn visible_len(&self) -> usize {
+        match &self.search {
+            Some(s) if s.showing => s.hits.len(),
+            _ => self.entries.len(),
+        }
+    }
+
+    /// 検索結果リストを表示中か。
+    pub fn showing_search(&self) -> bool {
+        self.search.as_ref().is_some_and(|s| s.showing)
+    }
+
     /// スクロール可能量の上限。
     pub fn max_scroll(&self) -> f32 {
-        (self.entries.len() as f32 * self.row_h - self.viewport_h).max(0.0)
+        (self.visible_len() as f32 * self.row_h - self.viewport_h).max(0.0)
     }
 
     /// カーソル行が可視範囲に入るよう scroll_offset を調整する。

@@ -95,6 +95,14 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         }
         PaneMsg::SearchClose => {
             p.search = None;
+            p.cursor = None;
+            p.selected.clear();
+            vec![]
+        }
+        PaneMsg::SearchStarted(job_id) => {
+            if let Some(sui) = &mut p.search {
+                sui.job_id = Some(job_id);
+            }
             vec![]
         }
         PaneMsg::GoParent => {
@@ -277,13 +285,16 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
                 vec![]
             }
             DomainEvent::SearchDone {
+                job_id,
                 total,
                 canceled,
                 fallback,
                 error,
-                ..
             } => {
                 if let Some(sui) = &mut p.search {
+                    if sui.job_id != Some(job_id) {
+                        return vec![]; // 旧検索の完了通知は無視
+                    }
                     sui.running = false;
                     sui.summary = Some(if let Some(e) = error {
                         format!("検索エラー: {e}")
@@ -307,6 +318,9 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             }
         }
         PaneMsg::OpenRename => {
+            if p.showing_search() {
+                return vec![];
+            }
             let Some(name) = p
                 .cursor
                 .and_then(|i| p.entries.get(i))
@@ -339,6 +353,10 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         // overlay なし状態で届いたモーダル系は無視
         PaneMsg::ModalInput(_) | PaneMsg::ModalCommit | PaneMsg::ModalCancel => vec![],
         PaneMsg::Conflict(_) => vec![],
+        PaneMsg::RequestCopy | PaneMsg::RequestCut if p.showing_search() => {
+            p.status_msg = Some("検索結果ではファイル操作できません (開いてから操作)".into());
+            vec![]
+        }
         PaneMsg::RequestCopy => clipboard_write(p, "copy"),
         PaneMsg::RequestCut => clipboard_write(p, "cut"),
         PaneMsg::RequestPaste => vec![Effect::ClipboardRead { pane: id }],
@@ -369,6 +387,11 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             }
         }
         PaneMsg::RequestDelete => {
+            // 検索結果リストの index は entries と別空間 — 破壊的操作は禁止 (安全側)
+            if p.showing_search() {
+                p.status_msg = Some("検索結果ではファイル操作できません (開いてから操作)".into());
+                return vec![];
+            }
             let paths: Vec<std::path::PathBuf> = p
                 .selected
                 .iter()
