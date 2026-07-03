@@ -13,7 +13,7 @@ use fastfiler_core::model::{ModalKind, DEFAULT_ROW_H};
 use fastfiler_core::transfer::ConflictChoice;
 use fastfiler_core::tree::TreeMsg;
 use fastfiler_core::update::navigate;
-use fastfiler_core::update_app::{update_app, AppMsg, TabMsg};
+use fastfiler_core::update_app::{update_app, AppMsg, DragMsg, TabMsg};
 use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneId, PaneMsg};
 use fastfiler_domain::undo::UndoManager;
 use iced::keyboard::{self, key::Named, Key};
@@ -260,6 +260,32 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                         },
                     ));
                 }
+                ListEvent::DragStarted { ix, right_button } => {
+                    return app.apply(AppMsg::Drag(DragMsg::Started {
+                        pane,
+                        row: ix,
+                        right_button,
+                    }));
+                }
+                ListEvent::DragHover { row } => {
+                    return app.apply(AppMsg::Drag(DragMsg::Hover { pane, row }));
+                }
+                ListEvent::DragDropped { row, x, y } => {
+                    // 右ボタンドロップならメニュー用コマンドを採取 (when: "drop")
+                    let commands = if app.model.drag.as_ref().is_some_and(|d| d.right_button) {
+                        effects::collect_menu_context().1
+                    } else {
+                        vec![]
+                    };
+                    return app.apply(AppMsg::Drag(DragMsg::Dropped {
+                        pane,
+                        row,
+                        ctrl: app.modifiers.control(),
+                        shift: app.modifiers.shift(),
+                        at: (x, y),
+                        commands,
+                    }));
+                }
                 ListEvent::BlankRightClicked { x, y } => {
                     let (templates, commands, templates_dir, can_paste) =
                         effects::collect_menu_context();
@@ -350,6 +376,9 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 // stale になる (Alt+Tab 復帰後の誤 Ctrl+クリック) ため、境界でリセット
                 window::Event::Unfocused | window::Event::Focused => {
                     app.modifiers = keyboard::Modifiers::default();
+                    if app.model.drag.is_some() {
+                        let _ = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+                    }
                 }
                 window::Event::Resized(size) => {
                     app.window_size = size;
@@ -825,6 +854,16 @@ pub fn view(app: &App) -> Element<'_, Msg> {
     // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
     let focused = app.model.focused_pane();
     match app.model.panes.get(focused).and_then(|p| p.overlay.clone()) {
+        Some(Overlay::DropMenu { items, at, .. }) => {
+            let pane = focused;
+            let menu = ContextMenu::new(items, at, vec![], move |ev| match ev {
+                MenuEvent::Clicked(path) => {
+                    Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
+                }
+                MenuEvent::Close => Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClose)),
+            });
+            stack![root, Element::new(menu)].into()
+        }
         Some(Overlay::ContextMenu {
             items,
             at,
@@ -1057,6 +1096,14 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
     });
 
     // 検索の結果リスト表示中は entries を hits に差し替え (F-701)
+    let drag_active = app.model.drag.is_some();
+    let drop_highlight = app
+        .model
+        .drag
+        .as_ref()
+        .and_then(|d| d.over)
+        .filter(|(pane, _)| *pane == id)
+        .and_then(|(_, row)| row);
     let showing_results = p.search.as_ref().is_some_and(|s| s.showing);
     let list: Element<'_, Msg> = if showing_results {
         let sui = p.search.as_ref().unwrap();
@@ -1064,7 +1111,9 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
             .entries_override(&sui.hits, p.load_gen.wrapping_add(1_000_000))
             .into()
     } else {
-        FileList::new(p, &app.icons, move |ev| Msg::List(id, ev)).into()
+        FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
+            .drag_context(drag_active, drop_highlight)
+            .into()
     };
 
     // フッタ: ジョブ進捗 > 一時メッセージ > 件数/選択数

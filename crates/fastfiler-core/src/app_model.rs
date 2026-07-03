@@ -21,6 +21,18 @@ pub fn panes_alive() -> i64 {
     PANES_ALIVE.load(Ordering::Relaxed)
 }
 
+/// 内部 D&D の進行状態 (F-601/F-605)。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragState {
+    /// 運んでいるパス (選択全体 or 単一行 — USAGE.md §2)。
+    pub paths: Vec<std::path::PathBuf>,
+    pub from_pane: PaneId,
+    /// 右ボタンドラッグ (ドロップ時にメニューで効果を選ぶ — F-605)。
+    pub right_button: bool,
+    /// 現在ホバー中の (ペイン, フォルダ行)。行ハイライト用。
+    pub over: Option<(PaneId, Option<usize>)>,
+}
+
 /// 1 タブ = 独立した分割構成 + フォーカスペイン (CONTEXT.md の定義)。
 #[derive(Debug)]
 pub struct TabState {
@@ -48,6 +60,8 @@ pub struct AppModel {
     pub next_split_id: u64,
     /// ワークスペースツリー (F-801〜F-803)。
     pub tree: TreeState,
+    /// 内部 D&D の状態機械 (計画書 §5.2。§10-7: グローバル static の代替)。
+    pub drag: Option<DragState>,
 }
 
 impl AppModel {
@@ -60,6 +74,7 @@ impl AppModel {
             tab_width: DEFAULT_TAB_W,
             next_split_id: 0,
             tree: TreeState::default(),
+            drag: None,
         };
         m.add_tab(start);
         m

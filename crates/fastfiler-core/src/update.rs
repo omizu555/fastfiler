@@ -582,6 +582,49 @@ fn update_overlay(
             }
             _ => Some(vec![]),
         },
+        Overlay::DropMenu {
+            items, paths, dest, ..
+        } => match msg {
+            PaneMsg::MenuClicked(path) => {
+                let Some(&ix) = path.first() else {
+                    return Some(vec![]);
+                };
+                let Some(item) = items.get(ix) else {
+                    return Some(vec![]);
+                };
+                let action = item.action.clone();
+                let paths = paths.clone();
+                let dest = dest.clone();
+                p.overlay = None;
+                // DropMenu の Copy/Cut は「ここにコピー/ここに移動」(F-605)。
+                // UserCommand は {paths}=ドラッグ項目 / {cwd}=ドロップ先 (COMMANDS.md)
+                Some(match action {
+                    MenuAction::Copy => vec![Effect::DropTransfer {
+                        pane: id,
+                        op: crate::transfer::TransferOp::Copy,
+                        paths,
+                        dest,
+                    }],
+                    MenuAction::Cut => vec![Effect::DropTransfer {
+                        pane: id,
+                        op: crate::transfer::TransferOp::Move,
+                        paths,
+                        dest,
+                    }],
+                    MenuAction::UserCommand(cmd_id) => vec![Effect::RunUserCommand {
+                        id: cmd_id,
+                        paths,
+                        cwd: dest,
+                    }],
+                    _ => vec![], // キャンセル
+                })
+            }
+            PaneMsg::MenuClose | PaneMsg::ClearSelection | PaneMsg::BlankPressed => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
         Overlay::ContextMenu {
             items,
             open_path,

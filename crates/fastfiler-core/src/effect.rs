@@ -101,4 +101,11 @@ pub enum Effect {
     ShowShellMenu {
         paths: Vec<PathBuf>,
     },
+    /// ドロップメニュー確定後の転送 (update_app が衝突検出込みで展開する)。
+    DropTransfer {
+        pane: PaneId,
+        op: crate::transfer::TransferOp,
+        paths: Vec<PathBuf>,
+        dest: PathBuf,
+    },
 }

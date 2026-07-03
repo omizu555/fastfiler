@@ -139,6 +139,13 @@ pub enum Overlay {
     Modal { kind: ModalKind, value: String },
     /// 同名衝突ダイアログ (F-503)。
     Conflict { plan: crate::transfer::TransferPlan },
+    /// 右ボタン D&D のドロップメニュー (F-605)。
+    DropMenu {
+        items: Vec<crate::menu::MenuItem>,
+        at: (f32, f32),
+        paths: Vec<std::path::PathBuf>,
+        dest: std::path::PathBuf,
+    },
     /// 右クリックメニュー (F-904)。at はウィンドウ座標。
     ContextMenu {
         items: Vec<crate::menu::MenuItem>,

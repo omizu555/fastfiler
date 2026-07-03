@@ -74,6 +74,22 @@ pub enum ListEvent {
         x: f32,
         y: f32,
     },
+    // ---- 内部 D&D (F-601/F-605) ----
+    /// 行ドラッグ開始 (閾値超)。
+    DragStarted {
+        ix: usize,
+        right_button: bool,
+    },
+    /// ドラッグ中のホバー (このペイン上。row = カーソル下の行)。
+    DragHover {
+        row: Option<usize>,
+    },
+    /// このペインへのドロップ。pos はメニュー表示用ウィンドウ座標。
+    DragDropped {
+        row: Option<usize>,
+        x: f32,
+        y: f32,
+    },
 }
 
 /// ウィジェット内部状態 (フレーム間で保持したい非・アプリ状態のみ)。
@@ -84,6 +100,10 @@ struct State {
     last_click: Option<(Instant, usize, u64)>,
     /// ドラッグ中の列仕切り。
     dragging: Option<Column>,
+    /// 行の押下 (D&D 開始判定)。(開始位置, 行, 右ボタンか)。
+    row_pressed: Option<(Point, usize, bool)>,
+    /// このペイン発の行ドラッグが進行中か (DragStarted 発行済み)。
+    row_dragging: bool,
     /// 通知済みのビューポート高 (変化時のみ publish)。
     notified_h: f32,
 }
@@ -99,6 +119,10 @@ pub struct FileList<'a, Message> {
     row_h: f32,
     /// 一覧の世代 (pane.load_gen)。ダブルクリック判定の同一性に使う。
     list_gen: u64,
+    /// アプリ全体で内部 D&D が進行中か (ドロップ受け入れモード)。
+    drag_active: bool,
+    /// ドロップ先ハイライト行 (core drag.over から)。
+    drop_highlight: Option<usize>,
     on_event: Box<dyn Fn(ListEvent) -> Message + 'a>,
 }
 
@@ -118,8 +142,17 @@ impl<'a, Message> FileList<'a, Message> {
             offset: pane.scroll_offset,
             row_h: pane.row_h,
             list_gen: pane.load_gen,
+            drag_active: false,
+            drop_highlight: None,
             on_event: Box::new(on_event),
         }
+    }
+
+    /// 内部 D&D の受け入れモード (ドラッグ中のみ true。ハイライト行は core から)。
+    pub fn drag_context(mut self, active: bool, highlight: Option<usize>) -> Self {
+        self.drag_active = active;
+        self.drop_highlight = highlight;
+        self
     }
 
     /// 検索結果リスト表示 (F-701): entries を差し替える。
@@ -295,6 +328,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                             shell.publish((self.on_event)(ListEvent::RowDoubleClicked { ix }));
                         } else {
                             state.last_click = Some((now, ix, self.list_gen));
+                            state.row_pressed = cursor.position().map(|p| (p, ix, false));
                             // 修飾キーはイベントに含まれないため winit 経由の
                             // keyboard::Event::ModifiersChanged を App が保持して
                             // core へ渡す方式もあるが、iced 0.14 はカーソルイベントに
@@ -318,18 +352,65 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     return;
                 };
                 if pos.y >= bounds.y + HEADER_H {
+                    // メニューは Released で出す (右ボタンドラッグと区別するため —
+                    // 閾値を超えたらドラッグ、超えなければメニュー)
                     match self.row_at(&list, pos) {
-                        Some(ix) => shell.publish((self.on_event)(ListEvent::RowRightClicked {
-                            ix,
-                            x: pos.x,
-                            y: pos.y,
-                        })),
+                        Some(ix) => {
+                            state.row_pressed = Some((pos, ix, true));
+                        }
                         None => shell.publish((self.on_event)(ListEvent::BlankRightClicked {
                             x: pos.x,
                             y: pos.y,
                         })),
                     }
                     shell.capture_event();
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
+                if let Some((pos, ix, true)) = state.row_pressed.take() {
+                    if !state.row_dragging {
+                        // ドラッグに至らなければ右クリックメニュー
+                        shell.publish((self.on_event)(ListEvent::RowRightClicked {
+                            ix,
+                            x: pos.x,
+                            y: pos.y,
+                        }));
+                        shell.capture_event();
+                    } else if let Some(now) = cursor.position() {
+                        // 右ボタンドラッグのドロップ (このペイン上なら)
+                        state.row_dragging = false;
+                        if cursor.position_over(bounds).is_some() {
+                            let row = self.row_at(&list, now);
+                            shell.publish((self.on_event)(ListEvent::DragDropped {
+                                row,
+                                x: now.x,
+                                y: now.y,
+                            }));
+                            shell.capture_event();
+                        }
+                    }
+                }
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. })
+                if state.row_pressed.is_some() || self.drag_active =>
+            {
+                if let (Some((start, ix, right)), Some(now)) =
+                    (state.row_pressed, cursor.position())
+                {
+                    if !state.row_dragging && now.distance(start) > 6.0 {
+                        state.row_dragging = true;
+                        shell.publish((self.on_event)(ListEvent::DragStarted {
+                            ix,
+                            right_button: right,
+                        }));
+                    }
+                }
+                // ドラッグ受け入れモード: 自ペイン上のホバー行を通知
+                if self.drag_active && cursor.position_over(bounds).is_some() {
+                    if let Some(pos) = cursor.position() {
+                        let row = self.row_at(&list, pos);
+                        shell.publish((self.on_event)(ListEvent::DragHover { row }));
+                    }
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging.is_some() => {
@@ -344,6 +425,26 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             {
                 state.dragging = None;
                 shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if state.row_pressed.is_some() || self.drag_active =>
+            {
+                state.row_pressed = None;
+                let was_dragging = state.row_dragging;
+                state.row_dragging = false;
+                if self.drag_active || was_dragging {
+                    if let Some(pos) = cursor.position() {
+                        if cursor.position_over(bounds).is_some() {
+                            let row = self.row_at(&list, pos);
+                            shell.publish((self.on_event)(ListEvent::DragDropped {
+                                row,
+                                x: pos.x,
+                                y: pos.y,
+                            }));
+                            shell.capture_event();
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -479,9 +580,12 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             let y = list.y + (ix as f32 * self.row_h - offset);
             let is_sel = self.selected.contains(&ix);
             let is_cur = self.cursor == Some(ix);
+            let is_drop = self.drop_highlight == Some(ix);
 
             // 選択=強 / カーソル=弱 / 縞 (GPUI 版の優先順位と同じ)
-            let row_bg = if is_sel {
+            let row_bg = if is_drop {
+                Some(palette.success.weak.color)
+            } else if is_sel {
                 Some(if is_cur {
                     palette.primary.strong.color
                 } else {

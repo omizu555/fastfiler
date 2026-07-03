@@ -19,6 +19,32 @@ pub enum AppMsg {
     Tab(TabMsg),
     /// ワークスペースツリー (F-801〜F-803)。
     Tree(TreeMsg),
+    /// 内部 D&D (F-601/F-604/F-605)。
+    Drag(DragMsg),
+}
+
+#[derive(Debug, Clone)]
+pub enum DragMsg {
+    /// ドラッグ開始 (閾値超)。選択に含まれる行なら選択全体を運ぶ。
+    Started {
+        pane: PaneId,
+        row: usize,
+        right_button: bool,
+    },
+    /// ホバー更新 (行 = Some(フォルダ行) or None = ペイン背景)。
+    Hover { pane: PaneId, row: Option<usize> },
+    /// ドロップ。修飾キーは GUI 層が焼き込む (F-604)。
+    Dropped {
+        pane: PaneId,
+        row: Option<usize>,
+        ctrl: bool,
+        shift: bool,
+        at: (f32, f32),
+        /// ドロップメニュー用コマンド (右ボタン時に GUI 層が採取)。
+        commands: Vec<crate::menu::CommandInfo>,
+    },
+    /// ウィンドウ外リリース等でのキャンセル。
+    Cancel,
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +110,20 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             let locked = tab_of(m, id).map(|t| m.tabs[t].locked).unwrap_or(false);
             let structural = matches!(pmsg, PaneMsg::ColResized { .. });
             let effects = update_pane(&mut m.panes[id], id, locked, pmsg);
-            let mut out = expand_open_tab(m, effects);
+            // DropTransfer は衝突検出込みの転送へ展開 (DropMenu 確定経路)
+            let mut expanded = Vec::with_capacity(effects.len());
+            for e in effects {
+                match e {
+                    Effect::DropTransfer {
+                        pane,
+                        op,
+                        paths,
+                        dest,
+                    } => expanded.extend(start_drop_transfer(m, pane, op, paths, dest)),
+                    other => expanded.push(other),
+                }
+            }
+            let mut out = expand_open_tab(m, expanded);
             // パス変更 (LoadDir) と列幅はセッション保存対象 (800ms デバウンス)。
             // フォーカスペインの移動はツリーを追従させ、UNC は自動登録する (F-802/F-803)
             if structural || out.iter().any(|e| matches!(e, Effect::LoadDir { .. })) {
@@ -104,6 +143,146 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             out
         }
         AppMsg::Tree(tmsg) => m.tree.update(tmsg),
+        AppMsg::Drag(dmsg) => update_drag(m, dmsg),
+    }
+}
+
+/// 内部 D&D の状態遷移 (F-601/F-604/F-605)。
+fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
+    use crate::app_model::DragState;
+    use crate::transfer::{self, TransferOp};
+    match msg {
+        DragMsg::Started {
+            pane,
+            row,
+            right_button,
+        } => {
+            let Some(p) = m.panes.get(pane) else {
+                return vec![];
+            };
+            if p.showing_search() {
+                return vec![]; // 検索結果からのドラッグは対象外 (安全側)
+            }
+            // 選択中の行をドラッグすると選択全体を運ぶ (USAGE.md §2)
+            let rows: Vec<usize> = if p.selected.contains(&row) {
+                p.selected.iter().copied().collect()
+            } else {
+                vec![row]
+            };
+            let paths: Vec<std::path::PathBuf> = rows
+                .iter()
+                .filter_map(|&i| p.entries.get(i))
+                .map(|e| p.cur_path.join(&e.name))
+                .collect();
+            if paths.is_empty() {
+                return vec![];
+            }
+            m.drag = Some(DragState {
+                paths,
+                from_pane: pane,
+                right_button,
+                over: None,
+            });
+            vec![]
+        }
+        DragMsg::Hover { pane, row } => {
+            // フォルダ行のみハイライト対象 (ファイル行はペイン背景扱い)
+            let dir_row = row.filter(|&ix| {
+                m.panes
+                    .get(pane)
+                    .and_then(|p| p.entries.get(ix))
+                    .is_some_and(|e| e.is_dir)
+            });
+            if let Some(d) = &mut m.drag {
+                d.over = Some((pane, dir_row));
+            }
+            vec![]
+        }
+        DragMsg::Cancel => {
+            m.drag = None;
+            vec![]
+        }
+        DragMsg::Dropped {
+            pane,
+            row,
+            ctrl,
+            shift,
+            at,
+            commands,
+        } => {
+            let Some(drag) = m.drag.take() else {
+                return vec![];
+            };
+            let Some(p) = m.panes.get_mut(pane) else {
+                return vec![];
+            };
+            // ドロップ先: フォルダ行ならそのフォルダ、それ以外は表示中フォルダ (F-601)
+            let dest = match row.and_then(|ix| p.entries.get(ix)) {
+                Some(e) if e.is_dir => p.cur_path.join(&e.name),
+                _ => p.cur_path.clone(),
+            };
+            // 右ボタン: ドロップメニューで効果を選ぶ (F-605)
+            if drag.right_button {
+                let items = crate::menu::build_drop_menu(&commands);
+                p.overlay = Some(crate::model::Overlay::DropMenu {
+                    items,
+                    at,
+                    paths: drag.paths,
+                    dest,
+                });
+                m.tabs[m.active].focused = pane;
+                return vec![];
+            }
+            // 修飾キー規則 (F-604): Ctrl=コピー / Shift=移動 /
+            // なし = 同一ドライブなら移動、別ドライブならコピー
+            let same_vol = drag
+                .paths
+                .first()
+                .is_some_and(|src| transfer::same_volume(src, &dest));
+            let op = if ctrl {
+                TransferOp::Copy
+            } else if shift || same_vol {
+                // Shift 明示 or 同一ドライブの既定 = 移動 (F-604)
+                TransferOp::Move
+            } else {
+                TransferOp::Copy
+            };
+            start_drop_transfer(m, pane, op, drag.paths, dest)
+        }
+    }
+}
+
+/// ドロップの転送開始 (衝突検出は貼り付けと同じ plan_transfer 経路 — F-503 全経路共通)。
+pub(crate) fn start_drop_transfer(
+    m: &mut AppModel,
+    pane: PaneId,
+    op: crate::transfer::TransferOp,
+    paths: Vec<std::path::PathBuf>,
+    dest: std::path::PathBuf,
+) -> Vec<Effect> {
+    use crate::transfer::{self, ConflictChoice};
+    let Some(p) = m.panes.get_mut(pane) else {
+        return vec![];
+    };
+    // dest がペインの表示フォルダと違う (フォルダ行ドロップ) 場合、既存名は不明 →
+    // 空集合で計画し衝突は上書き確認なしになるため、表示フォルダのときだけ検出する。
+    // フォルダ行ドロップの衝突は domain のジョブが上書きで処理 (GPUI 版と同等)。
+    let existing: std::collections::BTreeSet<String> = if dest == p.cur_path {
+        p.entries.iter().map(|e| e.name.clone()).collect()
+    } else {
+        Default::default()
+    };
+    let plan = transfer::plan_transfer(op, &paths, &dest, &existing);
+    if plan.items.is_empty() {
+        return vec![];
+    }
+    if plan.conflicts.is_empty() {
+        let items = transfer::resolve_conflicts(&plan, ConflictChoice::Overwrite, &existing);
+        vec![Effect::SpawnJob { pane, op, items }]
+    } else {
+        p.overlay = Some(crate::model::Overlay::Conflict { plan });
+        m.tabs[m.active].focused = pane;
+        vec![]
     }
 }
 

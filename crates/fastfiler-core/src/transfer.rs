@@ -120,6 +120,37 @@ pub fn resolve_conflicts(
     }
 }
 
+/// 同一ボリューム判定 (F-604: 修飾キーなしの既定 = 同一ドライブなら移動)。
+/// ドライブレター (大文字小文字無視) または UNC の `\\server\share` を比較する。
+/// GPUI 版は domain path_util::volume_key — core は domain 非依存のため同等実装。
+pub fn same_volume(a: &Path, b: &Path) -> bool {
+    match (volume_key(a), volume_key(b)) {
+        (Some(x), Some(y)) => x.eq_ignore_ascii_case(&y),
+        _ => false,
+    }
+}
+
+fn volume_key(p: &Path) -> Option<String> {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix("\\\\?\\") {
+        return volume_key(Path::new(rest));
+    }
+    if let Some(rest) = s.strip_prefix("\\\\") {
+        let mut it = rest.split('\\');
+        let (server, share) = (it.next()?, it.next()?);
+        if server.is_empty() || share.is_empty() {
+            return None;
+        }
+        return Some(format!("\\\\{server}\\{share}"));
+    }
+    let mut chars = s.chars();
+    let drive = chars.next()?;
+    if drive.is_ascii_alphabetic() && chars.next() == Some(':') {
+        return Some(format!("{drive}:"));
+    }
+    None
+}
+
 /// `名前 (2).拡張子` 形式の空き連番名 (USAGE.md §2)。
 pub fn unique_name(name: &str, taken: &BTreeSet<String>) -> String {
     if !taken.contains(name) {
@@ -229,6 +260,21 @@ mod tests {
         let resolved = resolve_conflicts(&plan, ConflictChoice::RenameBoth, &existing);
         assert_eq!(resolved[0].1, PathBuf::from("C:\\dest\\x (2).txt"));
         assert_eq!(resolved[1].1, PathBuf::from("C:\\dest\\x (3).txt"));
+    }
+
+    #[test]
+    fn same_volume_rules() {
+        assert!(same_volume(Path::new("C:\\a\\b"), Path::new("c:\\x")));
+        assert!(!same_volume(Path::new("C:\\a"), Path::new("D:\\a")));
+        assert!(same_volume(
+            Path::new("\\\\nas\\media\\x"),
+            Path::new("\\\\NAS\\media\\y")
+        ));
+        assert!(!same_volume(
+            Path::new("\\\\nas\\media"),
+            Path::new("\\\\nas\\docs")
+        ));
+        assert!(!same_volume(Path::new("C:\\a"), Path::new("\\\\nas\\m")));
     }
 
     #[test]
