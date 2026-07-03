@@ -72,4 +72,17 @@ pub enum Effect {
     PaneClosed(PaneId),
     /// セッション保存の予約 (800ms デバウンス — 実行側でタイマー管理)。
     ScheduleSessionSave,
+    // ---- ツリー / 検索 (Phase 4) ----
+    /// ドライブ一覧の読み込み (起動時)。
+    LoadDrives,
+    /// ツリーの子フォルダ読み込み (遅延展開)。
+    LoadTreeChildren {
+        path: PathBuf,
+    },
+    /// 検索開始 (Everything → 内蔵フォールバックは domain 側)。
+    StartSearch {
+        pane: PaneId,
+        root: PathBuf,
+        query: String,
+    },
 }

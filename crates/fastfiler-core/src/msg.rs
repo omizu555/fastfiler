@@ -90,4 +90,14 @@ pub enum PaneMsg {
     /// フッタのキャンセルボタン (モーダル表示中でも実行中ジョブを止められる専用経路。
     /// Esc は「モーダルを閉じる > ジョブキャンセル」の階層だが、こちらは直接止める)。
     CancelJobRequest,
+    // ---- 検索 (Phase 4) ----
+    /// Ctrl+F: 検索バーを開く (一覧は表示されたまま — F-701)。
+    OpenSearch,
+    SearchInput(String),
+    /// Enter: 検索実行 → 結果リストに切替。
+    SearchCommit,
+    /// Esc / ×: 検索を閉じて一覧へ戻る。
+    SearchClose,
+    /// 指定パスへ移動 (ワークスペースツリーのクリック — F-306)。ロック規則適用。
+    NavigateTo(std::path::PathBuf),
 }

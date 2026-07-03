@@ -101,6 +101,14 @@ impl<'a, Message> FileList<'a, Message> {
         }
     }
 
+    /// 検索結果リスト表示 (F-701): entries を差し替える。
+    /// 世代も切り替えてダブルクリック判定の取り違えを防ぐ。
+    pub fn entries_override(mut self, entries: &'a [Entry], generation: u64) -> Self {
+        self.entries = entries;
+        self.list_gen = generation;
+        self
+    }
+
     fn max_offset(&self, list_h: f32) -> f32 {
         (self.entries.len() as f32 * self.row_h - list_h).max(0.0)
     }

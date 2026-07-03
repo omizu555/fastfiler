@@ -149,6 +149,21 @@ pub enum ModalKind {
     NewFile,
 }
 
+/// 検索バーの状態 (F-701/F-702)。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SearchUi {
+    pub query: String,
+    /// 実行中の検索 job id (結果の突き合わせ)。
+    pub job_id: Option<u64>,
+    pub running: bool,
+    /// Enter 済み = 結果リスト表示中 (一覧と切替)。
+    pub showing: bool,
+    /// 結果 (Entry 化して FileList で表示)。フルパスは search_paths と同順。
+    pub hits: Vec<Entry>,
+    pub hit_paths: Vec<(std::path::PathBuf, bool)>,
+    pub summary: Option<String>,
+}
+
 /// 実行中のファイルジョブ (フッタの進捗表示 + キャンセル対象)。
 #[derive(Debug, Clone, PartialEq)]
 pub struct JobStatus {
@@ -181,6 +196,8 @@ pub struct PaneState {
     pub reload_seq: u64,
     /// 実行中ジョブ (高々 1 つ — GPUI 版と同じ)。
     pub job: Option<JobStatus>,
+    /// 検索バー (F-701)。Some = バー表示中。一覧は表示されたまま。
+    pub search: Option<SearchUi>,
     /// フッタの一時メッセージ (エラー / 完了通知)。
     pub status_msg: Option<String>,
     // ---- 選択モデル (selection.rs に操作を実装) ----
@@ -220,6 +237,7 @@ impl PaneState {
             overlay: None,
             reload_seq: 0,
             job: None,
+            search: None,
             status_msg: None,
             cursor: None,
             selected: BTreeSet::new(),

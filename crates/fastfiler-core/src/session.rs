@@ -73,12 +73,12 @@ pub enum NodeData {
 pub fn snapshot(m: &AppModel, window: Option<[f32; 4]>, maximized: bool) -> SessionData {
     SessionData {
         active: m.active,
-        show_tree: true,
-        tree_width: 220.0,
+        show_tree: m.tree.visible,
+        tree_width: m.tree.width,
         tab_width: m.tab_width,
         window,
         maximized,
-        unc_shares: Vec::new(),
+        unc_shares: m.tree.unc_shares.clone(),
         theme: None,
         locked: m.tabs.iter().map(|t| t.locked).collect(),
         tabs: m.tabs.iter().map(|t| node_to_data(m, t, &t.root)).collect(),
@@ -140,6 +140,11 @@ pub fn restore(data: &SessionData, fallback: PathBuf) -> (AppModel, Vec<PaneId>)
     m.tab_width = data
         .tab_width
         .clamp(crate::app_model::TAB_W_MIN, crate::app_model::TAB_W_MAX);
+    m.tree.visible = data.show_tree;
+    m.tree.width = data
+        .tree_width
+        .clamp(crate::tree::TREE_W_MIN, crate::tree::TREE_W_MAX);
+    m.tree.unc_shares = data.unc_shares.clone();
     let panes: Vec<PaneId> = m.panes.keys().collect();
     (m, panes)
 }

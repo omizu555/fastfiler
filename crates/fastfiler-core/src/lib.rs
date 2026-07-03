@@ -17,6 +17,7 @@ pub mod persist;
 pub mod selection;
 pub mod session;
 pub mod transfer;
+pub mod tree;
 pub mod update;
 pub mod update_app;
 

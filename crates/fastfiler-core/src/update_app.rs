@@ -7,6 +7,7 @@ use crate::bsp::SplitDir;
 use crate::effect::Effect;
 use crate::model::PaneId;
 use crate::msg::PaneMsg;
+use crate::tree::TreeMsg;
 use crate::update::{navigate, update_pane};
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,8 @@ pub enum AppMsg {
     /// フォーカスペイン宛 (キーボード操作)。
     Focused(PaneMsg),
     Tab(TabMsg),
+    /// ワークスペースツリー (F-801〜F-803)。
+    Tree(TreeMsg),
 }
 
 #[derive(Debug, Clone)]
@@ -82,8 +85,15 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             let structural = matches!(pmsg, PaneMsg::ColResized { .. });
             let effects = update_pane(&mut m.panes[id], id, locked, pmsg);
             let mut out = expand_open_tab(m, effects);
-            // パス変更 (LoadDir) と列幅はセッション保存対象 (800ms デバウンス)
+            // パス変更 (LoadDir) と列幅はセッション保存対象 (800ms デバウンス)。
+            // フォーカスペインの移動はツリーを追従させ、UNC は自動登録する (F-802/F-803)
             if structural || out.iter().any(|e| matches!(e, Effect::LoadDir { .. })) {
+                if out.iter().any(|e| matches!(e, Effect::LoadDir { .. })) {
+                    let path = m.panes[m.focused_pane()].cur_path.clone();
+                    m.tree.register_unc(&path);
+                    let tree_fx = m.tree.reveal(&path);
+                    out.extend(tree_fx);
+                }
                 out.push(Effect::ScheduleSessionSave);
             }
             out
@@ -93,6 +103,7 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             out.push(Effect::ScheduleSessionSave);
             out
         }
+        AppMsg::Tree(tmsg) => m.tree.update(tmsg),
     }
 }
 

@@ -11,6 +11,7 @@ use fastfiler_core::app_model::{panes_alive, AppModel};
 use fastfiler_core::bsp::{PaneNode, SplitDir, PANE_MIN_PX};
 use fastfiler_core::model::{ModalKind, DEFAULT_ROW_H};
 use fastfiler_core::transfer::ConflictChoice;
+use fastfiler_core::tree::TreeMsg;
 use fastfiler_core::update::navigate;
 use fastfiler_core::update_app::{update_app, AppMsg, TabMsg};
 use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneId, PaneMsg};
@@ -23,6 +24,7 @@ use crate::effects::{self, domain_channel, IconBytes, Jobs, OpOutcome, PaneWatch
 use crate::widgets::drag_handle::DragHandle;
 use crate::widgets::file_list::{FileList, ListEvent, HEADER_H};
 use crate::widgets::tab_bar::{TabBar, TabBarEvent, TabItem, CELL_H};
+use crate::widgets::tree_list::{TreeEvent, TreeList};
 
 /// モーダル入力欄のウィジェット Id (開いたときのフォーカス/選択操作の宛先)。
 fn modal_input_id() -> iced::advanced::widget::Id {
@@ -30,6 +32,9 @@ fn modal_input_id() -> iced::advanced::widget::Id {
 }
 fn path_input_id() -> iced::advanced::widget::Id {
     iced::advanced::widget::Id::new("path-input")
+}
+fn search_input_id() -> iced::advanced::widget::Id {
+    iced::advanced::widget::Id::new("search-input")
 }
 
 pub struct App {
@@ -43,6 +48,12 @@ pub struct App {
     jobs: Jobs,
     /// ジョブの所属ペイン (進捗/完了イベントのルーティング先)。
     job_owner: HashMap<u64, PaneId>,
+    /// 検索 (domain。アプリ全体で高々 1 検索 — 前回は自動キャンセル)。
+    search: std::sync::Arc<fastfiler_domain::search::SearchState>,
+    /// 検索の所属ペイン (job_id → pane)。
+    search_owner: HashMap<u64, PaneId>,
+    /// Everything ポート (Phase 6 で設定化。既定 80)。
+    everything_port: u16,
     /// Undo 履歴 (全ペイン共通・直近 20 件 — domain の実装を再利用。ADR 0006/0008)。
     undo: UndoManager,
     /// 実行中 move ジョブの Undo 候補 (JobDone 全件成功で確定 — ADR 0008)。
@@ -142,6 +153,9 @@ pub fn boot() -> (App, Task<Msg>) {
         watchers: HashMap::new(),
         jobs: Jobs::new(),
         job_owner: HashMap::new(),
+        search: std::sync::Arc::new(fastfiler_domain::search::SearchState::default()),
+        search_owner: HashMap::new(),
+        everything_port: 80,
         undo: UndoManager::new(),
         pending_move_undo: HashMap::new(),
         window_size: Size::new(960.0, 640.0),
@@ -192,8 +206,9 @@ pub fn boot() -> (App, Task<Msg>) {
         }
     }
 
+    let drives = effects::run(fastfiler_core::Effect::LoadDrives, &app.jobs);
     let auto = crate::dev::autoclose_task(Msg::AutoClose);
-    (app, Task::batch([load, auto]))
+    (app, Task::batch([load, drives, auto]))
 }
 
 fn dirs_home() -> PathBuf {
@@ -256,6 +271,18 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                         }
                     }
                     match app.job_owner.remove(job_id) {
+                        Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
+                        None => Task::none(),
+                    }
+                }
+                domain_event::DomainEvent::SearchHit { job_id, .. } => {
+                    match app.search_owner.get(job_id).copied() {
+                        Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
+                        None => Task::none(),
+                    }
+                }
+                domain_event::DomainEvent::SearchDone { job_id, .. } => {
+                    match app.search_owner.remove(job_id) {
                         Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
                         None => Task::none(),
                     }
@@ -404,16 +431,30 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
 impl App {
     /// core の update を呼び、返った Effect を Task に変換する。
     fn apply(&mut self, msg: AppMsg) -> Task<Msg> {
+        let focused_before = self.model.focused_pane();
         let overlay_before = self
             .model
             .panes
-            .get(self.model.focused_pane())
+            .get(focused_before)
             .is_some_and(|p| p.overlay.is_some());
+        let search_before = self
+            .model
+            .panes
+            .get(focused_before)
+            .is_some_and(|p| p.search.is_some());
         let effects = update_app(&mut self.model, msg);
         let mut task = self.run_effects(effects);
-        // 入力オーバーレイが開いたらフォーカスを移す (F2 は拡張子手前まで選択)
+        // 入力オーバーレイ/検索バーが開いたらフォーカスを移す
         if !overlay_before {
             task = Task::batch([task, self.overlay_focus_task()]);
+        }
+        let search_now = self
+            .model
+            .panes
+            .get(self.model.focused_pane())
+            .is_some_and(|p| p.search.is_some());
+        if !search_before && search_now {
+            task = Task::batch([task, iced::widget::operation::focus(search_input_id())]);
         }
         task
     }
@@ -544,6 +585,13 @@ impl App {
                     }
                     effects::spawn_job(&self.jobs, job_id, op, items);
                 }
+                Effect::StartSearch { pane, root, query } => {
+                    if let Some(job_id) =
+                        effects::start_search(&self.search, root, query, self.everything_port)
+                    {
+                        self.search_owner.insert(job_id, pane);
+                    }
+                }
                 Effect::ScheduleSessionSave => {
                     tasks.push(self.bump_save_seq());
                 }
@@ -580,6 +628,9 @@ fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
         Key::Named(Named::Tab) if m.control() && m.shift() => tab(TabMsg::Prev),
         Key::Named(Named::Tab) if m.control() => tab(TabMsg::Next),
         // CapsLock ON では "A" が届くため大文字小文字を無視して比較
+        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("f") => {
+            pane(PaneMsg::OpenSearch)
+        }
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("a") => pane(PaneMsg::SelectAll),
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("c") => {
             pane(PaneMsg::RequestCopy)
@@ -644,10 +695,15 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         .style(button::text)
         .padding([2, 10])
         .on_press(Msg::Core(AppMsg::Tab(TabMsg::Add)));
-    let tab_col = container(column![add_btn, Element::new(tab_bar)].spacing(2))
-        .width(Length::Fixed(app.model.tab_width))
-        .height(Length::Fill)
-        .padding(2);
+    let tree_btn = button(text("ツリー").size(12))
+        .style(button::text)
+        .padding([2, 8])
+        .on_press(Msg::Core(AppMsg::Tree(TreeMsg::ToggleVisible)));
+    let tab_col =
+        container(column![row![add_btn, tree_btn].spacing(4), Element::new(tab_bar)].spacing(2))
+            .width(Length::Fixed(app.model.tab_width))
+            .height(Length::Fill)
+            .padding(2);
     // タブバー幅リサイズ (100〜600px)
     let cur_w = app.model.tab_width;
     let tab_w_handle = DragHandle::new(true, 1.0, move |d| {
@@ -665,7 +721,29 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         tab.root.leaves().len() > 1,
     );
 
-    let main = row![tab_col, tab_w_handle, pane_area];
+    // ---- ワークスペースツリー (表示中のみ) ----
+    let main: Element<'_, Msg> = if app.model.tree.visible {
+        let tree_list = TreeList::new(&app.model.tree, |ev| match ev {
+            TreeEvent::Open(p) => Msg::Core(AppMsg::Focused(PaneMsg::NavigateTo(p))),
+            TreeEvent::Toggle(p) => Msg::Core(AppMsg::Tree(TreeMsg::Toggle(p))),
+            TreeEvent::RemoveServer(sv) => Msg::Core(AppMsg::Tree(TreeMsg::RemoveServer(sv))),
+            TreeEvent::Scrolled(o) => Msg::Core(AppMsg::Tree(TreeMsg::Scrolled(o))),
+            TreeEvent::ViewportChanged { height } => {
+                Msg::Core(AppMsg::Tree(TreeMsg::ViewportChanged { height }))
+            }
+        });
+        let tree_col = container(Element::new(tree_list))
+            .width(Length::Fixed(app.model.tree.width))
+            .height(Length::Fill)
+            .padding(2);
+        let cur_tw = app.model.tree.width;
+        let tree_handle = DragHandle::new(true, 1.0, move |d| {
+            Msg::Core(AppMsg::Tree(TreeMsg::SetWidth(cur_tw + d)))
+        });
+        row![tab_col, tab_w_handle, tree_col, tree_handle, pane_area].into()
+    } else {
+        row![tab_col, tab_w_handle, pane_area].into()
+    };
     let root = column![main, container(text("FastFiler").size(11)).padding([2, 8]),];
 
     // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
@@ -860,7 +938,43 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
     .spacing(2)
     .align_y(iced::Alignment::Center);
 
-    let list: Element<'_, Msg> = FileList::new(p, &app.icons, move |ev| Msg::List(id, ev)).into();
+    // 検索バー (Ctrl+F — 一覧は表示されたまま、Enter で結果リストに切替)
+    let search_bar: Option<Element<'_, Msg>> = p.search.as_ref().map(|sui| {
+        let summary: Element<'_, Msg> = if sui.running {
+            text("検索中…").size(12).into()
+        } else if let Some(s) = &sui.summary {
+            text(s.clone()).size(12).into()
+        } else {
+            text("").size(12).into()
+        };
+        row![
+            text_input("検索 (Everything / 内蔵)…", &sui.query)
+                .id(search_input_id())
+                .on_input(move |v| Msg::Core(AppMsg::Pane(id, PaneMsg::SearchInput(v))))
+                .on_submit(Msg::Core(AppMsg::Pane(id, PaneMsg::SearchCommit)))
+                .size(13)
+                .padding([2, 6]),
+            summary,
+            button(text("×").size(13))
+                .style(button::text)
+                .padding([1, 6])
+                .on_press(Msg::Core(AppMsg::Pane(id, PaneMsg::SearchClose))),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+        .into()
+    });
+
+    // 検索の結果リスト表示中は entries を hits に差し替え (F-701)
+    let showing_results = p.search.as_ref().is_some_and(|s| s.showing);
+    let list: Element<'_, Msg> = if showing_results {
+        let sui = p.search.as_ref().unwrap();
+        FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
+            .entries_override(&sui.hits, p.load_gen.wrapping_add(1_000_000))
+            .into()
+    } else {
+        FileList::new(p, &app.icons, move |ev| Msg::List(id, ev)).into()
+    };
 
     // フッタ: ジョブ進捗 > 一時メッセージ > 件数/選択数
     let footer: Element<'_, Msg> = if let Some(job) = &p.job {
@@ -901,11 +1015,11 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
         row![text(status).size(12)].into()
     };
 
-    let body = column![
-        container(header).padding([2, 4]),
-        list,
-        container(footer).padding([2, 6]),
-    ];
+    let mut body = column![container(header).padding([2, 4])];
+    if let Some(bar) = search_bar {
+        body = body.push(container(bar).padding([2, 4]));
+    }
+    let body = body.push(list).push(container(footer).padding([2, 6]));
     // フォーカスペインの青枠 (複数ペイン時のみ強調 — GPUI と同じ視覚言語)
     let border_color = if focused && multi {
         iced::Color::from_rgb(0.25, 0.55, 1.0)

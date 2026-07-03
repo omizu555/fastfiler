@@ -3,3 +3,4 @@
 pub mod drag_handle;
 pub mod file_list;
 pub mod tab_bar;
+pub mod tree_list;

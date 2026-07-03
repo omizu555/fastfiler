@@ -11,6 +11,7 @@ use slotmap::SlotMap;
 
 use crate::bsp::{PaneNode, SplitDir};
 use crate::model::{PaneId, PaneState};
+use crate::tree::TreeState;
 
 /// 生存ペイン数の計装 (GPUI 版 PANES_ALIVE の踏襲)。
 /// AppModel::new_pane / remove_pane 経由でのみ増減する。
@@ -45,6 +46,8 @@ pub struct AppModel {
     pub tab_width: f32,
     /// Split id の採番 (タブをまたいで一意)。
     pub next_split_id: u64,
+    /// ワークスペースツリー (F-801〜F-803)。
+    pub tree: TreeState,
 }
 
 impl AppModel {
@@ -56,6 +59,7 @@ impl AppModel {
             active: 0,
             tab_width: DEFAULT_TAB_W,
             next_split_id: 0,
+            tree: TreeState::default(),
         };
         m.add_tab(start);
         m

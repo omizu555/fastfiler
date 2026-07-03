@@ -11,6 +11,7 @@ use fastfiler_core::update_app::AppMsg;
 use fastfiler_core::{Effect, Entry, PaneMsg};
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
+use fastfiler_domain::search::{SearchOptions, SearchState};
 use fastfiler_domain::undo::{TrashedItem, UndoOp};
 use fastfiler_domain::watcher::WatcherCore;
 use fastfiler_domain::{file_ops, fs as dfs, icons, shell, templates};
@@ -166,7 +167,42 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
         | Effect::SpawnJob { .. }
         | Effect::PaneClosed(_)
         | Effect::OpenTabFor { .. }
+        | Effect::StartSearch { .. }
         | Effect::ScheduleSessionSave => Task::none(),
+        Effect::LoadDrives => Task::future(async {
+            let drives = tokio::task::spawn_blocking(dfs::list_drives).await;
+            let list = match drives {
+                Ok(Ok(v)) => v.into_iter().map(|d| (d.letter, d.label)).collect(),
+                _ => vec![],
+            };
+            Msg::Core(AppMsg::Tree(fastfiler_core::tree::TreeMsg::DrivesLoaded(
+                list,
+            )))
+        }),
+        Effect::LoadTreeChildren { path } => Task::future(async move {
+            let p = path.clone();
+            let dirs = tokio::task::spawn_blocking(move || {
+                dfs::list_dirs(p.to_string_lossy().to_string(), Some(false))
+            })
+            .await;
+            let children = match dirs {
+                Ok(Ok(v)) => v
+                    .into_iter()
+                    .filter(|e| e.kind == "dir")
+                    .map(|e| fastfiler_core::tree::TreeChild {
+                        path: path.join(&e.name),
+                        name: e.name,
+                    })
+                    .collect(),
+                _ => vec![], // アクセス不可は空 (矢印が消える)
+            };
+            Msg::Core(AppMsg::Tree(
+                fastfiler_core::tree::TreeMsg::ChildrenLoaded {
+                    path,
+                    dirs: children,
+                },
+            ))
+        }),
         Effect::OpenFile { path } => {
             // domain 側が専用スレッドで ShellExecuteW する (UI 再入なし)
             shell::open_with_shell_async(path.to_string_lossy().to_string());
@@ -286,6 +322,33 @@ fn blocking_op(
             Err(e) => Msg::OpDone(OpOutcome::Failed(format!("操作タスクの失敗: {e}"))),
         }
     })
+}
+
+/// 検索を開始する (Everything → 内蔵の自動フォールバックは domain 側 — F-702)。
+/// 前回の検索は domain が自動キャンセルする。戻り値: job_id (結果ルーティング用)。
+pub fn start_search(
+    state: &SearchState,
+    root: std::path::PathBuf,
+    query: String,
+    everything_port: u16,
+) -> Option<u64> {
+    let opts = SearchOptions {
+        case_sensitive: false,
+        use_regex: false,
+        include_hidden: true,
+        max_results: 2000,
+        backend: "everything".into(),
+        everything_port,
+        everything_scope: true,
+    };
+    state
+        .start_with_sink(
+            Arc::new(ChannelSink::new()),
+            root.to_string_lossy().to_string(),
+            query,
+            opts,
+        )
+        .ok()
 }
 
 /// コピー/移動ジョブを専用スレッドで起動する (GPUI 版と同じ実行形態)。
