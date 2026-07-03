@@ -9,4 +9,8 @@
 pub mod app;
 pub mod dev;
 pub mod effects;
+pub mod hotkeys;
+pub mod settings;
+pub mod settings_view;
+pub mod theme;
 pub mod widgets;

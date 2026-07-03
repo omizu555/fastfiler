@@ -8,4 +8,5 @@
 
 #[cfg(windows)]
 pub mod drop_target;
+pub mod single_instance;
 pub mod window_interop;

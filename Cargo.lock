@@ -1662,11 +1662,13 @@ name = "fastfiler-iced"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
+ "embed-resource 2.5.2",
  "fastfiler-core",
  "fastfiler-domain",
  "fastfiler-win",
  "iced",
  "once_cell",
+ "serde",
  "serde_json",
  "tokio",
 ]

@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use crate::settings_view::{self, SettingsMsg};
 use fastfiler_core::app_model::{panes_alive, AppModel};
 use fastfiler_core::bsp::{PaneNode, SplitDir, PANE_MIN_PX};
-use fastfiler_core::model::{ModalKind, DEFAULT_ROW_H};
+use fastfiler_core::model::ModalKind;
 use fastfiler_core::transfer::ConflictChoice;
 use fastfiler_core::tree::TreeMsg;
 use fastfiler_core::update::navigate;
@@ -40,6 +41,12 @@ fn search_input_id() -> iced::advanced::widget::Id {
 
 pub struct App {
     model: AppModel,
+    /// 現在のテーマ (37 色キー — iced palette へは to_iced() で射影)。
+    pub(crate) theme: crate::theme::Theme,
+    /// 設定のキャッシュ (画面表示と反映用。変更時に settings::update と同期)。
+    pub(crate) settings: crate::settings::AppSettings,
+    /// 設定画面の表示中フラグ (独立 view — GPUI 版 render_settings の反省で分離)。
+    pub(crate) show_settings: bool,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -118,6 +125,7 @@ pub enum Msg {
     /// メインウィンドウが開いた (Id 記録 + 位置復元)。
     WindowOpened(window::Id),
     GotHwnd(Option<(isize, f32)>),
+    Settings(SettingsMsg),
     GotScale(f32),
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
@@ -157,10 +165,17 @@ pub fn boot() -> (App, Task<Msg>) {
         }
     };
     {
-        let id = model.focused_pane();
-        model.panes[id].row_h = DEFAULT_ROW_H;
+        let row_h = crate::settings::get().row_h();
+        let ids: Vec<_> = model.panes.keys().collect();
+        for id in ids {
+            model.panes[id].row_h = row_h;
+        }
     }
+    let cfg = crate::settings::get();
     let mut app = App {
+        theme: crate::theme::by_name(cfg.theme.as_deref()),
+        settings: cfg.clone(),
+        show_settings: false,
         model,
         icons: HashMap::new(),
         modifiers: keyboard::Modifiers::default(),
@@ -169,7 +184,7 @@ pub fn boot() -> (App, Task<Msg>) {
         job_owner: HashMap::new(),
         search: std::sync::Arc::new(fastfiler_domain::search::SearchState::default()),
         search_owner: HashMap::new(),
-        everything_port: 80,
+        everything_port: cfg.everything_port,
         undo: UndoManager::new(),
         pending_move_undo: HashMap::new(),
         window_size: Size::new(960.0, 640.0),
@@ -452,6 +467,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             tasks.push(hwnd_task);
             Task::batch(tasks)
         }
+        Msg::Settings(m) => handle_settings(app, m),
         Msg::GotScale(s) => {
             app.scale_factor = s;
             app.refresh_ole_snapshot();
@@ -471,6 +487,8 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 app.hwnd = Some(hwnd);
                 app.scale_factor = scale;
                 app.register_ole_drop_target(hwnd);
+                // 後発プロセスの前面化用に HWND を公開 (F-1106)
+                fastfiler_win::single_instance::publish_main_hwnd(hwnd);
             }
             Task::none()
         }
@@ -932,47 +950,132 @@ impl App {
 }
 
 /// キー入力 → core メッセージ (固定キー。ホットキー設定は Phase 6)。
+/// 設定画面の操作 (即保存 + 即時反映できるものは反映 — F-1101〜F-1105)。
+fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
+    use crate::{settings, theme};
+    match msg {
+        SettingsMsg::Open => {
+            app.show_settings = true;
+        }
+        SettingsMsg::Close => {
+            app.show_settings = false;
+        }
+        SettingsMsg::SetTheme(name) => {
+            app.settings = settings::update(|s| s.theme = Some(name.clone()));
+            app.theme = theme::by_name(Some(&name));
+        }
+        SettingsMsg::ReloadThemes => {
+            let n = theme::reload_user_themes();
+            app.theme = theme::by_name(app.settings.theme.as_deref());
+            let id = app.model.focused_pane();
+            return app.apply(AppMsg::Pane(
+                id,
+                PaneMsg::StatusMsg(format!("ユーザーテーマを {n} 件読み込みました")),
+            ));
+        }
+        SettingsMsg::SetFontSize(px) => {
+            app.settings = settings::update(|s| s.font_size = px);
+            // 行高は即時反映 (フォント描画サイズは再起動後)
+            let row_h = app.settings.row_h();
+            let ids: Vec<_> = app.model.panes.keys().collect();
+            for id in ids {
+                app.model.panes[id].row_h = row_h;
+            }
+        }
+        SettingsMsg::SetFontFamily(name) => {
+            let trimmed = name.trim().to_string();
+            app.settings =
+                settings::update(|s| s.font_family = (!trimmed.is_empty()).then_some(trimmed));
+        }
+        SettingsMsg::SetPort(v) => {
+            // 空欄や編集途中は既定 80 として保持 (確定値のみ保存)
+            if let Ok(port) = v.trim().parse::<u16>() {
+                app.settings = settings::update(|s| s.everything_port = port);
+                app.everything_port = port;
+            } else if v.trim().is_empty() {
+                app.settings = settings::update(|s| s.everything_port = 80);
+                app.everything_port = 80;
+            }
+        }
+        SettingsMsg::SetTabColumns(n) => {
+            app.settings = settings::update(|s| s.tab_columns = n.clamp(1, 4));
+        }
+        SettingsMsg::SetShowTreeButton(v) => {
+            app.settings = settings::update(|s| s.show_tree_button = v);
+        }
+        SettingsMsg::ReloadHotkeys => {
+            crate::hotkeys::reload();
+            let id = app.model.focused_pane();
+            return app.apply(AppMsg::Pane(
+                id,
+                PaneMsg::StatusMsg("ホットキーを再読み込みしました".into()),
+            ));
+        }
+        SettingsMsg::OpenHotkeysFile => {
+            if let Some(p) = crate::hotkeys::config_path() {
+                let _ = fastfiler_domain::shell::open_with_shell(p.to_string_lossy().to_string());
+            }
+        }
+        SettingsMsg::OpenTemplatesDir => {
+            app.show_settings = false;
+            if let Ok(dir) = fastfiler_domain::templates::templates_dir() {
+                return app.apply(AppMsg::Focused(PaneMsg::NavigateTo(dir.into())));
+            }
+        }
+        SettingsMsg::OpenCommandsDir => {
+            app.show_settings = false;
+            if let Ok(dir) = fastfiler_domain::user_commands::user_commands_dir() {
+                return app.apply(AppMsg::Focused(PaneMsg::NavigateTo(dir.into())));
+            }
+        }
+    }
+    Task::none()
+}
+
 fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
+    use crate::hotkeys::{self, HotAction};
     let shift = m.shift();
     let pane = |p: PaneMsg| Some(Msg::Core(AppMsg::Focused(p)));
     let tab = |t: TabMsg| Some(Msg::Core(AppMsg::Tab(t)));
+    // コマンド系はカスタマイズ可能 (iced_hotkeys.json — F-1104)
+    if let Some(action) = hotkeys::action_for(&key.as_ref(), m) {
+        return match action {
+            HotAction::Open => pane(PaneMsg::ActivateCursor),
+            HotAction::Parent => pane(PaneMsg::GoParent),
+            HotAction::Delete => pane(PaneMsg::RequestDelete),
+            HotAction::Rename => pane(PaneMsg::OpenRename),
+            HotAction::NewFolder => pane(PaneMsg::OpenNewFolder),
+            HotAction::NewFile => pane(PaneMsg::OpenNewFile),
+            HotAction::Refresh => pane(PaneMsg::Reload),
+            HotAction::Search => pane(PaneMsg::OpenSearch),
+            HotAction::Undo => Some(Msg::PerformUndo),
+            HotAction::Copy => pane(PaneMsg::RequestCopy),
+            HotAction::Cut => pane(PaneMsg::RequestCut),
+            HotAction::Paste => pane(PaneMsg::RequestPaste),
+            HotAction::SelectAll => pane(PaneMsg::SelectAll),
+            HotAction::Back => pane(PaneMsg::GoBack),
+            HotAction::Forward => pane(PaneMsg::GoForward),
+            HotAction::NextPane => tab(TabMsg::CycleFocus),
+            HotAction::NextTab => tab(TabMsg::Next),
+            HotAction::PrevTab => tab(TabMsg::Prev),
+        };
+    }
+    // 移動系と Esc は固定 (GPUI 版と同じ — Shift は範囲選択拡張)
     match key.as_ref() {
         Key::Named(Named::ArrowUp) => pane(PaneMsg::Nav(NavKey::Up, shift)),
         Key::Named(Named::ArrowDown) => pane(PaneMsg::Nav(NavKey::Down, shift)),
-        Key::Named(Named::ArrowLeft) if m.alt() => pane(PaneMsg::GoBack),
-        Key::Named(Named::ArrowRight) if m.alt() => pane(PaneMsg::GoForward),
         Key::Named(Named::PageUp) => pane(PaneMsg::Nav(NavKey::PageUp, shift)),
         Key::Named(Named::PageDown) => pane(PaneMsg::Nav(NavKey::PageDown, shift)),
         Key::Named(Named::Home) => pane(PaneMsg::Nav(NavKey::Home, shift)),
         Key::Named(Named::End) => pane(PaneMsg::Nav(NavKey::End, shift)),
-        Key::Named(Named::Enter) => pane(PaneMsg::ActivateCursor),
-        Key::Named(Named::Backspace) => pane(PaneMsg::GoParent),
         Key::Named(Named::Escape) => pane(PaneMsg::ClearSelection),
-        Key::Named(Named::F5) => pane(PaneMsg::Reload),
-        Key::Named(Named::F2) => pane(PaneMsg::OpenRename),
-        Key::Named(Named::F6) => tab(TabMsg::CycleFocus),
-        Key::Named(Named::F7) => pane(PaneMsg::OpenNewFolder),
-        Key::Named(Named::F8) => pane(PaneMsg::OpenNewFile),
-        Key::Named(Named::Delete) => pane(PaneMsg::RequestDelete),
-        Key::Named(Named::Tab) if m.control() && m.shift() => tab(TabMsg::Prev),
-        Key::Named(Named::Tab) if m.control() => tab(TabMsg::Next),
-        // CapsLock ON では "A" が届くため大文字小文字を無視して比較
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("f") => {
-            pane(PaneMsg::OpenSearch)
-        }
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("a") => pane(PaneMsg::SelectAll),
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("c") => {
-            pane(PaneMsg::RequestCopy)
-        }
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("x") => {
-            pane(PaneMsg::RequestCut)
-        }
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("v") => {
-            pane(PaneMsg::RequestPaste)
-        }
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("z") => Some(Msg::PerformUndo),
         _ => None,
     }
+}
+
+/// iced application のテーマ (main.rs の .theme() から呼ばれる)。
+pub fn theme(app: &App) -> iced::Theme {
+    app.theme.to_iced()
 }
 
 pub fn subscription(app: &App) -> Subscription<Msg> {
@@ -1011,6 +1114,10 @@ fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Val
 }
 
 pub fn view(app: &App) -> Element<'_, Msg> {
+    // 設定画面 (独立 view — F-1101)
+    if app.show_settings {
+        return settings_view::view(&app.settings).map(Msg::Settings);
+    }
     // ---- 縦タブバー (左) ----
     let tabs: Vec<TabItem> = (0..app.model.tabs.len())
         .map(|ix| TabItem {
@@ -1018,14 +1125,19 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             locked: app.model.tabs[ix].locked,
         })
         .collect();
-    let tab_bar = TabBar::new(tabs, app.model.active, 1, |ev| {
-        Msg::Core(AppMsg::Tab(match ev {
-            TabBarEvent::Select(ix) => TabMsg::Select(ix),
-            TabBarEvent::Close(ix) => TabMsg::Close(ix),
-            TabBarEvent::ToggleLock(ix) => TabMsg::ToggleLock(ix),
-            TabBarEvent::Reorder { from, to } => TabMsg::Reorder { from, to },
-        }))
-    });
+    let tab_bar = TabBar::new(
+        tabs,
+        app.model.active,
+        app.settings.tab_columns as usize,
+        |ev| {
+            Msg::Core(AppMsg::Tab(match ev {
+                TabBarEvent::Select(ix) => TabMsg::Select(ix),
+                TabBarEvent::Close(ix) => TabMsg::Close(ix),
+                TabBarEvent::ToggleLock(ix) => TabMsg::ToggleLock(ix),
+                TabBarEvent::Reorder { from, to } => TabMsg::Reorder { from, to },
+            }))
+        },
+    );
     let add_btn = button(text("＋").size(14))
         .style(button::text)
         .padding([2, 10])

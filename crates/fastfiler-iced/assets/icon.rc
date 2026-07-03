@@ -1,0 +1,7 @@
+// Windows Resource Script — exe アイコン埋め込み用
+// embed-resource (build.rs) から rc.exe / windres でコンパイルされる
+//
+// ID は 1 にする: gpui_windows の load_icon() が LoadImageW(MAKEINTRESOURCE(1))
+// でウィンドウクラス用アイコン (タイトルバー / Alt+Tab / タスクバー) を読むため。
+// 名前付き (IDI_ICON1 等) だと exe アイコンには使われるがこちらが失敗する。
+1 ICON "icon.ico"
