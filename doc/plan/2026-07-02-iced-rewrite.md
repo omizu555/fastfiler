@@ -618,3 +618,13 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   (Overlay::DropMenu + when:"drop")。衝突検出は plan_transfer 経路で全経路共通 (F-503)。
 - 残: **5c** — 外部 OLE D&D (受信 register_drop_target 本配線 + ペイン/行ヒットテスト +
   右ボタンラッチ (Phase 0 知見) / 送信 start_drag + ウィンドウ外検出 / 安全側削除 F-606)。
+
+### 2026-07-04 — Phase 5c + セルフレビュー: 外部 OLE D&D 完成 (Issue #6 実装完了)
+- **5c (6983096)**: S-3 スパイクの本配線 — init_ole + drag_and_drop=false / 受信は
+  ヒットテスト表 (Arc<Mutex<(矩形[物理px], cur_path)>>) で enter/over を即答、drop は
+  既存 domain チャネル (ole:drop) 経由 / 送信は CursorLeft → DoDragDrop (UI スレッド
+  同期) → MOVE 完了時のみゴミ箱 (F-606) / decide_drop_effect を core 純関数化。
+- **レビュー 6 件修正 (525bd61)**: リスト外リリースの drag 残置→誤転送 (グローバル
+  Released 監視) / 幽霊ドラッグ / **自己ネスト転送** (dest.starts_with(src) 拒否) /
+  異 DPI モニタの追従 / pane_rects 掃除 / 両ボタン同時押し。core 75 テスト。
+- 既知の逸脱候補: 外部受信はペイン単位ゾーン (行レベルは内部のみ) — Phase 7 で照合。
