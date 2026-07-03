@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use fastfiler_core::transfer::TransferOp;
+use fastfiler_core::update_app::AppMsg;
 use fastfiler_core::{Effect, Entry, PaneMsg};
 use fastfiler_domain::events::EventSink;
 use fastfiler_domain::file_jobs::{JobItem, JobRegistry};
@@ -157,24 +158,23 @@ pub enum OpOutcome {
     Failed(String),
 }
 
-pub fn run(
-    effect: Effect,
-    known_icons: HashSet<String>,
-    synth: Option<usize>,
-    jobs: &Jobs,
-) -> Task<Msg> {
+/// pane 文脈が不要な Effect の実行。LoadDir/SpawnJob/PaneClosed/ScheduleSessionSave は
+/// App 側 (run_effects) が資源登録と併せて処理する。
+pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
     match effect {
-        Effect::LoadDir { generation, path } => {
-            Task::future(load_dir(generation, path, known_icons, synth))
-        }
+        Effect::LoadDir { .. }
+        | Effect::SpawnJob { .. }
+        | Effect::PaneClosed(_)
+        | Effect::OpenTabFor { .. }
+        | Effect::ScheduleSessionSave => Task::none(),
         Effect::OpenFile { path } => {
             // domain 側が専用スレッドで ShellExecuteW する (UI 再入なし)
             shell::open_with_shell_async(path.to_string_lossy().to_string());
             Task::none()
         }
-        Effect::Debounce { seq, millis } => Task::future(async move {
+        Effect::Debounce { pane, seq, millis } => Task::future(async move {
             tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
-            Msg::Pane(PaneMsg::ReloadTick(seq))
+            Msg::Core(AppMsg::Pane(pane, PaneMsg::ReloadTick(seq)))
         }),
         Effect::ClipboardWrite { paths, op } => blocking_op(move || {
             let n = paths.len();
@@ -192,26 +192,24 @@ pub fn run(
                 }),
             })
         }),
-        Effect::ClipboardRead => Task::future(async {
+        Effect::ClipboardRead { pane } => Task::future(async move {
             let read =
                 tokio::task::spawn_blocking(fastfiler_domain::win_clipboard::clipboard_read_paths)
                     .await;
+            let to_pane = |m: PaneMsg| Msg::Core(AppMsg::Pane(pane, m));
             match read {
-                Ok(Ok(Some(cb))) => Msg::Pane(PaneMsg::PasteRead {
+                Ok(Ok(Some(cb))) => to_pane(PaneMsg::PasteRead {
                     paths: cb.paths,
                     op: cb.op,
                 }),
                 // クリップボードにファイルなし → 無言 (貼り付け淡色相当)
-                Ok(Ok(None)) => Msg::Pane(PaneMsg::StatusMsg(
+                Ok(Ok(None)) => to_pane(PaneMsg::StatusMsg(
                     "クリップボードにファイルがありません".into(),
                 )),
-                Ok(Err(e)) => Msg::Pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
-                Err(e) => Msg::Pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
+                Ok(Err(e)) => to_pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
+                Err(e) => to_pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
             }
         }),
-        // SpawnJob は app.rs run_effects が spawn_job() を直接呼ぶ (Undo 候補の登録を
-        // スレッド起動前に済ませるため)。ここには来ない。
-        Effect::SpawnJob { .. } => Task::none(),
         Effect::CancelJob { id } => {
             jobs.registry.cancel(id);
             Task::none()
@@ -375,7 +373,19 @@ pub fn perform_undo(op: UndoOp) -> Task<Msg> {
     })
 }
 
+/// 一覧読み込みタスク (pane 宛に DirLoaded を返す)。
+pub fn load_dir_task(
+    pane: fastfiler_core::PaneId,
+    generation: u64,
+    path: PathBuf,
+    known_icons: HashSet<String>,
+    synth: Option<usize>,
+) -> Task<Msg> {
+    Task::future(load_dir(pane, generation, path, known_icons, synth))
+}
+
 async fn load_dir(
+    pane: fastfiler_core::PaneId,
     generation: u64,
     path: PathBuf,
     known_icons: HashSet<String>,
@@ -396,11 +406,13 @@ async fn load_dir(
     });
     match job.await {
         Ok((result, icons)) => Msg::DirLoaded {
+            pane,
             generation,
             result,
             icons,
         },
         Err(e) => Msg::DirLoaded {
+            pane,
             generation,
             result: Err(format!("load task panicked: {e}")),
             icons: Vec::new(),

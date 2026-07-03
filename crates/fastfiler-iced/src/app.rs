@@ -1,4 +1,4 @@
-//! iced アプリの組み立て (Phase 1: 単一ペイン)。
+//! iced アプリの組み立て (Phase 3: 縦タブ + BSP 分割ペイン)。
 //!
 //! この層の仕事は「入力 → core の Msg 変換」「Effect の実行」「view の組み立て」だけ
 //! (計画書 §5.1 の薄い皮)。状態遷移のロジックは fastfiler-core に置く。
@@ -7,17 +7,22 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
+use fastfiler_core::app_model::{panes_alive, AppModel};
+use fastfiler_core::bsp::{PaneNode, SplitDir, PANE_MIN_PX};
 use fastfiler_core::model::{ModalKind, DEFAULT_ROW_H};
 use fastfiler_core::transfer::ConflictChoice;
-use fastfiler_core::update::{navigate, update_pane};
-use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneMsg, PaneState};
+use fastfiler_core::update::navigate;
+use fastfiler_core::update_app::{update_app, AppMsg, TabMsg};
+use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneId, PaneMsg};
 use fastfiler_domain::undo::UndoManager;
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::{button, column, container, image, row, stack, text, text_input};
-use iced::{mouse, window, Element, Event, Length, Subscription, Task};
+use iced::{mouse, window, Element, Event, Length, Size, Subscription, Task};
 
 use crate::effects::{self, domain_channel, IconBytes, Jobs, OpOutcome, PaneWatcher};
-use crate::widgets::file_list::{FileList, ListEvent};
+use crate::widgets::drag_handle::DragHandle;
+use crate::widgets::file_list::{FileList, ListEvent, HEADER_H};
+use crate::widgets::tab_bar::{TabBar, TabBarEvent, TabItem, CELL_H};
 
 /// モーダル入力欄のウィジェット Id (開いたときのフォーカス/選択操作の宛先)。
 fn modal_input_id() -> iced::advanced::widget::Id {
@@ -28,18 +33,22 @@ fn path_input_id() -> iced::advanced::widget::Id {
 }
 
 pub struct App {
-    pane: PaneState,
+    model: AppModel,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
-    /// ペインの watcher 資源 (navigate で付け替え。Phase 3 で PaneId → watcher 表へ)。
-    watcher: PaneWatcher,
+    /// ペイン毎の watcher 資源 (PaneClosed で解放 — N-02 の検証対象)。
+    watchers: HashMap<PaneId, PaneWatcher>,
     /// ファイルジョブのレジストリ (キャンセル) + 通し番号。
     jobs: Jobs,
+    /// ジョブの所属ペイン (進捗/完了イベントのルーティング先)。
+    job_owner: HashMap<u64, PaneId>,
     /// Undo 履歴 (全ペイン共通・直近 20 件 — domain の実装を再利用。ADR 0006/0008)。
     undo: UndoManager,
     /// 実行中 move ジョブの Undo 候補 (JobDone 全件成功で確定 — ADR 0008)。
     pending_move_undo: HashMap<u64, Vec<fastfiler_domain::undo::MoveItem>>,
+    /// ウィンドウの論理サイズ (分割リサイズの px→比率換算とセッション保存用)。
+    window_size: Size,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
     synth: Option<usize>,
     bench: Option<Bench>,
@@ -54,16 +63,16 @@ struct Bench {
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    List(ListEvent),
-    /// core メッセージの直接投入 (デバウンス tick・パス入力・履歴ボタン等)。
-    Pane(PaneMsg),
+    /// FileList のイベント (どのペインからかを添えて)。
+    List(PaneId, ListEvent),
+    /// core メッセージの直接投入。
+    Core(AppMsg),
     Key(keyboard::Event),
     Window(window::Event),
-    /// マウス第 4/5 ボタン (戻る/進む) — ウィンドウ全体で有効。
-    MouseNav(PaneMsg),
     /// domain イベント (watcher / ジョブ)。
     Domain(String, serde_json::Value),
     DirLoaded {
+        pane: PaneId,
         generation: u64,
         result: Result<Vec<Entry>, String>,
         icons: IconBytes,
@@ -91,23 +100,52 @@ pub fn boot() -> (App, Task<Msg>) {
             reported: false,
         });
 
-    let mut pane = PaneState::new(start.clone());
-    pane.row_h = DEFAULT_ROW_H;
+    let mut model = AppModel::new(start.clone());
+    {
+        let id = model.focused_pane();
+        model.panes[id].row_h = DEFAULT_ROW_H;
+    }
     let mut app = App {
-        pane,
+        model,
         icons: HashMap::new(),
         modifiers: keyboard::Modifiers::default(),
-        watcher: PaneWatcher::new(),
+        watchers: HashMap::new(),
         jobs: Jobs::new(),
+        job_owner: HashMap::new(),
         undo: UndoManager::new(),
         pending_move_undo: HashMap::new(),
+        window_size: Size::new(960.0, 640.0),
         synth,
         bench,
     };
     // 初期フォルダの読み込み (通常のナビゲーションと同じ経路)
-    let effects = navigate(&mut app.pane, start);
-    app.watcher.watch(&app.pane.cur_path); // apply() を通らないため明示的に監視開始
+    let id = app.model.focused_pane();
+    let effects = navigate(&mut app.model.panes[id], id, start);
     let load = app.run_effects(effects);
+
+    // B-3: タブ/ペイン開閉ストレス (FASTFILER_STRESS=n)。
+    // 実 watcher 込みで n 回開閉し、PANES_ALIVE と watcher 数がベースラインへ
+    // 戻ることを stdout に出す (スレッド/ハンドル数は外部の Get-Process で計測)。
+    if let Ok(n) = std::env::var("FASTFILER_STRESS") {
+        if let Ok(n) = n.parse::<u32>() {
+            let before = (panes_alive(), app.watchers.len());
+            for _ in 0..n {
+                let _ = app.apply(AppMsg::Tab(TabMsg::Add));
+                let _ = app.apply(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)));
+                let _ = app.apply(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Column)));
+                let active = app.model.active;
+                let _ = app.apply(AppMsg::Tab(TabMsg::Close(active)));
+            }
+            println!(
+                "STRESS_RESULT cycles={n} panes_before={} panes_after={} watchers_before={} watchers_after={}",
+                before.0,
+                panes_alive(),
+                before.1,
+                app.watchers.len()
+            );
+        }
+    }
+
     let auto = crate::dev::autoclose_task(Msg::AutoClose);
     (app, Task::batch([load, auto]))
 }
@@ -120,7 +158,7 @@ fn dirs_home() -> PathBuf {
 
 pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
     match msg {
-        Msg::List(ev) => {
+        Msg::List(pane, ev) => {
             let pane_msg = match ev {
                 ListEvent::RowPressed { ix, .. } => PaneMsg::RowPressed {
                     ix,
@@ -135,29 +173,49 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 ListEvent::Scrolled(o) => PaneMsg::Scrolled(o),
                 ListEvent::ViewportChanged { height } => PaneMsg::ViewportChanged { height },
             };
-            app.apply(pane_msg)
+            app.apply(AppMsg::Pane(pane, pane_msg))
         }
-        Msg::Pane(m) | Msg::MouseNav(m) => app.apply(m),
+        Msg::Core(m) => app.apply(m),
         Msg::Domain(event, payload) => {
             let ev = domain_event::parse(&event, &payload);
-            // 移動ジョブの Undo 確定: 全件成功時のみ記録 (ADR 0008。部分成功は非記録)
-            if let domain_event::DomainEvent::JobDone {
-                job_id,
-                ok,
-                canceled,
-                done_files,
-                total_files,
-                ..
-            } = &ev
-            {
-                if let Some(items) = app.pending_move_undo.remove(job_id) {
-                    if *ok && !*canceled && done_files == total_files {
-                        app.undo
-                            .push(fastfiler_domain::undo::UndoOp::Move { items });
+            match &ev {
+                domain_event::DomainEvent::FsChange { .. } => {
+                    // 全ペインへブロードキャスト (各ペインが cur_path で選別する)
+                    let ids: Vec<PaneId> = app.model.panes.keys().collect();
+                    let tasks: Vec<Task<Msg>> = ids
+                        .into_iter()
+                        .map(|id| app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev.clone()))))
+                        .collect();
+                    Task::batch(tasks)
+                }
+                domain_event::DomainEvent::JobProgress { job_id, .. } => {
+                    match app.job_owner.get(job_id).copied() {
+                        Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
+                        None => Task::none(),
                     }
                 }
+                domain_event::DomainEvent::JobDone {
+                    job_id,
+                    ok,
+                    canceled,
+                    done_files,
+                    total_files,
+                    ..
+                } => {
+                    // 移動ジョブの Undo 確定: 全件成功時のみ記録 (ADR 0008)
+                    if let Some(items) = app.pending_move_undo.remove(job_id) {
+                        if *ok && !*canceled && done_files == total_files {
+                            app.undo
+                                .push(fastfiler_domain::undo::UndoOp::Move { items });
+                        }
+                    }
+                    match app.job_owner.remove(job_id) {
+                        Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
+                        None => Task::none(),
+                    }
+                }
+                domain_event::DomainEvent::Unknown { .. } => Task::none(),
             }
-            app.apply(PaneMsg::Domain(ev))
         }
         Msg::Key(keyboard::Event::ModifiersChanged(m)) => {
             app.modifiers = m;
@@ -166,20 +224,27 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         Msg::Key(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
             app.modifiers = modifiers;
             match key_to_msg(&key, modifiers) {
-                Some(m) => app.apply(m),
+                Some(m) => update(app, m),
                 None => Task::none(),
             }
         }
         Msg::Key(_) => Task::none(),
         Msg::Window(ev) => {
-            // フォーカス喪失中に修飾キーを離すと ModifiersChanged が届かず
-            // stale になる (Alt+Tab 復帰後の誤 Ctrl+クリック) ため、境界でリセット
-            if matches!(ev, window::Event::Unfocused | window::Event::Focused) {
-                app.modifiers = keyboard::Modifiers::default();
+            match ev {
+                // フォーカス喪失中に修飾キーを離すと ModifiersChanged が届かず
+                // stale になる (Alt+Tab 復帰後の誤 Ctrl+クリック) ため、境界でリセット
+                window::Event::Unfocused | window::Event::Focused => {
+                    app.modifiers = keyboard::Modifiers::default();
+                }
+                window::Event::Resized(size) => {
+                    app.window_size = size;
+                }
+                _ => {}
             }
             Task::none()
         }
         Msg::DirLoaded {
+            pane,
             generation,
             result,
             icons,
@@ -199,7 +264,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 },
                 Err(error) => PaneMsg::LoadFailed { generation, error },
             };
-            app.apply(m)
+            app.apply(AppMsg::Pane(pane, m))
         }
         Msg::OpDone(outcome) => match outcome {
             OpOutcome::Done { record, message } => {
@@ -207,37 +272,50 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                     app.undo.push(op);
                 }
                 let status = match message {
-                    Some(m) => app.apply(PaneMsg::StatusMsg(m)),
+                    Some(m) => app.apply(AppMsg::Focused(PaneMsg::StatusMsg(m))),
                     None => Task::none(),
                 };
                 // watcher が効かないフォルダでも結果を反映 (明示 reload — GPUI パリティ)
-                let reload = app.apply(PaneMsg::Reload);
+                let reload = app.apply(AppMsg::Focused(PaneMsg::Reload));
                 Task::batch([status, reload])
             }
-            OpOutcome::Failed(e) => app.apply(PaneMsg::StatusMsg(format!("エラー: {e}"))),
+            OpOutcome::Failed(e) => {
+                app.apply(AppMsg::Focused(PaneMsg::StatusMsg(format!("エラー: {e}"))))
+            }
         },
         Msg::PerformUndo => match app.undo.pop() {
             Some(op) => effects::perform_undo(op),
-            None => app.apply(PaneMsg::StatusMsg("元に戻す操作はありません".into())),
+            None => app.apply(AppMsg::Focused(PaneMsg::StatusMsg(
+                "元に戻す操作はありません".into(),
+            ))),
         },
         Msg::Frame(now) => {
             // ベンチ: Loaded 後の最初の描画フレームで計測を打ち切る
             if let Some(b) = &mut app.bench {
                 if let (Some(loaded), false) = (b.loaded_at, b.reported) {
-                    b.reported = true;
-                    println!(
-                        "BENCH_OPEN_MS {:.1}\nBENCH_PAINT_MS {:.1}\nBENCH_ROWS {}",
-                        (loaded - b.t0).as_secs_f64() * 1000.0,
-                        (now - b.t0).as_secs_f64() * 1000.0,
-                        app.pane.entries.len()
-                    );
-                    return iced::exit();
+                    if now >= loaded {
+                        b.reported = true;
+                        let id = app.model.focused_pane();
+                        println!(
+                            "BENCH_OPEN_MS {:.1}\nBENCH_PAINT_MS {:.1}\nBENCH_ROWS {}",
+                            (loaded - b.t0).as_secs_f64() * 1000.0,
+                            (now - b.t0).as_secs_f64() * 1000.0,
+                            app.model.panes[id].entries.len()
+                        );
+                        return iced::exit();
+                    }
                 }
             }
             Task::none()
         }
         Msg::AutoClose => {
-            println!("WINDOW_OK rows={}", app.pane.entries.len());
+            let id = app.model.focused_pane();
+            println!(
+                "WINDOW_OK rows={} panes_alive={} watchers={}",
+                app.model.panes[id].entries.len(),
+                panes_alive(),
+                app.watchers.len()
+            );
             iced::exit()
         }
     }
@@ -245,18 +323,15 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
 
 impl App {
     /// core の update を呼び、返った Effect を Task に変換する。
-    fn apply(&mut self, msg: PaneMsg) -> Task<Msg> {
-        let overlay_before = self.pane.overlay.is_some();
-        let effects = update_pane(&mut self.pane, msg);
-        // 読み込み Effect が出たら watcher の監視先も現在フォルダへ追従
-        if effects
-            .iter()
-            .any(|e| matches!(e, fastfiler_core::Effect::LoadDir { .. }))
-        {
-            self.watcher.watch(&self.pane.cur_path);
-        }
+    fn apply(&mut self, msg: AppMsg) -> Task<Msg> {
+        let overlay_before = self
+            .model
+            .panes
+            .get(self.model.focused_pane())
+            .is_some_and(|p| p.overlay.is_some());
+        let effects = update_app(&mut self.model, msg);
         let mut task = self.run_effects(effects);
-        // 入力オーバーレイが開いたらフォーカスを移す (F2 は拡張子手前まで選択 — USAGE.md §2)
+        // 入力オーバーレイが開いたらフォーカスを移す (F2 は拡張子手前まで選択)
         if !overlay_before {
             task = Task::batch([task, self.overlay_focus_task()]);
         }
@@ -265,7 +340,11 @@ impl App {
 
     fn overlay_focus_task(&self) -> Task<Msg> {
         use iced::widget::operation;
-        match &self.pane.overlay {
+        let id = self.model.focused_pane();
+        let Some(p) = self.model.panes.get(id) else {
+            return Task::none();
+        };
+        match &p.overlay {
             Some(Overlay::PathEdit { .. }) => operation::focus(path_input_id()),
             Some(Overlay::Modal { kind, value }) => {
                 let focus = operation::focus(modal_input_id());
@@ -287,17 +366,41 @@ impl App {
     }
 
     fn run_effects(&mut self, effects: Vec<fastfiler_core::Effect>) -> Task<Msg> {
+        use fastfiler_core::Effect;
         if effects.is_empty() {
-            return Task::none(); // 大半のメッセージは Effect なし — キー集合の複製を避ける
+            return Task::none();
         }
         let known: HashSet<String> = self.icons.keys().cloned().collect();
         let mut tasks = Vec::new();
         for e in effects {
             match e {
-                // ジョブ起動はここで直接行う: id 採番 → Undo 候補の登録 → スレッド起動、
-                // の順を守る (起動後の登録だと速いジョブの JobDone に追い越されるレース)
-                fastfiler_core::Effect::SpawnJob { op, items } => {
+                Effect::LoadDir {
+                    pane,
+                    generation,
+                    path,
+                } => {
+                    // watcher の監視先をこのペインの新フォルダへ追従
+                    self.watchers
+                        .entry(pane)
+                        .or_default()
+                        .watch(std::path::Path::new(&path));
+                    tasks.push(effects::load_dir_task(
+                        pane,
+                        generation,
+                        path,
+                        known.clone(),
+                        self.synth,
+                    ));
+                }
+                Effect::PaneClosed(id) => {
+                    // watcher 等の付随リソースを解放 (N-02)
+                    self.watchers.remove(&id);
+                }
+                // ジョブ起動: id 採番 → Undo 候補 + 所属ペイン登録 → スレッド起動の順
+                // (起動後の登録だと速いジョブの JobDone に追い越されるレース)
+                Effect::SpawnJob { pane, op, items } => {
                     let job_id = self.jobs.next_id();
+                    self.job_owner.insert(job_id, pane);
                     if op == fastfiler_core::transfer::TransferOp::Move {
                         let undo_items = items
                             .iter()
@@ -310,7 +413,9 @@ impl App {
                     }
                     effects::spawn_job(&self.jobs, job_id, op, items);
                 }
-                other => tasks.push(effects::run(other, known.clone(), self.synth, &self.jobs)),
+                // セッション保存は 3c で配線 (persist + 800ms デバウンス)
+                Effect::ScheduleSessionSave => {}
+                other => tasks.push(effects::run(other, &self.jobs)),
             }
         }
         Task::batch(tasks)
@@ -318,37 +423,42 @@ impl App {
 }
 
 /// キー入力 → core メッセージ (固定キー。ホットキー設定は Phase 6)。
-fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<PaneMsg> {
+fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
     let shift = m.shift();
+    let pane = |p: PaneMsg| Some(Msg::Core(AppMsg::Focused(p)));
+    let tab = |t: TabMsg| Some(Msg::Core(AppMsg::Tab(t)));
     match key.as_ref() {
-        Key::Named(Named::ArrowUp) => Some(PaneMsg::Nav(NavKey::Up, shift)),
-        Key::Named(Named::ArrowDown) => Some(PaneMsg::Nav(NavKey::Down, shift)),
-        Key::Named(Named::ArrowLeft) if m.alt() => Some(PaneMsg::GoBack),
-        Key::Named(Named::ArrowRight) if m.alt() => Some(PaneMsg::GoForward),
-        Key::Named(Named::PageUp) => Some(PaneMsg::Nav(NavKey::PageUp, shift)),
-        Key::Named(Named::PageDown) => Some(PaneMsg::Nav(NavKey::PageDown, shift)),
-        Key::Named(Named::Home) => Some(PaneMsg::Nav(NavKey::Home, shift)),
-        Key::Named(Named::End) => Some(PaneMsg::Nav(NavKey::End, shift)),
-        Key::Named(Named::Enter) => Some(PaneMsg::ActivateCursor),
-        Key::Named(Named::Backspace) => Some(PaneMsg::GoParent),
-        Key::Named(Named::Escape) => Some(PaneMsg::ClearSelection),
-        Key::Named(Named::F5) => Some(PaneMsg::Reload),
-        Key::Named(Named::F2) => Some(PaneMsg::OpenRename),
-        Key::Named(Named::F7) => Some(PaneMsg::OpenNewFolder),
-        Key::Named(Named::F8) => Some(PaneMsg::OpenNewFile),
-        Key::Named(Named::Delete) => Some(PaneMsg::RequestDelete),
+        Key::Named(Named::ArrowUp) => pane(PaneMsg::Nav(NavKey::Up, shift)),
+        Key::Named(Named::ArrowDown) => pane(PaneMsg::Nav(NavKey::Down, shift)),
+        Key::Named(Named::ArrowLeft) if m.alt() => pane(PaneMsg::GoBack),
+        Key::Named(Named::ArrowRight) if m.alt() => pane(PaneMsg::GoForward),
+        Key::Named(Named::PageUp) => pane(PaneMsg::Nav(NavKey::PageUp, shift)),
+        Key::Named(Named::PageDown) => pane(PaneMsg::Nav(NavKey::PageDown, shift)),
+        Key::Named(Named::Home) => pane(PaneMsg::Nav(NavKey::Home, shift)),
+        Key::Named(Named::End) => pane(PaneMsg::Nav(NavKey::End, shift)),
+        Key::Named(Named::Enter) => pane(PaneMsg::ActivateCursor),
+        Key::Named(Named::Backspace) => pane(PaneMsg::GoParent),
+        Key::Named(Named::Escape) => pane(PaneMsg::ClearSelection),
+        Key::Named(Named::F5) => pane(PaneMsg::Reload),
+        Key::Named(Named::F2) => pane(PaneMsg::OpenRename),
+        Key::Named(Named::F6) => tab(TabMsg::CycleFocus),
+        Key::Named(Named::F7) => pane(PaneMsg::OpenNewFolder),
+        Key::Named(Named::F8) => pane(PaneMsg::OpenNewFile),
+        Key::Named(Named::Delete) => pane(PaneMsg::RequestDelete),
+        Key::Named(Named::Tab) if m.control() && m.shift() => tab(TabMsg::Prev),
+        Key::Named(Named::Tab) if m.control() => tab(TabMsg::Next),
         // CapsLock ON では "A" が届くため大文字小文字を無視して比較
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("a") => Some(PaneMsg::SelectAll),
+        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("a") => pane(PaneMsg::SelectAll),
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("c") => {
-            Some(PaneMsg::RequestCopy)
+            pane(PaneMsg::RequestCopy)
         }
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("x") => {
-            Some(PaneMsg::RequestCut)
+            pane(PaneMsg::RequestCut)
         }
         Key::Character(c) if m.control() && c.eq_ignore_ascii_case("v") => {
-            Some(PaneMsg::RequestPaste)
+            pane(PaneMsg::RequestPaste)
         }
-        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("z") => Some(PaneMsg::Undo),
+        Key::Character(c) if m.control() && c.eq_ignore_ascii_case("z") => Some(Msg::PerformUndo),
         _ => None,
     }
 }
@@ -362,10 +472,10 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
         // マウス第 4/5 ボタン = 戻る/進む (F-303。ウィンドウ全域で有効)
         iced::event::listen_with(|event, _status, _id| match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) => {
-                Some(Msg::MouseNav(PaneMsg::GoBack))
+                Some(Msg::Core(AppMsg::Focused(PaneMsg::GoBack)))
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Forward)) => {
-                Some(Msg::MouseNav(PaneMsg::GoForward))
+                Some(Msg::Core(AppMsg::Focused(PaneMsg::GoForward)))
             }
             _ => None,
         }),
@@ -382,94 +492,52 @@ fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Val
 }
 
 pub fn view(app: &App) -> Element<'_, Msg> {
-    // パスバー: 通常はテキスト + クリックで直接入力 (F-304)、
-    // PathEdit オーバーレイ中は text_input (Enter 確定 / Esc 取消)
-    let path_bar: Element<'_, Msg> = match &app.pane.overlay {
-        Some(Overlay::PathEdit { value }) => text_input("パスを入力…", value)
-            .id(path_input_id())
-            .on_input(|v| Msg::Pane(PaneMsg::PathEditInput(v)))
-            .on_submit(Msg::Pane(PaneMsg::PathEditCommit))
-            .size(14)
-            .padding([2, 6])
-            .into(),
-        _ => button(text(app.pane.cur_path.to_string_lossy().to_string()).size(14))
-            .style(button::text)
-            .padding([2, 6])
-            .width(Length::Fill)
-            .on_press(Msg::Pane(PaneMsg::OpenPathEdit))
-            .into(),
-    };
-    let nav_btn = |label: &'static str, enabled: bool, msg: PaneMsg| {
-        button(text(label).size(14))
-            .style(button::text)
-            .padding([2, 8])
-            .on_press_maybe(enabled.then_some(Msg::Pane(msg)))
-    };
-    let path_row = container(
-        row![
-            nav_btn("←", !app.pane.history_back.is_empty(), PaneMsg::GoBack),
-            nav_btn("→", !app.pane.history_fwd.is_empty(), PaneMsg::GoForward),
-            nav_btn("↑", app.pane.cur_path.parent().is_some(), PaneMsg::GoParent),
-            path_bar,
-        ]
-        .spacing(4)
-        .align_y(iced::Alignment::Center),
-    )
-    .padding([4, 8])
-    .width(Length::Fill);
+    // ---- 縦タブバー (左) ----
+    let tabs: Vec<TabItem> = (0..app.model.tabs.len())
+        .map(|ix| TabItem {
+            title: app.model.tab_title(ix),
+            locked: app.model.tabs[ix].locked,
+        })
+        .collect();
+    let tab_bar = TabBar::new(tabs, app.model.active, 1, |ev| {
+        Msg::Core(AppMsg::Tab(match ev {
+            TabBarEvent::Select(ix) => TabMsg::Select(ix),
+            TabBarEvent::Close(ix) => TabMsg::Close(ix),
+            TabBarEvent::ToggleLock(ix) => TabMsg::ToggleLock(ix),
+            TabBarEvent::Reorder { from, to } => TabMsg::Reorder { from, to },
+        }))
+    });
+    let add_btn = button(text("＋").size(14))
+        .style(button::text)
+        .padding([2, 10])
+        .on_press(Msg::Core(AppMsg::Tab(TabMsg::Add)));
+    let tab_col = container(column![add_btn, Element::new(tab_bar)].spacing(2))
+        .width(Length::Fixed(app.model.tab_width))
+        .height(Length::Fill)
+        .padding(2);
+    // タブバー幅リサイズ (100〜600px)
+    let cur_w = app.model.tab_width;
+    let tab_w_handle = DragHandle::new(true, 1.0, move |d| {
+        Msg::Core(AppMsg::Tab(TabMsg::SetTabWidth(cur_w + d)))
+    });
 
-    let list: Element<'_, Msg> = FileList::new(&app.pane, &app.icons, Msg::List).into();
+    // ---- ペイン領域 (BSP 再帰) ----
+    let tab = app.model.active_tab();
+    let pane_area_w = (app.window_size.width - app.model.tab_width - 6.0).max(100.0);
+    let pane_area_h = (app.window_size.height - 24.0).max(100.0);
+    let pane_area = render_node(
+        app,
+        &tab.root,
+        Size::new(pane_area_w, pane_area_h),
+        tab.root.leaves().len() > 1,
+    );
 
-    // フッタ: ジョブ進捗 (+キャンセル) > 一時メッセージ > 件数/選択数
-    let footer: Element<'_, Msg> = if let Some(job) = &app.pane.job {
-        let label = match job.kind.as_str() {
-            "move" => "移動中",
-            "delete" => "削除中",
-            _ => "コピー中",
-        };
-        // current はフルパスで届くのでファイル名だけ表示 (GPUI パリティ —
-        // 長いパスがキャンセルボタンを押し出さないように)
-        let current = std::path::Path::new(&job.current)
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| job.current.clone());
-        row![
-            text(format!(
-                "{label}: {}/{} — {current}",
-                job.done_files, job.total_files
-            ))
-            .size(13)
-            .width(Length::Fill),
-            button(text("キャンセル").size(12))
-                .padding([1, 8])
-                .on_press(Msg::Pane(PaneMsg::CancelJobRequest)), // モーダル中でも効く専用経路
-        ]
-        .spacing(8)
-        .into()
-    } else {
-        let status = if app.pane.loading {
-            "読み込み中…".to_string()
-        } else if let Some(e) = &app.pane.load_error {
-            format!("エラー: {e}")
-        } else if let Some(m) = &app.pane.status_msg {
-            m.clone()
-        } else if app.pane.selected.is_empty() {
-            format!("{} 項目", app.pane.entries.len())
-        } else {
-            format!(
-                "{} 項目 / {} 個を選択",
-                app.pane.entries.len(),
-                app.pane.selected.len()
-            )
-        };
-        row![text(status).size(13)].spacing(8).into()
-    };
-    let footer = container(footer).padding([4, 8]).width(Length::Fill);
+    let main = row![tab_col, tab_w_handle, pane_area];
+    let root = column![main, container(text("FastFiler").size(11)).padding([2, 8]),];
 
-    let main = column![path_row, list, footer];
-
-    // モーダル/衝突ダイアログは view 最上段の stack で合成 (計画書 §4 オーバーレイ方針)
-    match &app.pane.overlay {
+    // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
+    let focused = app.model.focused_pane();
+    match app.model.panes.get(focused).and_then(|p| p.overlay.clone()) {
         Some(Overlay::Modal { kind, value }) => {
             let (title, placeholder) = match kind {
                 ModalKind::Rename { .. } => ("名前の変更", "新しい名前"),
@@ -477,28 +545,28 @@ pub fn view(app: &App) -> Element<'_, Msg> {
                 ModalKind::NewFile => ("新しいファイル", "ファイル名"),
             };
             let card = dialog_card(
-                title,
+                title.to_string(),
                 column![
-                    text_input(placeholder, value)
+                    text_input(placeholder, &value)
                         .id(modal_input_id())
-                        .on_input(|v| Msg::Pane(PaneMsg::ModalInput(v)))
-                        .on_submit(Msg::Pane(PaneMsg::ModalCommit))
+                        .on_input(|v| Msg::Core(AppMsg::Focused(PaneMsg::ModalInput(v))))
+                        .on_submit(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit)))
                         .size(14)
                         .padding(6),
                     row![
                         button(text("OK").size(13))
                             .padding([3, 14])
-                            .on_press(Msg::Pane(PaneMsg::ModalCommit)),
+                            .on_press(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit))),
                         button(text("キャンセル").size(13))
                             .padding([3, 14])
-                            .on_press(Msg::Pane(PaneMsg::ModalCancel)),
+                            .on_press(Msg::Core(AppMsg::Focused(PaneMsg::ModalCancel))),
                     ]
                     .spacing(8),
                 ]
                 .spacing(10)
                 .into(),
             );
-            stack![main, card].into()
+            stack![root, card].into()
         }
         Some(Overlay::Conflict { plan }) => {
             let n = plan.conflicts.len();
@@ -513,35 +581,220 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             } else {
                 format!("「{first}」ほか {n} 件が既に存在します。")
             };
+            let choice = |c: ConflictChoice| Msg::Core(AppMsg::Focused(PaneMsg::Conflict(c)));
             let card = dialog_card(
-                "同名のファイルがあります",
+                "同名のファイルがあります".to_string(),
                 column![
                     text(detail).size(13),
                     text("(複数件には一括で適用されます)").size(12),
                     row![
                         button(text("上書き").size(13))
                             .padding([3, 12])
-                            .on_press(Msg::Pane(PaneMsg::Conflict(ConflictChoice::Overwrite))),
+                            .on_press(choice(ConflictChoice::Overwrite)),
                         button(text("別名で保存").size(13))
                             .padding([3, 12])
-                            .on_press(Msg::Pane(PaneMsg::Conflict(ConflictChoice::RenameBoth))),
+                            .on_press(choice(ConflictChoice::RenameBoth)),
                         button(text("キャンセル").size(13))
                             .padding([3, 12])
-                            .on_press(Msg::Pane(PaneMsg::Conflict(ConflictChoice::Cancel))),
+                            .on_press(choice(ConflictChoice::Cancel)),
                     ]
                     .spacing(8),
                 ]
                 .spacing(10)
                 .into(),
             );
-            stack![main, card].into()
+            stack![root, card].into()
         }
-        _ => main.into(),
+        _ => root.into(),
     }
 }
 
+/// BSP を再帰描画する。`size` は px→比率換算のための概算サイズ。
+fn render_node<'a>(app: &'a App, node: &'a PaneNode, size: Size, multi: bool) -> Element<'a, Msg> {
+    match node {
+        PaneNode::Leaf(id) => pane_view(app, *id, multi),
+        PaneNode::Split {
+            id,
+            dir,
+            ratios,
+            children,
+        } => {
+            let split_id = *id;
+            let vertical = *dir == SplitDir::Row; // Row = 左右に並ぶ = 縦の仕切り
+            let total_px = if vertical { size.width } else { size.height };
+            let min_ratio = (PANE_MIN_PX / total_px.max(1.0)).min(0.45);
+            let mut items: Vec<Element<'a, Msg>> = Vec::new();
+            for (i, child) in children.iter().enumerate() {
+                let r = ratios
+                    .get(i)
+                    .copied()
+                    .unwrap_or(1.0 / children.len() as f32);
+                let child_size = if vertical {
+                    Size::new(size.width * r, size.height)
+                } else {
+                    Size::new(size.width, size.height * r)
+                };
+                if i > 0 {
+                    let handle_ix = i - 1;
+                    let per_px = 1.0 / total_px.max(1.0);
+                    items.push(
+                        DragHandle::new(vertical, per_px, move |d| {
+                            Msg::Core(AppMsg::Tab(TabMsg::Resize {
+                                split_id,
+                                handle_ix,
+                                delta_ratio: d,
+                                min_ratio,
+                            }))
+                        })
+                        .into(),
+                    );
+                }
+                let child_el = render_node(app, child, child_size, multi);
+                let portion = (r * 1000.0) as u16;
+                items.push(
+                    container(child_el)
+                        .width(if vertical {
+                            Length::FillPortion(portion.max(1))
+                        } else {
+                            Length::Fill
+                        })
+                        .height(if vertical {
+                            Length::Fill
+                        } else {
+                            Length::FillPortion(portion.max(1))
+                        })
+                        .into(),
+                );
+            }
+            if vertical {
+                iced::widget::Row::with_children(items)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            } else {
+                iced::widget::Column::with_children(items)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            }
+        }
+    }
+}
+
+/// 1 ペインの描画: ヘッダ (パスバー + ↔ ↕ ×) + 一覧 + フッタ。
+/// フォーカスペインには青枠 (F-204)。
+fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
+    let Some(p) = app.model.panes.get(id) else {
+        return text("").into();
+    };
+    let focused = app.model.focused_pane() == id;
+
+    // パスバー (フォーカスペインのみ PathEdit を input にする)
+    let path_bar: Element<'_, Msg> = match &p.overlay {
+        Some(Overlay::PathEdit { value }) if focused => text_input("パスを入力…", value)
+            .id(path_input_id())
+            .on_input(|v| Msg::Core(AppMsg::Focused(PaneMsg::PathEditInput(v))))
+            .on_submit(Msg::Core(AppMsg::Focused(PaneMsg::PathEditCommit)))
+            .size(13)
+            .padding([1, 6])
+            .into(),
+        _ => button(text(p.cur_path.to_string_lossy().to_string()).size(13))
+            .style(button::text)
+            .padding([1, 6])
+            .width(Length::Fill)
+            .on_press(Msg::Core(AppMsg::Pane(id, PaneMsg::OpenPathEdit)))
+            .into(),
+    };
+    let hbtn = |label: &'static str, msg: Msg| {
+        button(text(label).size(12))
+            .style(button::text)
+            .padding([1, 6])
+            .on_press(msg)
+    };
+    let header = row![
+        hbtn("↑", Msg::Core(AppMsg::Pane(id, PaneMsg::GoParent))),
+        path_bar,
+        hbtn(
+            "↔",
+            Msg::Core(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)))
+        ),
+        hbtn(
+            "↕",
+            Msg::Core(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Column)))
+        ),
+        hbtn("×", Msg::Core(AppMsg::Tab(TabMsg::ClosePane(id)))),
+    ]
+    .spacing(2)
+    .align_y(iced::Alignment::Center);
+
+    let list: Element<'_, Msg> = FileList::new(p, &app.icons, move |ev| Msg::List(id, ev)).into();
+
+    // フッタ: ジョブ進捗 > 一時メッセージ > 件数/選択数
+    let footer: Element<'_, Msg> = if let Some(job) = &p.job {
+        let label = match job.kind.as_str() {
+            "move" => "移動中",
+            "delete" => "削除中",
+            _ => "コピー中",
+        };
+        let current = std::path::Path::new(&job.current)
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| job.current.clone());
+        row![
+            text(format!(
+                "{label}: {}/{} — {current}",
+                job.done_files, job.total_files
+            ))
+            .size(12)
+            .width(Length::Fill),
+            button(text("キャンセル").size(11))
+                .padding([1, 8])
+                .on_press(Msg::Core(AppMsg::Pane(id, PaneMsg::CancelJobRequest))),
+        ]
+        .spacing(8)
+        .into()
+    } else {
+        let status = if p.loading {
+            "読み込み中…".to_string()
+        } else if let Some(e) = &p.load_error {
+            format!("エラー: {e}")
+        } else if let Some(m) = &p.status_msg {
+            m.clone()
+        } else if p.selected.is_empty() {
+            format!("{} 項目", p.entries.len())
+        } else {
+            format!("{} 項目 / {} 個を選択", p.entries.len(), p.selected.len())
+        };
+        row![text(status).size(12)].into()
+    };
+
+    let body = column![
+        container(header).padding([2, 4]),
+        list,
+        container(footer).padding([2, 6]),
+    ];
+    // フォーカスペインの青枠 (複数ペイン時のみ強調 — GPUI と同じ視覚言語)
+    let border_color = if focused && multi {
+        iced::Color::from_rgb(0.25, 0.55, 1.0)
+    } else {
+        iced::Color::TRANSPARENT
+    };
+    container(body)
+        .style(move |_| container::Style {
+            border: iced::Border {
+                color: border_color,
+                width: if focused && multi { 2.0 } else { 0.0 },
+                radius: 2.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
 /// 中央寄せのダイアログカード (背景を薄く暗くする)。
-fn dialog_card<'a>(title: &'a str, body: Element<'a, Msg>) -> Element<'a, Msg> {
+fn dialog_card(title: String, body: Element<'_, Msg>) -> Element<'_, Msg> {
     let panel = container(column![text(title).size(16), body].spacing(12))
         .padding(16)
         .max_width(420)
@@ -554,3 +807,7 @@ fn dialog_card<'a>(title: &'a str, body: Element<'a, Msg>) -> Element<'a, Msg> {
         })
         .into()
 }
+
+// FileList の HEADER_H / TabBar の CELL_H は将来のレイアウト計算用に re-export
+#[allow(unused)]
+const _: (f32, f32) = (HEADER_H, CELL_H);

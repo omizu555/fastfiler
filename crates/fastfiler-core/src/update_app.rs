@@ -23,6 +23,9 @@ pub enum TabMsg {
     /// ＋ボタン: アクティブペインと同じフォルダで開く (F-101)。
     Add,
     Select(usize),
+    /// Ctrl+Tab / Ctrl+Shift+Tab (F-102)。
+    Next,
+    Prev,
     Close(usize),
     /// 中クリック: ロック切替 (F-104)。
     ToggleLock(usize),
@@ -103,6 +106,14 @@ fn update_tab(m: &mut AppModel, msg: TabMsg) -> Vec<Effect> {
             if ix < m.tabs.len() {
                 m.active = ix;
             }
+            vec![]
+        }
+        TabMsg::Next => {
+            m.active = (m.active + 1) % m.tabs.len();
+            vec![]
+        }
+        TabMsg::Prev => {
+            m.active = (m.active + m.tabs.len() - 1) % m.tabs.len();
             vec![]
         }
         TabMsg::Close(ix) => m

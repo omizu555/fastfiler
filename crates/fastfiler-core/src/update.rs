@@ -277,7 +277,11 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             if plan.conflicts.is_empty() {
                 let items =
                     transfer::resolve_conflicts(&plan, ConflictChoice::Overwrite, &existing);
-                vec![Effect::SpawnJob { op, items }]
+                vec![Effect::SpawnJob {
+                    pane: id,
+                    op,
+                    items,
+                }]
             } else {
                 p.overlay = Some(Overlay::Conflict { plan });
                 vec![]
@@ -416,7 +420,11 @@ fn update_overlay(
                 if items.is_empty() {
                     return Some(vec![]);
                 }
-                Some(vec![Effect::SpawnJob { op: plan.op, items }])
+                Some(vec![Effect::SpawnJob {
+                    pane: id,
+                    op: plan.op,
+                    items,
+                }])
             }
             PaneMsg::ClearSelection => {
                 p.overlay = None;
@@ -943,6 +951,7 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::SpawnJob {
+                pane: PaneId::default(),
                 op: TransferOp::Copy,
                 items: vec![(
                     PathBuf::from("D:\\src\\new.txt"),
@@ -977,6 +986,7 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::SpawnJob {
+                pane: PaneId::default(),
                 op: TransferOp::Move,
                 items: vec![(
                     PathBuf::from("D:\\src\\a.txt"),

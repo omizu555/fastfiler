@@ -35,8 +35,9 @@ pub enum Effect {
     ClipboardRead {
         pane: PaneId,
     },
-    /// コピー/移動ジョブを起動する (進捗は DomainEvent 経由)。
+    /// コピー/移動ジョブを起動する (進捗は DomainEvent 経由で pane へ戻る)。
     SpawnJob {
+        pane: PaneId,
         op: crate::transfer::TransferOp,
         items: Vec<(PathBuf, PathBuf)>,
     },
