@@ -49,6 +49,15 @@ pub struct App {
     pending_move_undo: HashMap<u64, Vec<fastfiler_domain::undo::MoveItem>>,
     /// ウィンドウの論理サイズ (分割リサイズの px→比率換算とセッション保存用)。
     window_size: Size,
+    /// ウィンドウ位置 (セッション保存用)。
+    window_pos: Option<iced::Point>,
+    /// 非最大化時の最後の位置サイズ (最大化中の保存はこれを使う)。
+    saved_bounds: Option<[f32; 4]>,
+    restore_maximized: bool,
+    /// メインウィンドウ Id (is_maximized 問い合わせ用)。
+    window_id: Option<window::Id>,
+    /// セッション保存のデバウンス世代 (800ms)。
+    save_seq: u64,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
     synth: Option<usize>,
     bench: Option<Bench>,
@@ -81,6 +90,12 @@ pub enum Msg {
     OpDone(OpOutcome),
     /// Ctrl+Z (UndoManager から pop して逆操作を実行)。
     PerformUndo,
+    /// セッション保存デバウンス満了 (seq 一致時のみ保存)。
+    SessionSaveTick(u64),
+    /// is_maximized の結果を添えて保存を実行。
+    DoSessionSave(bool),
+    /// メインウィンドウが開いた (Id 記録 + 位置復元)。
+    WindowOpened(window::Id),
     Frame(Instant),
     AutoClose,
 }
@@ -100,7 +115,22 @@ pub fn boot() -> (App, Task<Msg>) {
             reported: false,
         });
 
-    let mut model = AppModel::new(start.clone());
+    // セッション復元 (F-1001)。FASTFILER_OPEN 指定時は復元をスキップ (検証用)
+    let session = if std::env::var("FASTFILER_OPEN").is_ok() {
+        None
+    } else {
+        fastfiler_core::session::load()
+    };
+    let (mut model, restored_panes, saved_bounds, restore_maximized) = match &session {
+        Some(data) => {
+            let (m, panes) = fastfiler_core::session::restore(data, start.clone());
+            (m, panes, data.window, data.maximized)
+        }
+        None => {
+            let m = AppModel::new(start.clone());
+            (m, vec![], None, false)
+        }
+    };
     {
         let id = model.focused_pane();
         model.panes[id].row_h = DEFAULT_ROW_H;
@@ -115,13 +145,29 @@ pub fn boot() -> (App, Task<Msg>) {
         undo: UndoManager::new(),
         pending_move_undo: HashMap::new(),
         window_size: Size::new(960.0, 640.0),
+        window_pos: None,
+        saved_bounds,
+        restore_maximized,
+        window_id: None,
+        save_seq: 0,
         synth,
         bench,
     };
-    // 初期フォルダの読み込み (通常のナビゲーションと同じ経路)
-    let id = app.model.focused_pane();
-    let effects = navigate(&mut app.model.panes[id], id, start);
-    let load = app.run_effects(effects);
+    // 復元された全ペイン (または初期ペイン) の読み込みを開始
+    let load = if restored_panes.is_empty() {
+        let id = app.model.focused_pane();
+        let effects = navigate(&mut app.model.panes[id], id, start);
+        app.run_effects(effects)
+    } else {
+        let tasks: Vec<Task<Msg>> = restored_panes
+            .into_iter()
+            .map(|id| {
+                let effects = fastfiler_core::update::reload(&mut app.model.panes[id], id);
+                app.run_effects(effects)
+            })
+            .collect();
+        Task::batch(tasks)
+    };
 
     // B-3: タブ/ペイン開閉ストレス (FASTFILER_STRESS=n)。
     // 実 watcher 込みで n 回開閉し、PANES_ALIVE と watcher 数がベースラインへ
@@ -238,9 +284,42 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 }
                 window::Event::Resized(size) => {
                     app.window_size = size;
+                    return app.schedule_save();
+                }
+                window::Event::Moved(pos) => {
+                    app.window_pos = Some(pos);
+                    return app.schedule_save();
+                }
+                window::Event::CloseRequested => {
+                    // 終了時保存 (F-1001): 最大化状態を確認してから保存 → exit
+                    return app.query_and_save(true);
                 }
                 _ => {}
             }
+            Task::none()
+        }
+        Msg::WindowOpened(id) => {
+            app.window_id = Some(id);
+            // ウィンドウ位置・サイズ・最大化の復元
+            let mut tasks = Vec::new();
+            if let Some([x, y, w, h]) = app.saved_bounds {
+                tasks.push(window::move_to::<Msg>(id, iced::Point::new(x, y)));
+                tasks.push(window::resize::<Msg>(id, Size::new(w, h)));
+            }
+            if app.restore_maximized {
+                tasks.push(window::maximize::<Msg>(id, true));
+            }
+            Task::batch(tasks)
+        }
+        Msg::SessionSaveTick(seq) => {
+            if seq == app.save_seq {
+                app.query_and_save(false)
+            } else {
+                Task::none()
+            }
+        }
+        Msg::DoSessionSave(maximized) => {
+            app.save_session(maximized);
             Task::none()
         }
         Msg::DirLoaded {
@@ -309,6 +388,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::none()
         }
         Msg::AutoClose => {
+            app.save_session(false);
             let id = app.model.focused_pane();
             println!(
                 "WINDOW_OK rows={} panes_alive={} watchers={}",
@@ -336,6 +416,57 @@ impl App {
             task = Task::batch([task, self.overlay_focus_task()]);
         }
         task
+    }
+
+    /// セッション保存を 800ms デバウンスで予約する。
+    fn schedule_save(&mut self) -> Task<Msg> {
+        self.bump_save_seq()
+    }
+
+    fn bump_save_seq(&mut self) -> Task<Msg> {
+        self.save_seq += 1;
+        let seq = self.save_seq;
+        Task::future(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            Msg::SessionSaveTick(seq)
+        })
+    }
+
+    /// is_maximized を確認してから保存する (exit_after = 終了時保存 → その後閉じる)。
+    fn query_and_save(&mut self, exit_after: bool) -> Task<Msg> {
+        match self.window_id {
+            Some(id) => {
+                let q = window::is_maximized(id).map(Msg::DoSessionSave);
+                if exit_after {
+                    q.chain(Task::future(async { Msg::AutoClose }))
+                } else {
+                    q
+                }
+            }
+            None => {
+                self.save_session(false);
+                if exit_after {
+                    Task::future(async { Msg::AutoClose })
+                } else {
+                    Task::none()
+                }
+            }
+        }
+    }
+
+    fn save_session(&mut self, maximized: bool) {
+        // 最大化中は直前の通常時 bounds を保持 (GPUI 版と同じ)
+        let bounds = if maximized {
+            self.saved_bounds
+        } else {
+            let p = self.window_pos.unwrap_or(iced::Point::new(100.0, 100.0));
+            Some([p.x, p.y, self.window_size.width, self.window_size.height])
+        };
+        if !maximized {
+            self.saved_bounds = bounds;
+        }
+        let data = fastfiler_core::session::snapshot(&self.model, bounds, maximized);
+        fastfiler_core::session::save(&data);
     }
 
     fn overlay_focus_task(&self) -> Task<Msg> {
@@ -413,8 +544,9 @@ impl App {
                     }
                     effects::spawn_job(&self.jobs, job_id, op, items);
                 }
-                // セッション保存は 3c で配線 (persist + 800ms デバウンス)
-                Effect::ScheduleSessionSave => {}
+                Effect::ScheduleSessionSave => {
+                    tasks.push(self.bump_save_seq());
+                }
                 other => tasks.push(effects::run(other, &self.jobs)),
             }
         }
@@ -467,6 +599,7 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
     let mut subs = vec![
         keyboard::listen().map(Msg::Key),
         window::events().map(|(_id, ev)| Msg::Window(ev)),
+        window::open_events().map(Msg::WindowOpened),
         // domain (watcher / ジョブ) イベント: アプリ単一チャネルの受信端
         Subscription::run(domain_events).map(|(e, p)| Msg::Domain(e, p)),
         // マウス第 4/5 ボタン = 戻る/進む (F-303。ウィンドウ全域で有効)

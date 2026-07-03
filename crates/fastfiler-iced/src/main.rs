@@ -12,6 +12,7 @@ pub fn main() -> iced::Result {
     iced::application(app::boot, app::update, app::view)
         .title("FastFiler (iced)")
         .subscription(app::subscription)
+        .exit_on_close_request(false) // 終了時セッション保存のため CloseRequested を受ける
         .window_size((960.0, 640.0))
         .run()
 }
