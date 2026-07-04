@@ -577,4 +577,65 @@ mod tests {
         );
         assert!(fx.is_empty());
     }
+
+    #[test]
+    fn external_right_drop_menu_executes_copy_and_move() {
+        use crate::transfer::TransferOp;
+        // 再現: エクスプローラからの右ボタンドロップ → チューザー → 転送実行
+        let mut m = AppModel::new(std::path::PathBuf::from(r"C:\dest"));
+        let pane = m.focused_pane();
+        let fx = update_app(
+            &mut m,
+            AppMsg::Drag(DragMsg::External {
+                pane,
+                paths: vec![std::path::PathBuf::from(r"E:\src.txt")],
+                effect: 1,
+                right_button: true,
+                at: (10.0, 10.0),
+                commands: vec![],
+            }),
+        );
+        assert!(fx.is_empty(), "右ドロップはメニュー表示のみのはず: {fx:?}");
+        let Some(crate::model::Overlay::DropMenu { items, .. }) = &m.panes[pane].overlay else {
+            panic!("DropMenu が開いていない: {:?}", m.panes[pane].overlay);
+        };
+        assert_eq!(items[0].label, "ここにコピー");
+        assert_eq!(items[1].label, "ここに移動");
+        // 「ここにコピー」をクリック → SpawnJob(Copy)
+        let fx = update_app(&mut m, AppMsg::Pane(pane, PaneMsg::MenuClicked(vec![0])));
+        assert!(
+            fx.iter().any(|e| matches!(
+                e,
+                Effect::SpawnJob {
+                    op: TransferOp::Copy,
+                    ..
+                }
+            )),
+            "コピーの SpawnJob が出ない: {fx:?}"
+        );
+        assert!(m.panes[pane].overlay.is_none(), "メニューが閉じていない");
+        // 「ここに移動」も同様
+        let _ = update_app(
+            &mut m,
+            AppMsg::Drag(DragMsg::External {
+                pane,
+                paths: vec![std::path::PathBuf::from(r"E:\src.txt")],
+                effect: 1,
+                right_button: true,
+                at: (10.0, 10.0),
+                commands: vec![],
+            }),
+        );
+        let fx = update_app(&mut m, AppMsg::Pane(pane, PaneMsg::MenuClicked(vec![1])));
+        assert!(
+            fx.iter().any(|e| matches!(
+                e,
+                Effect::SpawnJob {
+                    op: TransferOp::Move,
+                    ..
+                }
+            )),
+            "移動の SpawnJob が出ない: {fx:?}"
+        );
+    }
 }

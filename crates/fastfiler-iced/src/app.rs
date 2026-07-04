@@ -844,7 +844,8 @@ impl App {
             return Task::none();
         };
         ole_diag(&format!(
-            "handle: pane resolved, effect={effect} right={}",
+            "handle: pane resolved dest={:?} effect={effect} right={}",
+            self.model.panes.get(pane).map(|p| p.cur_path.clone()),
             keys & fastfiler_win::drop_target::MK_RBUTTON != 0
         ));
         let point = iced::Point::new(cx as f32 / self.scale_factor, cy as f32 / self.scale_factor);
@@ -1021,6 +1022,11 @@ impl App {
                 // (起動後の登録だと速いジョブの JobDone に追い越されるレース)
                 Effect::SpawnJob { pane, op, items } => {
                     let job_id = self.jobs.next_id();
+                    ole_diag(&format!(
+                        "spawn job={job_id} op={op:?} items={} first={:?}",
+                        items.len(),
+                        items.first()
+                    ));
                     self.job_owner.insert(job_id, pane);
                     if op == fastfiler_core::transfer::TransferOp::Move {
                         let undo_items = items
@@ -1229,6 +1235,11 @@ fn ole_diag(msg: &str) {
     {
         let _ = writeln!(f, "{msg}");
     }
+}
+
+/// 統合テスト用: フォーカスペインの Id (実 UI には出さない)。
+pub fn focused_pane_for_test(app: &App) -> PaneId {
+    app.model.focused_pane()
 }
 
 /// iced application のテーマ (main.rs の .theme() から呼ばれる)。

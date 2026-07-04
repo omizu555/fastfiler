@@ -7,6 +7,7 @@
 //! 探せないため、標準 widget (ボタン等) はテキスト、カスタム widget は
 //! 座標クリックで叩く。
 
+use fastfiler_core::update_app::{AppMsg, DragMsg};
 use fastfiler_iced::app::{self, App, Msg};
 use fastfiler_iced::settings_view::SettingsMsg;
 use iced_test::simulator;
@@ -103,4 +104,75 @@ fn ui_smoke_settings_controls() {
         ui.find(label)
             .unwrap_or_else(|e| panic!("設定画面に「{label}」が無い: {e:?}"));
     }
+}
+
+/// 外部右ボタンドロップ → チューザーメニュー → 「ここにコピー」→ 実ファイルコピー
+/// までの通し検証 (ユーザー報告「メニューは出るが実際はコピーされない」の再現)。
+#[test]
+fn external_right_drop_copies_real_file() {
+    // 送り元ファイルと送り先フォルダを用意
+    let base = std::env::temp_dir().join(format!("ff_ui_dnd_{}", std::process::id()));
+    let src_dir = base.join("src");
+    let dest_dir = base.join("dest");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    let src_file = src_dir.join("dropped.txt");
+    std::fs::write(&src_file, b"payload").unwrap();
+
+    // SAFETY: テストプロセス内で最初に設定
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", &dest_dir);
+    }
+    let (mut app, _task) = app::boot();
+
+    // 外部右ドロップ相当を投入 → DropMenu が開く
+    let pane = {
+        // focused_pane は公開されていないため、External はフォーカスペイン宛に
+        // 届いた前提で view から確かめる。App 経由で pane id を得る手段として
+        // core の AppMsg::Drag は pane を要求する — boot 直後は単一ペイン。
+        // fastfiler_core::AppModel へ直接アクセスできないので、
+        // FooterRightClicked と同じ経路は使わず、External をフォーカス宛にする
+        // ための専用ヘルパを app に置かない代わりに、単一ペイン前提で
+        // Msg::List の BoundsChanged 等は不要 — DragMsg::External は
+        // 存在する PaneId が必要。ここでは app::focused_pane_for_test() を使う。
+        app::focused_pane_for_test(&app)
+    };
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Drag(DragMsg::External {
+            pane,
+            paths: vec![src_file.clone()],
+            effect: 1,
+            right_button: true,
+            at: (20.0, 20.0),
+            commands: vec![],
+        })),
+    );
+
+    // メニュー項目「ここにコピー」(1 項目目) を座標クリック
+    // パネルは at=(20,20)、項目高 26px、パディング 4px → 項目 0 の中心 ≈ (130, 37)
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(iced::Point::new(130.0, 37.0));
+    let _ = ui.simulate(iced_test::simulator::click());
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    assert!(
+        !msgs.is_empty(),
+        "メニュークリックがメッセージを発行しない (widget にイベントが届いていない)"
+    );
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+
+    // ジョブスレッドがコピーするのを待つ (最大 5 秒)
+    let expected = dest_dir.join("dropped.txt");
+    let mut ok = false;
+    for _ in 0..50 {
+        if expected.exists() {
+            ok = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    assert!(ok, "「ここにコピー」を選んでもファイルがコピーされない");
 }
