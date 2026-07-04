@@ -1696,10 +1696,12 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
         let sui = p.search.as_ref().unwrap();
         FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
             .entries_override(&sui.hits, p.load_gen.wrapping_add(1_000_000))
+            .pane_token(fastfiler_core::model::pane_token(id))
             .into()
     } else {
         FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
             .drag_context(drag_active, drop_highlight)
+            .pane_token(fastfiler_core::model::pane_token(id))
             .into()
     };
 

@@ -16,6 +16,14 @@ new_key_type! {
     pub struct PaneId;
 }
 
+/// PaneId の安定トークン (u64)。GUI 層の widget が「同じ画面位置に別ペインが
+/// 来た」ことを検知するために使う (iced の widget state は画面ツリー位置ベースで
+/// 引き継がれるため、ペイン差し替えを ID で見分ける必要がある)。
+pub fn pane_token(id: PaneId) -> u64 {
+    use slotmap::Key as _;
+    id.data().as_ffi()
+}
+
 /// 一覧の 1 行。表示テキストとソートキーは生成時に前計算する (計画書 §9-4)。
 ///
 /// domain の `fs::FileEntry` から GUI 層で変換する (core は domain に依存しない —
