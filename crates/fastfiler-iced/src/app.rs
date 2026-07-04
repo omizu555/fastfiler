@@ -1333,6 +1333,10 @@ fn ole_diag(msg: &str) {
     let path = std::path::PathBuf::from(base)
         .join("FastFiler")
         .join("ole_diag.log");
+    // 育ちすぎ防止: 1MB を超えていたら仕切り直す (診断ログに履歴価値はない)
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
+        let _ = std::fs::remove_file(&path);
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
