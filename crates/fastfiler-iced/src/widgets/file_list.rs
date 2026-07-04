@@ -524,9 +524,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         };
         let ([name_x, date_x, size_x, type_x], right) = self.col_x(&bounds);
 
-        let cell = |content: String, size: f32| Text {
+        // レイアウト幅を実幅に制限 (ソフトウェアレンダラは clip 引数を
+        // 完全なマスクとして使わないため、無限幅だと列外へ実際に描かれる)
+        let cell = |content: String, size: f32, w: f32| Text {
             content,
-            bounds: Size::new(f32::MAX, self.row_h),
+            bounds: Size::new(w.max(0.0), self.row_h),
             size: Pixels(size),
             line_height: LineHeight::default(),
             font: crate::theme::ui_font(),
@@ -588,7 +590,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         ];
         for (x, w, label, col) in headers {
             renderer.fill_text(
-                cell(format!("{label}{}", arrow(col)), 13.0),
+                cell(format!("{label}{}", arrow(col)), 13.0, w),
                 Point::new(x, hy),
                 dim,
                 clip(x, w, bounds.y, HEADER_H),
@@ -619,6 +621,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         let last = (first + visible).min(self.entries.len());
 
         for ix in first..last {
+            let row_y = list.y + (ix as f32 * self.row_h - offset);
+            // 完全に見えている行だけ文字とアイコンを描く (部分行は背景のみ —
+            // ソフトウェアレンダラのはみ出しをレイアウト段階で断つ)
+            let fully_visible =
+                row_y >= list.y - 0.5 && row_y + self.row_h <= list.y + list.height + 0.5;
             let entry = &self.entries[ix];
             let y = list.y + (ix as f32 * self.row_h - offset);
             let is_sel = self.selected.contains(&ix);
@@ -671,7 +678,10 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             let fg_dim = Color { a: 0.75, ..fg };
             let cy = y + self.row_h / 2.0;
 
-            // アイコン
+            // アイコン (部分行はスキップ)
+            if !fully_visible {
+                continue;
+            }
             if let Some(handle) = self.icons.get(&entry.icon_key) {
                 renderer.draw_image(
                     iced::advanced::image::Image {
@@ -694,25 +704,25 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             // 名前 / 更新日時 / サイズ / 種類
             let name_text_x = name_x + ICON + 6.0;
             renderer.fill_text(
-                cell(entry.name.clone(), 14.0),
+                cell(entry.name.clone(), 14.0, date_x - GAP - name_text_x),
                 Point::new(name_text_x, cy),
                 fg,
                 clip(name_text_x, date_x - GAP - name_text_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.modified_text.clone(), 13.0),
+                cell(entry.modified_text.clone(), 13.0, size_x - GAP - date_x),
                 Point::new(date_x, cy),
                 fg_dim,
                 clip(date_x, size_x - GAP - date_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.size_text.clone(), 13.0),
+                cell(entry.size_text.clone(), 13.0, type_x - GAP - size_x),
                 Point::new(size_x, cy),
                 fg_dim,
                 clip(size_x, type_x - GAP - size_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.kind_text.clone(), 13.0),
+                cell(entry.kind_text.clone(), 13.0, right - type_x),
                 Point::new(type_x, cy),
                 fg_dim,
                 clip(type_x, right - type_x, y, self.row_h),

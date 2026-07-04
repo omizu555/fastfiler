@@ -277,7 +277,8 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                 };
                 let cell = |content: String, align: TextAlignment| Text {
                     content,
-                    bounds: Size::new(f32::MAX, ITEM_H),
+                    // 実幅制限 (ソフトレンダラは clip を完全マスクにしない)
+                    bounds: Size::new(row.width - 12.0, ITEM_H),
                     size: Pixels(13.0),
                     line_height: LineHeight::default(),
                     font: crate::theme::ui_font(),

@@ -255,7 +255,10 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
             renderer.fill_text(
                 Text {
                     content: tab.title.clone(),
-                    bounds: Size::new(f32::MAX, CELL_H),
+                    // レイアウト幅を実幅に制限する: ソフトウェアレンダラは
+                    // clip 引数を完全なマスクとして使わないため、無限幅だと
+                    // 文字がセル外へ実際に描かれてしまう
+                    bounds: Size::new(text_w.max(0.0), CELL_H),
                     size: Pixels(13.0),
                     line_height: LineHeight::default(),
                     font: crate::theme::ui_font(),

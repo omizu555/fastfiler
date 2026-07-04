@@ -224,9 +224,18 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 );
             }
             let x0 = bounds.x + 4.0 + row.depth as f32 * INDENT;
-            let cell = |content: String, size: f32| Text {
+            // 完全に見えている行だけ文字を描く (部分行は背景のみ)。
+            // ソフトウェアレンダラは clip を完全マスクにしないため、
+            // はみ出しはレイアウト段階で断つ
+            let fully_visible =
+                y >= bounds.y - 0.5 && y + TREE_ROW_H <= bounds.y + bounds.height + 0.5;
+            if !fully_visible {
+                continue;
+            }
+            let label_w = (bounds.x + bounds.width - x0 - ARROW_W - 8.0).max(0.0);
+            let cell = |content: String, size: f32, w: f32| Text {
                 content,
-                bounds: Size::new(f32::MAX, TREE_ROW_H),
+                bounds: Size::new(w, TREE_ROW_H),
                 size: Pixels(size),
                 line_height: LineHeight::default(),
                 font: crate::theme::ui_font(),
@@ -253,7 +262,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
             };
             if row.expandable {
                 renderer.fill_text(
-                    cell(if row.expanded { "▼" } else { "▶" }.into(), 9.0),
+                    cell(if row.expanded { "▼" } else { "▶" }.into(), 9.0, ARROW_W),
                     Point::new(x0 + 3.0, cy),
                     Color {
                         a: 0.6,
@@ -263,10 +272,10 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 );
             }
             renderer.fill_text(
-                cell(row.label.clone(), 13.0),
+                cell(row.label.clone(), 13.0, label_w),
                 Point::new(x0 + ARROW_W, cy),
                 style.text_color,
-                row_clip(x0 + ARROW_W, bounds.x + bounds.width - x0 - ARROW_W - 8.0),
+                row_clip(x0 + ARROW_W, label_w),
             );
         }
         // スクロールバー
