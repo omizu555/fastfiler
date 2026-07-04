@@ -96,10 +96,12 @@ pub struct App {
     ole_right_latch: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// セッション保存のデバウンス世代 (800ms)。
     save_seq: u64,
-    /// 全画面再描画の交互パリティ (省メモリ = tiny-skia の差分描画は damage
+    /// 全画面再描画の世代カウンタ (省メモリ = tiny-skia の差分描画は damage
     /// 領域の取りこぼしが多発するため、描画のたびに背景色を不可視量で
-    /// 交互に揺らし、常に全画面パスへ落とす — theme() が読み書きする)。
-    redraw_parity: std::cell::Cell<bool>,
+    /// 揺らして常に全画面パスへ落とす — theme() が読み書きする)。
+    /// 交互 (2 周期) だとダブル/トリプルバッファの「N フレーム前」と同色になる
+    /// 瞬間が生じて 1 拍残像が見えるため、単調カウンタで周期を潰す。
+    redraw_tick: std::cell::Cell<u32>,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
     synth: Option<usize>,
     bench: Option<Bench>,
@@ -217,7 +219,7 @@ pub fn boot() -> (App, Task<Msg>) {
         ole_snapshot: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         ole_right_latch: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         save_seq: 0,
-        redraw_parity: std::cell::Cell::new(false),
+        redraw_tick: std::cell::Cell::new(0),
         synth,
         bench,
     };
@@ -1371,10 +1373,12 @@ pub fn theme(app: &App) -> iced::Theme {
     if app.settings.renderer.as_deref() == Some("gpu") {
         return app.theme.to_iced();
     }
-    let flip = app.redraw_parity.get();
-    app.redraw_parity.set(!flip);
+    let n = app.redraw_tick.get();
+    app.redraw_tick.set(n.wrapping_add(1));
     let mut t = app.theme.clone();
-    t.pane_bg.r = (t.pane_bg.r + if flip { 1e-5 } else { 2e-5 }).min(1.0);
+    // 17 周期 (素数) × 2e-6 ≈ 最大 3.4e-5 — 8bit 色の 1/115 で視覚上は不変。
+    // どのバッファ枚数 (2/3/4) とも周期が一致しないため常に「前回と違う背景」になる
+    t.pane_bg.r = (t.pane_bg.r + (n % 17 + 1) as f32 * 2e-6).min(1.0);
     t.to_iced()
 }
 
