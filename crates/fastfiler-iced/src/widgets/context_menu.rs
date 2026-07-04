@@ -181,17 +181,9 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
         let palette = theme.extended_palette();
-        // 画面全域の薄い覆い: メニュー外を淡くしてモーダル感を出しつつ、
-        // 全域を毎フレーム塗ることで差分描画の残像 (ハイライトの引きずり) を防ぐ
-        renderer.fill_quad(
-            Quad {
-                bounds,
-                border: Border::default(),
-                shadow: Shadow::default(),
-                snap: true,
-            },
-            Color::from_rgba(0.0, 0.0, 0.0, 0.10),
-        );
+        // 注意: 全域の半透明覆いは描かない — 差分描画は前フレームの上へ重ねる
+        // ため、半透明 quad は毎フレーム累積してどんどん黒ずむ (実機で確認済み)。
+        // 残像対策は update 側の CursorMoved capture + request_redraw で行う
         for (rect, items, _prefix) in self.panels(&bounds) {
             renderer.fill_quad(
                 Quad {

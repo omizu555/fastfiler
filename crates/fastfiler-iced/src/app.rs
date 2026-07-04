@@ -1586,16 +1586,18 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
         } else {
             format!("{} 項目 / {} 個を選択", p.entries.len(), p.selected.len())
         };
-        row![text(status).size(12)].into()
+        row![text(status).size(12)].width(Length::Fill).into()
     };
 
     let mut body = column![container(header).padding([2, 4])];
     if let Some(bar) = search_bar {
         body = body.push(container(bar).padding([2, 4]));
     }
-    // フッタ右クリック = 背景メニュー (ファイルが多く一覧に空白が無いときの導線)
-    let footer_area = iced::widget::mouse_area(container(footer).padding([2, 6]))
-        .on_right_press(Msg::FooterRightClicked(id));
+    // フッタ右クリック = 背景メニュー (ファイルが多く一覧に空白が無いときの導線)。
+    // 当たり判定はフッタ全幅 (テキスト部分だけだと狙いにくい)
+    let footer_area =
+        iced::widget::mouse_area(container(footer).padding([2, 6]).width(Length::Fill))
+            .on_right_press(Msg::FooterRightClicked(id));
     let body = body.push(list).push(footer_area);
     // フォーカスペインの青枠 (複数ペイン時のみ強調 — GPUI と同じ視覚言語)
     let border_color = if focused && multi {
