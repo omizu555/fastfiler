@@ -855,6 +855,11 @@ impl App {
     }
 
     fn save_session(&mut self, maximized: bool) {
+        // FASTFILER_OPEN は「復元スキップ (検証用)」— 保存も抑止しないと
+        // 単発の検証実行がユーザーの実セッションを 1 ペインに上書きしてしまう
+        if std::env::var_os("FASTFILER_OPEN").is_some() {
+            return;
+        }
         crate::settings::flush();
         // 最大化中は直前の通常時 bounds を保持 (GPUI 版と同じ)
         let bounds = if maximized {
