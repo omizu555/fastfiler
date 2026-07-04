@@ -20,6 +20,36 @@ use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shad
 const INDENT: f32 = 14.0;
 const ARROW_W: f32 = 16.0;
 
+/// ラベルを概算幅で「収まる分 + …」に切り詰める (エクスプローラ風)。
+/// 正確なグリフ幅は描画前に取れないため、ASCII ≈ 0.55em / それ以外 ≈ 1.0em で
+/// 見積もる (ツリーは 13px 固定なので誤差は数 px)。
+fn ellipsize(label: &str, max_w: f32, font_px: f32) -> String {
+    let char_w = |c: char| {
+        if c.is_ascii() {
+            font_px * 0.55
+        } else {
+            font_px
+        }
+    };
+    let total: f32 = label.chars().map(char_w).sum();
+    if total <= max_w {
+        return label.to_string();
+    }
+    let ell_w = font_px; // "…"
+    let mut used = 0.0;
+    let mut out = String::new();
+    for c in label.chars() {
+        let w = char_w(c);
+        if used + w + ell_w > max_w {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out.push('…');
+    out
+}
+
 #[derive(Debug, Clone)]
 pub enum TreeEvent {
     /// パスをフォーカスペインに開く (F-306)。
@@ -272,7 +302,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 );
             }
             renderer.fill_text(
-                cell(row.label.clone(), 13.0, label_w),
+                cell(ellipsize(&row.label, label_w, 13.0), 13.0, label_w),
                 Point::new(x0 + ARROW_W, cy),
                 style.text_color,
                 row_clip(x0 + ARROW_W, label_w),
