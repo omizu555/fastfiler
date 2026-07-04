@@ -254,7 +254,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
             };
             renderer.fill_text(
                 Text {
-                    content: tab.title.clone(),
+                    content: super::ellipsize(&tab.title, text_w.max(0.0), 13.0),
                     // レイアウト幅を実幅に制限する: ソフトウェアレンダラは
                     // clip 引数を完全なマスクとして使わないため、無限幅だと
                     // 文字がセル外へ実際に描かれてしまう

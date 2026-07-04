@@ -288,7 +288,10 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                     wrapping: Wrapping::None,
                 };
                 renderer.fill_text(
-                    cell(item.label.clone(), TextAlignment::Left),
+                    cell(
+                        super::ellipsize(&item.label, row.width - 24.0, 13.0),
+                        TextAlignment::Left,
+                    ),
                     Point::new(row.x + 8.0, y + ITEM_H / 2.0),
                     fg,
                     row,

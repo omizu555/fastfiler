@@ -590,7 +590,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         ];
         for (x, w, label, col) in headers {
             renderer.fill_text(
-                cell(format!("{label}{}", arrow(col)), 13.0, w),
+                cell(
+                    super::ellipsize(&format!("{label}{}", arrow(col)), w, 13.0),
+                    13.0,
+                    w,
+                ),
                 Point::new(x, hy),
                 dim,
                 clip(x, w, bounds.y, HEADER_H),
@@ -704,25 +708,41 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             // 名前 / 更新日時 / サイズ / 種類
             let name_text_x = name_x + ICON + 6.0;
             renderer.fill_text(
-                cell(entry.name.clone(), 14.0, date_x - GAP - name_text_x),
+                cell(
+                    super::ellipsize(&entry.name, date_x - GAP - name_text_x, 14.0),
+                    14.0,
+                    date_x - GAP - name_text_x,
+                ),
                 Point::new(name_text_x, cy),
                 fg,
                 clip(name_text_x, date_x - GAP - name_text_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.modified_text.clone(), 13.0, size_x - GAP - date_x),
+                cell(
+                    super::ellipsize(&entry.modified_text, size_x - GAP - date_x, 13.0),
+                    13.0,
+                    size_x - GAP - date_x,
+                ),
                 Point::new(date_x, cy),
                 fg_dim,
                 clip(date_x, size_x - GAP - date_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.size_text.clone(), 13.0, type_x - GAP - size_x),
+                cell(
+                    super::ellipsize(&entry.size_text, type_x - GAP - size_x, 13.0),
+                    13.0,
+                    type_x - GAP - size_x,
+                ),
                 Point::new(size_x, cy),
                 fg_dim,
                 clip(size_x, type_x - GAP - size_x, y, self.row_h),
             );
             renderer.fill_text(
-                cell(entry.kind_text.clone(), 13.0, right - type_x),
+                cell(
+                    super::ellipsize(&entry.kind_text, right - type_x, 13.0),
+                    13.0,
+                    right - type_x,
+                ),
                 Point::new(type_x, cy),
                 fg_dim,
                 clip(type_x, right - type_x, y, self.row_h),
