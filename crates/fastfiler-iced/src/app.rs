@@ -51,6 +51,8 @@ pub struct App {
     pub(crate) port_input: String,
     /// インストール済みフォント一覧 (設定画面を開いたとき一度だけ列挙)。
     pub(crate) font_list: Vec<String>,
+    /// フッタ上のカーソル位置 (ペイン毎ローカル座標 — 右クリックメニューの表示位置)。
+    pub(crate) footer_cursor: HashMap<PaneId, (f32, f32)>,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -132,6 +134,8 @@ pub enum Msg {
     Settings(SettingsMsg),
     /// フッタ (項目数表示) の右クリック = 背景メニュー (一覧に空白が無いペイン対策)。
     FooterRightClicked(PaneId),
+    /// フッタ上のカーソル移動 (メニュー表示位置の追跡)。
+    FooterCursorMoved(PaneId, f32, f32),
     GotScale(f32),
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
@@ -183,6 +187,7 @@ pub fn boot() -> (App, Task<Msg>) {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
         port_input: cfg.everything_port.to_string(),
         font_list: Vec::new(),
+        footer_cursor: HashMap::new(),
         settings: cfg.clone(),
         show_settings: false,
         model,
@@ -499,13 +504,18 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::batch(tasks)
         }
         Msg::Settings(m) => handle_settings(app, m),
+        Msg::FooterCursorMoved(pane, x, y) => {
+            app.footer_cursor.insert(pane, (x, y));
+            Task::none()
+        }
         Msg::FooterRightClicked(pane) => {
-            // メニュー位置: カーソル位置は取れないため、ペイン矩形の下部 (フッタ付近)。
-            // 画面端フリップは ContextMenu 側が処理する
+            // メニュー位置: フッタ上で追跡したローカル座標をウィンドウ座標へ換算
+            // (フッタはリスト矩形の直下)。画面端フリップは ContextMenu 側が処理する
+            let local = app.footer_cursor.get(&pane).copied().unwrap_or((16.0, 4.0));
             let at = app
                 .pane_rects
                 .get(&pane)
-                .map(|r| (r.x + 16.0, r.y + r.height + 4.0))
+                .map(|r| (r.x + local.0, r.y + r.height + local.1))
                 .unwrap_or((100.0, 100.0));
             let (templates, commands, templates_dir, can_paste) = effects::collect_menu_context();
             app.apply(AppMsg::Pane(
@@ -1290,7 +1300,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
     match app.model.panes.get(focused).and_then(|p| p.overlay.clone()) {
         Some(Overlay::DropMenu { items, at, .. }) => {
             let pane = focused;
-            let menu = ContextMenu::new(items, at, vec![], move |ev| match ev {
+            let menu = ContextMenu::new(items, at, vec![], &app.theme, move |ev| match ev {
                 MenuEvent::Clicked(path) => {
                     Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
                 }
@@ -1305,7 +1315,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             ..
         }) => {
             let pane = focused;
-            let menu = ContextMenu::new(items, at, open_path, move |ev| match ev {
+            let menu = ContextMenu::new(items, at, open_path, &app.theme, move |ev| match ev {
                 MenuEvent::Clicked(path) => {
                     Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
                 }

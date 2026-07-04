@@ -322,6 +322,20 @@ impl Theme {
     }
 }
 
+/// UI フォント (起動時に一度確定 — custom widget の直描きは iced の
+/// default_font 設定を参照できないため、static 経由で共有する)。
+static UI_FONT: std::sync::OnceLock<iced::Font> = std::sync::OnceLock::new();
+
+/// 起動時に main.rs から設定する ('static 名は Box::leak 済みのもの)。
+pub fn set_ui_font(name: &'static str) {
+    let _ = UI_FONT.set(iced::Font::with_name(name));
+}
+
+/// 直描き widget が使う UI フォント。
+pub fn ui_font() -> iced::Font {
+    UI_FONT.get().copied().unwrap_or_default()
+}
+
 /// UI スタイル (形状プリセット — GPUI 版と同一の 3 種)。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiStyle {

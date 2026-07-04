@@ -14,9 +14,7 @@ use iced::advanced::widget::{tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
 use iced::mouse;
-use iced::{
-    Border, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Shadow, Size, Theme,
-};
+use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shadow, Size, Theme};
 
 const ITEM_H: f32 = 26.0;
 const PANEL_W: f32 = 220.0;
@@ -31,6 +29,9 @@ pub struct ContextMenu<'a, Message> {
     items: Vec<MenuItem>,
     at: (f32, f32),
     open_path: Vec<usize>,
+    /// テーマの 37 色キーから直接渡される配色 (bg, hover, border, text)。
+    /// iced palette 経由だとライトテーマでハイライトが背景に溶けるため直結する
+    colors: (Color, Color, Color, Color),
     on_event: Box<dyn Fn(MenuEvent) -> Message + 'a>,
 }
 
@@ -39,12 +40,19 @@ impl<'a, Message> ContextMenu<'a, Message> {
         items: Vec<MenuItem>,
         at: (f32, f32),
         open_path: Vec<usize>,
+        theme: &crate::theme::Theme,
         on_event: impl Fn(MenuEvent) -> Message + 'a,
     ) -> Self {
         Self {
             items,
             at,
             open_path,
+            colors: (
+                theme.surface_bg,
+                theme.menu_hover,
+                theme.separator,
+                theme.text,
+            ),
             on_event: Box::new(on_event),
         }
     }
@@ -180,7 +188,8 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
     ) {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
-        let palette = theme.extended_palette();
+        let (bg, hover, border_c, text_color) = self.colors;
+        let _ = theme;
         // 注意: 全域の半透明覆いは描かない — 差分描画は前フレームの上へ重ねる
         // ため、半透明 quad は毎フレーム累積してどんどん黒ずむ (実機で確認済み)。
         // 残像対策は update 側の CursorMoved capture + request_redraw で行う
@@ -189,18 +198,16 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                 Quad {
                     bounds: rect,
                     border: Border {
-                        color: palette.background.strong.color,
+                        color: border_c,
                         width: 1.0,
                         radius: fastfiler_iced_radius_md(),
                     },
-                    shadow: Shadow {
-                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
-                        offset: iced::Vector::new(0.0, 1.0),
-                        blur_radius: 4.0,
-                    },
+                    // 影なし: ソフトウェアレンダラの影描画がパネル全体を
+                    // 黒ずませる症状の回避 (境界線で十分メニューに見える)
+                    shadow: Shadow::default(),
                     snap: true,
                 },
-                palette.background.base.color,
+                bg,
             );
             for (i, item) in items.iter().enumerate() {
                 let y = rect.y + 4.0 + i as f32 * ITEM_H;
@@ -221,15 +228,16 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                             shadow: Shadow::default(),
                             snap: true,
                         },
-                        palette.primary.weak.color,
+                        hover,
                     );
                 }
+                let _ = style;
                 let fg = if item.enabled {
-                    style.text_color
+                    text_color
                 } else {
                     Color {
                         a: 0.4,
-                        ..style.text_color
+                        ..text_color
                     }
                 };
                 let cell = |content: String, align: TextAlignment| Text {
@@ -237,7 +245,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                     bounds: Size::new(f32::MAX, ITEM_H),
                     size: Pixels(13.0),
                     line_height: LineHeight::default(),
-                    font: Font::default(),
+                    font: crate::theme::ui_font(),
                     align_x: align,
                     align_y: Vertical::Center,
                     shaping: Shaping::Advanced,

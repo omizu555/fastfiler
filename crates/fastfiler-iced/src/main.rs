@@ -53,6 +53,7 @@ pub fn main() -> iced::Result {
             .unwrap_or_else(|| "Yu Gothic UI".to_string())
             .into_boxed_str(),
     );
+    fastfiler_iced::theme::set_ui_font(font_name);
     iced::application(app::boot, app::update, app::view)
         .title("FastFiler (iced)")
         .default_font(iced::Font::with_name(font_name))

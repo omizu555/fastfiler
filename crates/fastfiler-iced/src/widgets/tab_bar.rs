@@ -16,9 +16,7 @@ use iced::advanced::widget::{tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
 use iced::mouse;
-use iced::{
-    Border, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Shadow, Size, Theme,
-};
+use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shadow, Size, Theme};
 
 pub const CELL_H: f32 = 30.0;
 const CLOSE_W: f32 = 22.0;
@@ -260,7 +258,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
                     bounds: Size::new(f32::MAX, CELL_H),
                     size: Pixels(13.0),
                     line_height: LineHeight::default(),
-                    font: Font::default(),
+                    font: crate::theme::ui_font(),
                     align_x: TextAlignment::Left,
                     align_y: Vertical::Center,
                     shaping: Shaping::Advanced,
@@ -283,7 +281,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
                         bounds: Size::new(CLOSE_W, CELL_H),
                         size: Pixels(14.0),
                         line_height: LineHeight::default(),
-                        font: Font::default(),
+                        font: crate::theme::ui_font(),
                         align_x: TextAlignment::Center,
                         align_y: Vertical::Center,
                         shaping: Shaping::Basic,

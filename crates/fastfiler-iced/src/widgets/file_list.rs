@@ -24,9 +24,7 @@ use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
 use iced::mouse::{self, ScrollDelta};
 use iced::widget::image;
-use iced::{
-    Border, Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Shadow, Size, Theme,
-};
+use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shadow, Size, Theme};
 
 /// ヘッダ行の高さ。
 pub const HEADER_H: f32 = 26.0;
@@ -543,7 +541,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             bounds: Size::new(f32::MAX, self.row_h),
             size: Pixels(size),
             line_height: LineHeight::default(),
-            font: Font::default(),
+            font: crate::theme::ui_font(),
             align_x: TextAlignment::Left,
             align_y: Vertical::Center,
             shaping: Shaping::Advanced,
