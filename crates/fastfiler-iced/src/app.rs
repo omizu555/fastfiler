@@ -96,9 +96,10 @@ pub struct App {
     ole_right_latch: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// セッション保存のデバウンス世代 (800ms)。
     save_seq: u64,
-    /// 全画面再描画の残りフレーム数 (ソフトウェアレンダラの差分描画が
-    /// 状態変化時に領域を取りこぼす対策 — theme() が読み書きする)。
-    force_full_redraw: std::cell::Cell<u8>,
+    /// 全画面再描画の交互パリティ (省メモリ = tiny-skia の差分描画は damage
+    /// 領域の取りこぼしが多発するため、描画のたびに背景色を不可視量で
+    /// 交互に揺らし、常に全画面パスへ落とす — theme() が読み書きする)。
+    redraw_parity: std::cell::Cell<bool>,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
     synth: Option<usize>,
     bench: Option<Bench>,
@@ -216,7 +217,7 @@ pub fn boot() -> (App, Task<Msg>) {
         ole_snapshot: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         ole_right_latch: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         save_seq: 0,
-        force_full_redraw: std::cell::Cell::new(3),
+        redraw_parity: std::cell::Cell::new(false),
         synth,
         bench,
     };
@@ -271,11 +272,6 @@ fn dirs_home() -> PathBuf {
 }
 
 pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
-    // 操作後の数フレームは全画面描画を強制する。tiny-skia (省メモリ) の
-    // 差分描画は状態変化時に damage 領域を取りこぼすことがあり、
-    // タブ切替後の文字化け・フッタへの残像として現れる (実機で確認)。
-    // 背景色が前フレームと異なると compositor が全画面パスに落ちる仕組みを使う
-    app.force_full_redraw.set(3);
     match msg {
         Msg::List(pane, ev) => {
             let pane_msg = match ev {
@@ -1364,16 +1360,21 @@ pub fn ole_hit_for_test(app: &App, x: f32, y: f32) -> Option<PaneId> {
 }
 
 /// iced application のテーマ (main.rs の .theme() から呼ばれる)。
-/// 全画面再描画の強制中は背景色を人間には識別不能な量 (n×1e-5) だけ揺らし、
-/// 差分描画の「背景同一なら diff」条件を外して全画面パスに落とす。
+///
+/// 省メモリ (tiny-skia) では背景色を描画のたびに人間には識別不能な量
+/// (1〜2×1e-5) だけ交互に揺らす。compositor は「背景色が前フレームと同一の
+/// ときだけ差分描画」するため、これで常に全画面パスに落ちる —
+/// 差分描画の damage 取りこぼし (タブ切替/階層移動後の文字化け、フッタや
+/// コンボボックスの残像) を根絶する。描画はイベント時にしか走らないので、
+/// アイドル時のコストは増えない。GPU モードは通常どおり。
 pub fn theme(app: &App) -> iced::Theme {
-    let n = app.force_full_redraw.get();
-    if n == 0 {
+    if app.settings.renderer.as_deref() == Some("gpu") {
         return app.theme.to_iced();
     }
-    app.force_full_redraw.set(n - 1);
+    let flip = app.redraw_parity.get();
+    app.redraw_parity.set(!flip);
     let mut t = app.theme.clone();
-    t.pane_bg.r = (t.pane_bg.r + n as f32 * 1e-5).min(1.0);
+    t.pane_bg.r = (t.pane_bg.r + if flip { 1e-5 } else { 2e-5 }).min(1.0);
     t.to_iced()
 }
 
