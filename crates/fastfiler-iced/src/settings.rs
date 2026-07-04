@@ -32,6 +32,10 @@ pub struct AppSettings {
     /// UI スタイル名 (形状プリセット: モダン/シャープ/ソフト)。None なら既定。
     #[serde(default)]
     pub style: Option<String>,
+    /// レンダラ: "gpu" (wgpu/DX12 — 既定) | "lowmem" (tiny-skia ソフトウェア描画。
+    /// メモリ約 -95%・起動高速だが大画面でのフレーム時間はピクセル数に比例)。
+    #[serde(default)]
+    pub renderer: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -57,6 +61,7 @@ impl Default for AppSettings {
             font_size: default_font_size(),
             font_family: None,
             style: None,
+            renderer: None,
         }
     }
 }

@@ -23,6 +23,7 @@ pub enum SettingsMsg {
     SetFontFamily(String),
     SetPort(String),
     SetTabColumns(u8),
+    SetRenderer(String),
     SetShowTreeButton(bool),
     ReloadHotkeys,
     OpenHotkeysFile,
@@ -111,6 +112,27 @@ pub fn view<'a>(
     .spacing(14)
     .align_y(iced::Alignment::Center);
 
+    let renderer_labels = vec![
+        "標準 (GPU)".to_string(),
+        "省メモリ (ソフトウェア描画)".to_string(),
+    ];
+    let current_renderer = if settings.renderer.as_deref() == Some("lowmem") {
+        "省メモリ (ソフトウェア描画)".to_string()
+    } else {
+        "標準 (GPU)".to_string()
+    };
+    let renderer_row = row![
+        pick_list(
+            renderer_labels,
+            Some(current_renderer),
+            SettingsMsg::SetRenderer
+        )
+        .width(240),
+        text("省メモリはメモリ約 1/10・起動高速。大画面では描画が重くなる場合あり").size(11),
+    ]
+    .spacing(10)
+    .align_y(iced::Alignment::Center);
+
     let hotkeys_row = row![
         button(text("ホットキー設定を開く").size(12))
             .padding([4, 10])
@@ -149,6 +171,8 @@ pub fn view<'a>(
         port_row,
         section("タブバー"),
         tabs_row,
+        section("レンダラ (再起動後に反映)"),
+        renderer_row,
         section("ホットキー"),
         hotkeys_row,
         section("フォルダ"),

@@ -1041,6 +1041,14 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
                 app.everything_port = port;
             }
         }
+        SettingsMsg::SetRenderer(label) => {
+            let value = if label.contains("省メモリ") {
+                Some("lowmem".to_string())
+            } else {
+                None
+            };
+            app.settings = settings::update(|s| s.renderer = value);
+        }
         SettingsMsg::SetTabColumns(n) => {
             app.settings = settings::update(|s| s.tab_columns = n.clamp(1, 4));
         }

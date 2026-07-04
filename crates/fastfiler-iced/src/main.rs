@@ -9,6 +9,24 @@
 use fastfiler_iced::app;
 
 pub fn main() -> iced::Result {
+    // レンダラ選択 (Issue #9 メモリ調査の結論):
+    // - wgpu 既定の Backends::all() は DX12+Vulkan+GL を全部初期化し Private +64MB。
+    //   DX12 に絞るだけで無償で削れる (Win11 には DX12 常在、失敗時は tiny-skia へ
+    //   自動フォールバック)
+    // - 設定 renderer="lowmem" なら tiny-skia (Private 190MB→7MB、起動 12 倍速。
+    //   ソフトウェア描画のため大画面ではフレーム時間がピクセル数に比例)
+    // ユーザーが env を手動設定している場合は尊重する。
+    // SAFETY: main 冒頭 = 単一スレッドでの set_var は安全
+    unsafe {
+        if std::env::var_os("WGPU_BACKEND").is_none() {
+            std::env::set_var("WGPU_BACKEND", "dx12");
+        }
+        if std::env::var_os("ICED_BACKEND").is_none()
+            && fastfiler_iced::settings::get().renderer.as_deref() == Some("lowmem")
+        {
+            std::env::set_var("ICED_BACKEND", "tiny-skia");
+        }
+    }
     // 多重起動防止 (F-1106): 既に起動中なら前面化して静かに終了。
     // 自動検証フロー (AUTOCLOSE/STRESS/BENCH/SYNTH/OPEN) では抑止しない —
     // 機械可読マーカ (WINDOW_OK 等) が出ずハーネスが待ちぼうけになるため
