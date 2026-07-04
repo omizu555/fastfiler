@@ -193,8 +193,6 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
         let palette = theme.extended_palette();
-        // 最下行の部分表示が widget 外へはみ出さないようレイヤでクリップ
-        renderer.start_layer(bounds);
         let offset = self.offset.clamp(0.0, self.max_offset(bounds.height));
         let first = (offset / TREE_ROW_H) as usize;
         let visible = (bounds.height / TREE_ROW_H).ceil() as usize + 1;
@@ -204,14 +202,17 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
             let row = &self.rows[ix];
             let y = bounds.y + (ix as f32 * TREE_ROW_H - offset);
             if row.is_current {
+                let hl = Rectangle {
+                    x: bounds.x,
+                    y,
+                    width: bounds.width,
+                    height: TREE_ROW_H,
+                }
+                .intersection(&bounds)
+                .unwrap_or_default();
                 renderer.fill_quad(
                     Quad {
-                        bounds: Rectangle {
-                            x: bounds.x,
-                            y,
-                            width: bounds.width,
-                            height: TREE_ROW_H,
-                        },
+                        bounds: hl,
                         border: Border {
                             radius: fastfiler_iced_radius_sm(),
                             ..Border::default()
@@ -235,6 +236,21 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 wrapping: Wrapping::None,
             };
             let cy = y + TREE_ROW_H / 2.0;
+            let row_clip = |x: f32, w: f32| {
+                Rectangle {
+                    x,
+                    y,
+                    width: w.max(0.0),
+                    height: TREE_ROW_H,
+                }
+                .intersection(&bounds)
+                .unwrap_or(Rectangle {
+                    x,
+                    y,
+                    width: 0.0,
+                    height: 0.0,
+                })
+            };
             if row.expandable {
                 renderer.fill_text(
                     cell(if row.expanded { "▼" } else { "▶" }.into(), 9.0),
@@ -243,19 +259,14 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                         a: 0.6,
                         ..style.text_color
                     },
-                    bounds,
+                    row_clip(x0, ARROW_W + 6.0),
                 );
             }
             renderer.fill_text(
                 cell(row.label.clone(), 13.0),
                 Point::new(x0 + ARROW_W, cy),
                 style.text_color,
-                Rectangle {
-                    x: x0 + ARROW_W,
-                    y,
-                    width: (bounds.x + bounds.width - x0 - ARROW_W - 4.0).max(0.0),
-                    height: TREE_ROW_H,
-                },
+                row_clip(x0 + ARROW_W, bounds.x + bounds.width - x0 - ARROW_W - 8.0),
             );
         }
         // スクロールバー
@@ -284,7 +295,6 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 },
             );
         }
-        renderer.end_layer();
     }
 }
 

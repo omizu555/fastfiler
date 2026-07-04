@@ -509,14 +509,9 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::none()
         }
         Msg::FooterRightClicked(pane) => {
-            // メニュー位置: フッタ上で追跡したローカル座標をウィンドウ座標へ換算
-            // (フッタはリスト矩形の直下)。画面端フリップは ContextMenu 側が処理する
-            let local = app.footer_cursor.get(&pane).copied().unwrap_or((16.0, 4.0));
-            let at = app
-                .pane_rects
-                .get(&pane)
-                .map(|r| (r.x + local.0, r.y + r.height + local.1))
-                .unwrap_or((100.0, 100.0));
+            // メニュー位置: 負の sentinel を渡すと ContextMenu が実カーソル位置で
+            // 開く (widget は draw/update でカーソルを直接観測できる)
+            let at = (-1.0, -1.0);
             let (templates, commands, templates_dir, can_paste) = effects::collect_menu_context();
             app.apply(AppMsg::Pane(
                 pane,
@@ -726,6 +721,10 @@ impl App {
         let on_over = effect_at.clone();
         let on_drop = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
             let effect = effect_at(paths, pos, keys, allowed);
+            ole_diag(&format!(
+                "drop paths={} pos={pos:?} keys={keys:#x} -> effect={effect}",
+                paths.len()
+            ));
             if effect != DROPEFFECT_NONE {
                 // update() へ運ぶ (既存 domain チャネル — Subscription が拾う)
                 use fastfiler_domain::events::EventSink as _;
@@ -746,17 +745,29 @@ impl App {
             }
             effect
         };
+        let on_enter_logged = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
+            let effect = on_enter(paths, pos, keys, allowed);
+            ole_diag(&format!(
+                "enter paths={} pos={pos:?} keys={keys:#x} allowed={allowed:#x} -> effect={effect}",
+                paths.len()
+            ));
+            effect
+        };
         let r = drop_target::register(
             hwnd,
             DropCallbacks {
-                on_enter: Box::new(on_enter),
+                on_enter: Box::new(on_enter_logged),
                 on_over: Box::new(on_over),
                 on_leave: Box::new(|| {}),
                 on_drop: Box::new(on_drop),
             },
         );
-        if let Err(e) = r {
-            eprintln!("OLE 受信登録に失敗: {e}");
+        match r {
+            Ok(()) => ole_diag("register ok"),
+            Err(e) => {
+                ole_diag(&format!("register FAILED: {e}"));
+                eprintln!("OLE 受信登録に失敗: {e}");
+            }
         }
     }
 
@@ -1155,6 +1166,26 @@ fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
         Key::Named(Named::End) => pane(PaneMsg::Nav(NavKey::End, shift)),
         Key::Named(Named::Escape) => pane(PaneMsg::ClearSelection),
         _ => None,
+    }
+}
+
+/// OLE 受信の診断ログ (%APPDATA%\FastFiler\ole_diag.log へ追記)。
+/// 外部 D&D はヘッドレステスト不可のため、実機からの報告用に常時軽量記録する
+/// (enter/drop/登録時のみ — over では書かない)。
+fn ole_diag(msg: &str) {
+    use std::io::Write as _;
+    let Ok(base) = std::env::var("APPDATA") else {
+        return;
+    };
+    let path = std::path::PathBuf::from(base)
+        .join("FastFiler")
+        .join("ole_diag.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{msg}");
     }
 }
 

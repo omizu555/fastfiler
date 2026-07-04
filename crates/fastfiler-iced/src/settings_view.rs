@@ -128,7 +128,10 @@ pub fn view<'a>(
             SettingsMsg::SetRenderer
         )
         .width(240),
-        text("省メモリはメモリ約 1/10・起動高速。大画面では描画が重くなる場合あり").size(11),
+        text(
+            "省メモリはメモリ約 1/10・起動高速。既知: まれに描画の残像 / 大画面で重くなる場合あり"
+        )
+        .size(11),
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center);

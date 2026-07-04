@@ -563,11 +563,15 @@ fn update_overlay(
                 let clashes = p.entries.iter().any(|e| e.name == name);
                 match kind {
                     ModalKind::NewFile if clashes => {
-                        p.status_msg = Some(format!("「{name}」は既に存在します"));
+                        p.status_msg = Some(format!(
+                            "「{name}」は既に存在します (Windows では同名のファイルとフォルダは共存できません)"
+                        ));
                         return Some(vec![]);
                     }
                     ModalKind::Rename { original } if clashes && name != *original => {
-                        p.status_msg = Some(format!("「{name}」は既に存在します"));
+                        p.status_msg = Some(format!(
+                            "「{name}」は既に存在します (Windows では同名のファイルとフォルダは共存できません)"
+                        ));
                         return Some(vec![]);
                     }
                     _ => {}

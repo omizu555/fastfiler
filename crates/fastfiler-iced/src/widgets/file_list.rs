@@ -527,8 +527,6 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         let bounds = layout.bounds();
         let list = self.list_bounds(bounds);
         let palette = theme.extended_palette();
-        // 最下行の部分表示が widget 外 (フッタ) へはみ出さないようレイヤでクリップ
-        renderer.start_layer(bounds);
         let text_color = style.text_color;
         let dim = Color {
             a: 0.65,
@@ -547,12 +545,24 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             shaping: Shaping::Advanced,
             wrapping: Wrapping::None,
         };
-        // 列のクリップ矩形 (幅を列に制限して `…` 相当の切り落とし)
-        let clip = |x: f32, w: f32, y: f32, h: f32| Rectangle {
-            x,
-            y,
-            width: w.max(0.0),
-            height: h,
+        // 列のクリップ矩形 (幅を列に制限して `…` 相当の切り落とし)。
+        // widget 境界とも交差させ、最下行の部分表示がフッタへはみ出さないようにする
+        // (start_layer によるクリップはテキストアトラスと干渉して文字化けするため
+        //  使わない — 実機で 1 行目の文字化け・重なりを確認済み)
+        let clip = move |x: f32, w: f32, y: f32, h: f32| {
+            Rectangle {
+                x,
+                y,
+                width: w.max(0.0),
+                height: h,
+            }
+            .intersection(&bounds)
+            .unwrap_or(Rectangle {
+                x,
+                y,
+                width: 0.0,
+                height: 0.0,
+            })
         };
 
         // ---- ヘッダ ----
@@ -645,20 +655,23 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 None
             };
             if let Some(bg) = row_bg {
-                renderer.fill_quad(
-                    Quad {
-                        bounds: Rectangle {
-                            x: list.x,
-                            y,
-                            width: list.width,
-                            height: self.row_h,
+                let row_rect = Rectangle {
+                    x: list.x,
+                    y,
+                    width: list.width,
+                    height: self.row_h,
+                };
+                if let Some(visible) = row_rect.intersection(&bounds) {
+                    renderer.fill_quad(
+                        Quad {
+                            bounds: visible,
+                            border: Border::default(),
+                            shadow: Shadow::default(),
+                            snap: true,
                         },
-                        border: Border::default(),
-                        shadow: Shadow::default(),
-                        snap: true,
-                    },
-                    bg,
-                );
+                        bg,
+                    );
+                }
             }
             let fg = if is_sel {
                 palette.primary.base.text
@@ -742,7 +755,6 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 },
             );
         }
-        renderer.end_layer();
     }
 }
 

@@ -10,6 +10,8 @@ use iced::advanced::renderer::Quad;
 use iced::advanced::text::{
     Alignment as TextAlignment, LineHeight, Renderer as _, Shaping, Text, Wrapping,
 };
+use std::cell::Cell;
+
 use iced::advanced::widget::{tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
@@ -18,6 +20,13 @@ use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shad
 
 const ITEM_H: f32 = 26.0;
 const PANEL_W: f32 = 220.0;
+
+/// widget 内部状態: at が負 (位置指定なし) のとき、最初に観測したカーソル位置を
+/// 記憶してそこで開く (フッタ右クリック等、呼び出し側が座標を知らないケース)。
+#[derive(Default)]
+struct State {
+    opened_at: Cell<Option<(f32, f32)>>,
+}
 
 #[derive(Debug, Clone)]
 pub enum MenuEvent {
@@ -59,11 +68,31 @@ impl<'a, Message> ContextMenu<'a, Message> {
 
     /// 開いている各パネル (ルート + open_path のサブ) の矩形と項目列。
     /// 戻り値: (パネル矩形, 項目列, このパネルへの index チェーン接頭辞)。
-    fn panels(&self, viewport: &Rectangle) -> Vec<(Rectangle, &[MenuItem], Vec<usize>)> {
+    /// at が負のときの解決値 (State に記憶されたカーソル位置)。
+    fn resolve_at(&self, state: &State, cursor: mouse::Cursor) -> (f32, f32) {
+        if self.at.0 >= 0.0 {
+            return self.at;
+        }
+        if let Some(p) = state.opened_at.get() {
+            return p;
+        }
+        let p = cursor
+            .position()
+            .map(|p| (p.x, p.y))
+            .unwrap_or((100.0, 100.0));
+        state.opened_at.set(Some(p));
+        p
+    }
+
+    fn panels(
+        &self,
+        at: (f32, f32),
+        viewport: &Rectangle,
+    ) -> Vec<(Rectangle, &[MenuItem], Vec<usize>)> {
         let mut out = Vec::new();
         let mut items: &[MenuItem] = &self.items;
         let mut prefix: Vec<usize> = Vec::new();
-        let (mut x, mut y) = self.at;
+        let (mut x, mut y) = at;
         loop {
             let h = items.len() as f32 * ITEM_H + 8.0;
             // 画面端でフリップ (右端 → 左へ、下端 → 上へ)
@@ -108,7 +137,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
     }
 
     fn tag(&self) -> tree::Tag {
-        tree::Tag::stateless()
+        tree::Tag::of::<State>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::default())
     }
 
     fn layout(
@@ -122,7 +155,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
 
     fn update(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -132,6 +165,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
+        let at = self.resolve_at(tree.state.downcast_ref::<State>(), cursor);
         // メニュー表示中は最上位レイヤがすべてのマウス操作を受ける (常に 1 か所)。
         // CursorMoved はホバーの再描画要求も兼ねる (差分描画の残像対策)
         match event {
@@ -157,7 +191,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                     return;
                 };
                 // 後ろのパネル (サブ) が優先
-                for (rect, items, prefix) in self.panels(&bounds).into_iter().rev() {
+                for (rect, items, prefix) in self.panels(at, &bounds).into_iter().rev() {
                     if rect.contains(pos) {
                         let ix = ((pos.y - rect.y - 4.0) / ITEM_H) as usize;
                         if ix < items.len() {
@@ -178,7 +212,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
 
     fn draw(
         &self,
-        _tree: &Tree,
+        tree: &Tree,
         renderer: &mut iced::Renderer,
         theme: &Theme,
         style: &iced::advanced::renderer::Style,
@@ -188,12 +222,13 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
     ) {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
+        let at = self.resolve_at(tree.state.downcast_ref::<State>(), cursor);
         let (bg, hover, border_c, text_color) = self.colors;
         let _ = theme;
         // 注意: 全域の半透明覆いは描かない — 差分描画は前フレームの上へ重ねる
         // ため、半透明 quad は毎フレーム累積してどんどん黒ずむ (実機で確認済み)。
         // 残像対策は update 側の CursorMoved capture + request_redraw で行う
-        for (rect, items, _prefix) in self.panels(&bounds) {
+        for (rect, items, _prefix) in self.panels(at, &bounds) {
             renderer.fill_quad(
                 Quad {
                     bounds: rect,
