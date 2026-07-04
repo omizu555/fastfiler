@@ -88,8 +88,13 @@ pub struct App {
     /// 各ペインの一覧矩形 (論理座標。外部 D&D のヒットテスト用)。
     pane_rects: HashMap<PaneId, iced::Rectangle>,
     /// OLE コールバック (UI スレッドの DoDragDrop モーダルループ内) と共有する
-    /// ヒットテスト表: (pane 矩形 [物理px], cur_path)。enter/over の effect 決定用。
-    ole_snapshot: std::sync::Arc<std::sync::Mutex<Vec<(iced::Rectangle, PathBuf)>>>,
+    /// ヒットテスト表: (PaneId, ペイン矩形 [物理px], cur_path)。
+    /// enter/over の effect 決定と drop のペイン解決の両方がこの単一の表を引く
+    /// (二重実装の座標不一致で「effect は返るのに転送されない」事故を防ぐ)。
+    ole_snapshot: OleSnapshot,
+    /// 外部ドラッグの右ボタンラッチ (drop 時は grfKeyState からボタンが消える
+    /// ため、enter/over で観測した MK_RBUTTON を保持する — S-3 スパイクの知見)。
+    ole_right_latch: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// セッション保存のデバウンス世代 (800ms)。
     save_seq: u64,
     /// B-2 用: 合成一覧の件数 (FASTFILER_SYNTH=n)。
@@ -210,6 +215,7 @@ pub fn boot() -> (App, Task<Msg>) {
         scale_factor: 1.0,
         pane_rects: HashMap::new(),
         ole_snapshot: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        ole_right_latch: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         save_seq: 0,
         synth,
         bench,
@@ -674,10 +680,11 @@ impl App {
     /// OLE ヒットテスト表を最新化する (ペイン矩形 [物理px] + 表示フォルダ)。
     fn refresh_ole_snapshot(&self) {
         let scale = self.scale_factor;
-        let mut rows: Vec<(iced::Rectangle, PathBuf)> = Vec::new();
+        let mut rows: Vec<(PaneId, iced::Rectangle, PathBuf)> = Vec::new();
         for (id, rect) in &self.pane_rects {
             if let Some(p) = self.model.panes.get(*id) {
                 rows.push((
+                    *id,
                     iced::Rectangle::new(
                         (rect.x * scale, rect.y * scale).into(),
                         Size::new(rect.width * scale, rect.height * scale),
@@ -697,6 +704,7 @@ impl App {
     fn register_ole_drop_target(&self, hwnd: isize) {
         use fastfiler_win::drop_target::{self, DropCallbacks, DROPEFFECT_NONE};
         let snap = std::sync::Arc::clone(&self.ole_snapshot);
+        let latch = std::sync::Arc::clone(&self.ole_right_latch);
         let effect_at = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
             let Some((cx, cy)) =
                 fastfiler_win::window_interop::screen_to_client(hwnd, pos.0, pos.1)
@@ -707,8 +715,8 @@ impl App {
             let Ok(rows) = snap.lock() else {
                 return DROPEFFECT_NONE;
             };
-            match rows.iter().find(|(rect, _)| rect.contains(point)) {
-                Some((_, dest)) => fastfiler_core::transfer::decide_drop_effect(
+            match rows.iter().find(|(_, rect, _)| rect.contains(point)) {
+                Some((_, _, dest)) => fastfiler_core::transfer::decide_drop_effect(
                     keys,
                     allowed,
                     paths.first().map(|p| p.as_path()),
@@ -717,12 +725,35 @@ impl App {
                 None => DROPEFFECT_NONE,
             }
         };
-        let on_enter = effect_at.clone();
-        let on_over = effect_at.clone();
+        // 右ボタンは drop 時に grfKeyState から消えるため enter/over でラッチする
+        let latch_enter = std::sync::Arc::clone(&latch);
+        let eff = effect_at.clone();
+        let on_enter = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
+            latch_enter.store(
+                keys & fastfiler_win::drop_target::MK_RBUTTON != 0,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            eff(paths, pos, keys, allowed)
+        };
+        let latch_over = std::sync::Arc::clone(&latch);
+        let eff = effect_at.clone();
+        let on_over = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
+            if keys & fastfiler_win::drop_target::MK_RBUTTON != 0 {
+                latch_over.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            eff(paths, pos, keys, allowed)
+        };
+        let latch_drop = std::sync::Arc::clone(&latch);
         let on_drop = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
             let effect = effect_at(paths, pos, keys, allowed);
+            let right = latch_drop.swap(false, std::sync::atomic::Ordering::Relaxed);
+            let keys = if right {
+                keys | fastfiler_win::drop_target::MK_RBUTTON
+            } else {
+                keys
+            };
             ole_diag(&format!(
-                "drop paths={} pos={pos:?} keys={keys:#x} -> effect={effect}",
+                "drop paths={} pos={pos:?} keys={keys:#x} right={right} -> effect={effect}",
                 paths.len()
             ));
             if effect != DROPEFFECT_NONE {
@@ -791,23 +822,32 @@ impl App {
             payload["x"].as_i64().unwrap_or(0) as i32,
             payload["y"].as_i64().unwrap_or(0) as i32,
         );
-        // ペイン解決 (論理座標で pane_rects から)
+        // ペイン解決: effect 判定と同一のヒットテスト表 (物理 px) を引く
         let Some(hwnd) = self.hwnd else {
             return Task::none();
         };
         let Some((cx, cy)) = fastfiler_win::window_interop::screen_to_client(hwnd, sx, sy) else {
             return Task::none();
         };
-        let point = iced::Point::new(cx as f32 / self.scale_factor, cy as f32 / self.scale_factor);
-        let Some(pane) = self
-            .pane_rects
-            .iter()
-            .filter(|(id, _)| self.model.panes.contains_key(**id))
-            .find(|(_, rect)| rect.contains(point))
-            .map(|(id, _)| *id)
-        else {
+        let phys = iced::Point::new(cx as f32, cy as f32);
+        let resolved = self.ole_snapshot.lock().ok().and_then(|rows| {
+            rows.iter()
+                .find(|(_, rect, _)| rect.contains(phys))
+                .map(|(id, _, _)| *id)
+        });
+        let Some(pane) = resolved.filter(|id| self.model.panes.contains_key(*id)) else {
+            ole_diag(&format!(
+                "handle: NO PANE at client=({cx},{cy}) scale={} rects={}",
+                self.scale_factor,
+                self.pane_rects.len()
+            ));
             return Task::none();
         };
+        ole_diag(&format!(
+            "handle: pane resolved, effect={effect} right={}",
+            keys & fastfiler_win::drop_target::MK_RBUTTON != 0
+        ));
+        let point = iced::Point::new(cx as f32 / self.scale_factor, cy as f32 / self.scale_factor);
         let right_button = keys & fastfiler_win::drop_target::MK_RBUTTON != 0;
         let commands = if right_button {
             effects::collect_menu_context().1
@@ -1168,6 +1208,8 @@ fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
         _ => None,
     }
 }
+
+type OleSnapshot = std::sync::Arc<std::sync::Mutex<Vec<(PaneId, iced::Rectangle, PathBuf)>>>;
 
 /// OLE 受信の診断ログ (%APPDATA%\FastFiler\ole_diag.log へ追記)。
 /// 外部 D&D はヘッドレステスト不可のため、実機からの報告用に常時軽量記録する
