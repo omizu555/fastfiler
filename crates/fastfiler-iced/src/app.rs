@@ -1406,7 +1406,13 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
             _ => None,
         }),
     ];
-    if app.bench.is_some() {
+    // 省メモリ (tiny-skia): 描画が起きているフレームごとに Msg を流す。
+    // コンボボックスのドロップダウンのスクロール等「メッセージを発行しない
+    // 内部動作」では theme() (背景揺らし = 全画面描画の引き金) が再評価されず、
+    // そのフレームだけ差分描画に落ちて残像が積もる — フレーム Msg で
+    // theme 再評価を駆動する。描画が無いアイドル時は発火しない (コストゼロ)。
+    // (bench 計測も同じストリームに相乗り)
+    if app.bench.is_some() || app.settings.renderer.as_deref() != Some("gpu") {
         subs.push(window::frames().map(Msg::Frame));
     }
     Subscription::batch(subs)
