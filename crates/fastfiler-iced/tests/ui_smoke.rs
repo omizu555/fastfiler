@@ -1,0 +1,365 @@
+//! UI 操作レベルのスモークテスト (iced_test のヘッドレス Simulator)。
+//!
+//! 「ボタンが押せて、正しいメッセージが飛び、画面が遷移する」ことを
+//! 実描画なしで検証する。ファイル操作そのものは対象外 (core の単体テスト側)。
+//!
+//! 制約: 直描きのカスタム widget (一覧・ツリー・タブ) の文字はセレクタで
+//! 探せないため、標準 widget (ボタン等) はテキスト、カスタム widget は
+//! 座標クリックで叩く。
+
+use fastfiler_core::update_app::{AppMsg, DragMsg};
+use fastfiler_iced::app::{self, App, Msg};
+use fastfiler_iced::settings_view::SettingsMsg;
+use iced_test::simulator;
+
+/// テスト用に単一ペイン (temp フォルダ) で起動する。
+/// FASTFILER_OPEN はセッションの読み込みも保存も抑止する (検証モード)。
+fn boot_app() -> App {
+    // SAFETY: テストは 1 プロセスで直列に env を読む前に設定する
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", std::env::temp_dir());
+    }
+    let (app, _task) = app::boot();
+    app
+}
+
+/// view からボタンをクリックし、発行されたメッセージを update へ流す。
+fn click_and_apply(app: &mut App, label: &str) -> usize {
+    let mut ui = simulator(app::view(app));
+    ui.click(label)
+        .unwrap_or_else(|e| panic!("「{label}」がクリックできない: {e:?}"));
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    let n = msgs.len();
+    for m in msgs {
+        let _ = app::update(app, m);
+    }
+    n
+}
+
+#[test]
+fn ui_smoke_buttons_and_screens() {
+    let mut app = boot_app();
+
+    // 1. 設定ボタン → 設定画面が開く
+    assert!(
+        click_and_apply(&mut app, "設定") > 0,
+        "設定ボタンが反応しない"
+    );
+    {
+        // 設定画面のボタンが存在しクリックできる
+        let mut ui = simulator(app::view(&app));
+        ui.find("テーマを再読込").expect("設定画面が開いていない");
+        ui.click("× 閉じる").expect("閉じるボタンが押せない");
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        assert!(
+            msgs.iter()
+                .any(|m| matches!(m, Msg::Settings(SettingsMsg::Close))),
+            "閉じるが Close を発行しない"
+        );
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+    }
+    // 閉じた後は通常画面 (設定ボタンが再び見える)
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.find("設定").expect("設定画面から戻れていない");
+    }
+
+    // 2. タブ追加 (＋) → パスバー等の通常 UI が維持される
+    assert!(click_and_apply(&mut app, "＋") > 0, "＋ボタンが反応しない");
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.find("＋").expect("タブ追加後に画面が壊れた");
+    }
+
+    // 3. ツリートグル → 押しても view が構築できる (パニックしない)
+    assert!(
+        click_and_apply(&mut app, "ツリー") > 0,
+        "ツリーボタンが反応しない"
+    );
+    let _ = simulator(app::view(&app));
+
+    // 4. ペインヘッダの ↑ (親へ) ボタン
+    assert!(click_and_apply(&mut app, "↑") > 0, "↑ボタンが反応しない");
+    let _ = simulator(app::view(&app));
+}
+
+#[test]
+fn ui_smoke_settings_controls() {
+    let mut app = boot_app();
+    click_and_apply(&mut app, "設定");
+
+    let mut ui = simulator(app::view(&app));
+    // 設定画面の主要ボタン一式が存在する (欠落の回帰防止 —
+    // 「設定ボタンが無い」事故の再発防止と同型のチェック)
+    for label in [
+        "テーマを再読込",
+        "ホットキー設定を開く",
+        "再読み込み",
+        "テンプレートフォルダを開く",
+        "ユーザーコマンドのフォルダを開く",
+        "× 閉じる",
+    ] {
+        ui.find(label)
+            .unwrap_or_else(|e| panic!("設定画面に「{label}」が無い: {e:?}"));
+    }
+}
+
+/// 外部右ボタンドロップ → チューザーメニュー → 「ここにコピー」→ 実ファイルコピー
+/// までの通し検証 (ユーザー報告「メニューは出るが実際はコピーされない」の再現)。
+#[test]
+fn external_right_drop_copies_real_file() {
+    // 送り元ファイルと送り先フォルダを用意
+    let base = std::env::temp_dir().join(format!("ff_ui_dnd_{}", std::process::id()));
+    let src_dir = base.join("src");
+    let dest_dir = base.join("dest");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    let src_file = src_dir.join("dropped.txt");
+    std::fs::write(&src_file, b"payload").unwrap();
+
+    // SAFETY: テストプロセス内で最初に設定
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", &dest_dir);
+    }
+    let (mut app, _task) = app::boot();
+
+    // 外部右ドロップ相当を投入 → DropMenu が開く
+    let pane = {
+        // focused_pane は公開されていないため、External はフォーカスペイン宛に
+        // 届いた前提で view から確かめる。App 経由で pane id を得る手段として
+        // core の AppMsg::Drag は pane を要求する — boot 直後は単一ペイン。
+        // fastfiler_core::AppModel へ直接アクセスできないので、
+        // FooterRightClicked と同じ経路は使わず、External をフォーカス宛にする
+        // ための専用ヘルパを app に置かない代わりに、単一ペイン前提で
+        // Msg::List の BoundsChanged 等は不要 — DragMsg::External は
+        // 存在する PaneId が必要。ここでは app::focused_pane_for_test() を使う。
+        app::focused_pane_for_test(&app)
+    };
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Drag(DragMsg::External {
+            pane,
+            paths: vec![src_file.clone()],
+            effect: 1,
+            right_button: true,
+            at: (20.0, 20.0),
+            commands: vec![],
+        })),
+    );
+
+    // メニュー項目「ここにコピー」(1 項目目) を座標クリック
+    // パネルは at=(20,20)、項目高 26px、パディング 4px → 項目 0 の中心 ≈ (130, 37)
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(iced::Point::new(130.0, 37.0));
+    let _ = ui.simulate(iced_test::simulator::click());
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    assert!(
+        !msgs.is_empty(),
+        "メニュークリックがメッセージを発行しない (widget にイベントが届いていない)"
+    );
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+
+    // ジョブスレッドがコピーするのを待つ (最大 5 秒)
+    let expected = dest_dir.join("dropped.txt");
+    let mut ok = false;
+    for _ in 0..50 {
+        if expected.exists() {
+            ok = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    assert!(ok, "「ここにコピー」を選んでもファイルがコピーされない");
+}
+
+/// 回帰 (ユーザー操作想定): タブを切り替えた後にエクスプローラからドロップすると
+/// 「別タブの古いペイン」へ解決されるバグ (実機ログで発見)。
+/// 実際のマウスイベントを simulator で流し、widget が発行する矩形通知だけで
+/// ヒットテスト表が正しく更新されることを検証する (手動注入なし)。
+#[test]
+fn ole_hit_test_follows_active_tab() {
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", std::env::temp_dir());
+    }
+    let (mut app, _task) = app::boot();
+    let first_pane = app::focused_pane_for_test(&app);
+
+    // 起動直後、マウスを一度も動かさずに即ドロップされても解決できること
+    // (OLE ドラッグ中は通常のマウスイベントが届かないため、widget 通知に
+    //  依存すると表が空になる — 実機で「再起動直後の D&D が全拒否」を確認)
+    assert_eq!(
+        app::ole_hit_for_test(&app, 600.0, 300.0),
+        Some(first_pane),
+        "起動直後 (マウス操作なし) のドロップが拒否される"
+    );
+
+    // タブ追加ボタンをクリック → 直後 (マウス移動なし) のドロップは新タブのペインへ
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.click("＋").expect("タブ追加");
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+    }
+    let second_pane = app::focused_pane_for_test(&app);
+    assert_ne!(first_pane, second_pane);
+    assert_eq!(
+        app::ole_hit_for_test(&app, 600.0, 300.0),
+        Some(second_pane),
+        "タブ切替直後のドロップが古いタブのペインへ解決される"
+    );
+
+    // ペイン分割直後: 分割した両ペインがそれぞれの領域に解決されること
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(
+            fastfiler_core::update_app::TabMsg::SplitFocused(fastfiler_core::bsp::SplitDir::Row),
+        )),
+    );
+    let right_pane = app::focused_pane_for_test(&app);
+    assert_ne!(second_pane, right_pane);
+    // 左半分 → 元ペイン / 右半分 → 新ペイン (960 幅、ペイン領域はタブ+ツリーの右)
+    let left_hit = app::ole_hit_for_test(&app, 500.0, 300.0);
+    let right_hit = app::ole_hit_for_test(&app, 900.0, 300.0);
+    assert_eq!(left_hit, Some(second_pane), "分割左ペインの解決が誤り");
+    assert_eq!(right_hit, Some(right_pane), "分割右ペインの解決が誤り");
+}
+
+/// 回帰 (ユーザー操作想定): 分割ペイン間の右ボタンドラッグ&ドロップ。
+/// 右ドラッグの Released が「発生元ペインの押下状態」でしか判定されず、
+/// 分割相手のペインで離すと無反応になるバグ (実機報告) の再現と検証。
+#[test]
+fn internal_right_drag_across_panes_opens_chooser() {
+    // 行が必要なので実ファイルを持つフォルダを開く
+    let base = std::env::temp_dir().join(format!("ff_rdrag_{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(base.join("a.txt"), b"x").unwrap();
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", &base);
+    }
+    let (mut app, _task) = app::boot();
+    // 読み込み完了を待つ代わりに直接 Loaded を作れないため、実読み込みを促す:
+    // boot の LoadDir はタスク実行されないので、エントリを同期投入する
+    let pane = app::focused_pane_for_test(&app);
+    let entries = vec![fastfiler_core::Entry::new(
+        "a.txt".into(),
+        false,
+        1,
+        0,
+        Some("txt".into()),
+        false,
+    )];
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(
+            pane,
+            fastfiler_core::PaneMsg::Loaded {
+                generation: 1,
+                entries,
+            },
+        )),
+    );
+    // 左右分割 → フォーカスは新 (右) ペイン。ドラッグ元は左ペイン
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(
+            fastfiler_core::update_app::TabMsg::SplitFocused(fastfiler_core::bsp::SplitDir::Row),
+        )),
+    );
+
+    // 段階 0: 行 0 の実座標をプローブ (左クリックで RowPressed が出る y を探す —
+    // ヘッダ高はフォント等で変わるため決め打ちしない)
+    let row_y = (40..160)
+        .step_by(6)
+        .find(|&y| {
+            let mut ui = simulator(app::view(&app));
+            let p = iced::Point::new(500.0, y as f32);
+            ui.point_at(p);
+            let _ = ui.simulate(vec![
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: p }),
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )),
+            ]);
+            ui.into_messages().any(|m| {
+                matches!(
+                    m,
+                    Msg::List(
+                        _,
+                        fastfiler_iced::widgets::file_list::ListEvent::RowPressed { .. }
+                    )
+                )
+            })
+        })
+        .expect("行 0 の座標が見つからない (entries が表示されていない?)");
+
+    // 段階 1: 左ペインの行を右ボタンで掴んで 12px 動かす → DragStarted
+    let row_pos = iced::Point::new(500.0, row_y as f32);
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.point_at(row_pos);
+        let _ = ui.simulate(vec![
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: row_pos }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                iced::mouse::Button::Right,
+            )),
+        ]);
+        ui.point_at(iced::Point::new(row_pos.x + 12.0, row_pos.y));
+        let _ = ui.simulate(std::iter::once(iced::Event::Mouse(
+            iced::mouse::Event::CursorMoved {
+                position: iced::Point::new(row_pos.x + 12.0, row_pos.y),
+            },
+        )));
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        let msgs_dbg: Vec<String> = msgs.iter().map(|m| format!("{m:?}")).collect();
+        let started = msgs.iter().any(|m| {
+            matches!(
+                m,
+                Msg::List(
+                    _,
+                    fastfiler_iced::widgets::file_list::ListEvent::DragStarted { .. }
+                )
+            )
+        });
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+        assert!(
+            started,
+            "右ドラッグの DragStarted が発行されない: {msgs_dbg:?}"
+        );
+    }
+
+    // 段階 2: 分割相手 (右ペイン) の上で右ボタンを離す → チューザーが開くべき
+    let drop_pos = iced::Point::new(880.0, 300.0);
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.point_at(drop_pos);
+        let _ = ui.simulate(vec![
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: drop_pos }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Right,
+            )),
+        ]);
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        assert!(
+            !msgs.is_empty(),
+            "分割相手ペインでの右リリースが無反応 (実機バグの再現)"
+        );
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    assert!(
+        app::drop_menu_open_for_test(&app),
+        "右ドラッグ&ドロップでチューザーメニューが開かない"
+    );
+}

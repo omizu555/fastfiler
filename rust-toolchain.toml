@@ -1,5 +1,4 @@
-# GPUI (Zed) は Rust 1.95.0 / edition 2024 を要求するため固定。
-# 既存 floem 版 (edition 2021) も 1.95.0 でビルド可能。
-# 参照: doc/plan-2026-06-03-gpui-migration.md (Phase 0)
+# iced 版は特定 toolchain を要求しない (GPUI 時代の 1.95.0 固定は撤去)。
+# 再現性のために当面 1.95.0 を維持 — stable 追従に切り替えてよい。
 [toolchain]
 channel = "1.95.0"

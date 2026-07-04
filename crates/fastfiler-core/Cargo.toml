@@ -1,0 +1,17 @@
+[package]
+name = "fastfiler-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+# core は GPL コード (vendor zlog/ztracing 経由) を一切リンクしない純ロジック層。
+# 「次の GUI 移行を生き残る」クレートなので、許諾の自由を確保するため permissive にする
+# (成果物バイナリ全体は domain/vendor の GPL に従う。計画書 §0-2 / Phase 7 ライセンス再検討)。
+license = "MIT OR Apache-2.0"
+description = "FastFiler のフレームワーク非依存コア (状態 + 純ロジック)。GUI クレートに依存しない"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slotmap = "1"
+# 更新日時のローカル時刻表記 (GPUI 版は Win32 API 直叩きだった。core は OS 非依存にする)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

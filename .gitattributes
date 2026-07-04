@@ -1,0 +1,3 @@
+# シェルスクリプトは常に LF (CRLF だと bash が \r を含むコマンドとして誤解釈する。
+# git worktree の新規チェックアウトでも壊れないようにする)
+*.sh text eol=lf

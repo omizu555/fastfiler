@@ -1,6 +1,6 @@
-# FastFiler ビルド & 開発 & リリースガイド (GPUI 版)
+# FastFiler ビルド & 開発 & リリースガイド
 
-GPUI (Zed のフレームワークを `vendor/` に完全移植) ベースの純 Rust 構成。
+iced 0.14 ベースの純 Rust 構成 (vendor なし、crates.io のみ)。
 Node / Tauri / WebView2 は不要。zed リポジトリのチェックアウトも**不要** (自己完結)。
 
 ---
@@ -9,7 +9,7 @@ Node / Tauri / WebView2 は不要。zed リポジトリのチェックアウト�
 
 | 項目 | バージョン | 備考 |
 |---|---|---|
-| OS | Windows 10 / 11 (x64) | GPUI は他 OS も対応するが本リポジトリの vendor は Windows 専用に整理済み |
+| OS | Windows 10 / 11 (x64) | iced は他 OS も対応するが、シェル統合 (fastfiler-win/domain) は Windows 専用 |
 | Rust | **1.95.0** (固定) | `rust-toolchain.toml` で固定。rustup が自動取得 |
 | MSVC Build Tools | Visual Studio 2022 Build Tools | "C++ build tools" + Windows 10/11 SDK |
 
@@ -27,7 +27,7 @@ Node / Tauri / WebView2 は不要。zed リポジトリのチェックアウト�
 ### 開発ビルド
 
 ```powershell
-cargo run -p fastfiler-gpui
+cargo run -p fastfiler-iced
 ```
 
 初回はフルビルドで数分。以降のインクリメンタルは数秒。
@@ -35,7 +35,7 @@ cargo run -p fastfiler-gpui
 ### リリースビルド
 
 ```powershell
-cargo build -p fastfiler-gpui --release
+cargo build -p fastfiler-iced --release
 .\target\release\fastfiler.exe
 ```
 
@@ -47,10 +47,10 @@ cargo build -p fastfiler-gpui --release
 
 ```powershell
 cargo clean
-cargo build -p fastfiler-gpui --release
+cargo build -p fastfiler-iced --release
 ```
 
-vendor (GPUI) を含むフルビルドになるため数分かかる。
+クリーンビルドは依存取得込みで数分、以後は差分ビルド。
 
 ---
 
@@ -58,11 +58,12 @@ vendor (GPUI) を含むフルビルドになるため数分かかる。
 
 ```
 crates/fastfiler-domain   OS/ファイル操作ライブラリ (GUI 非依存)
-crates/fastfiler-gpui     GUI バイナリ (これをビルドする)
-vendor/                   GPUI と依存クレート (独立サブワークスペース・触る必要なし)
+crates/fastfiler-core     状態遷移 (フレームワーク非依存・単体テスト対象)
+crates/fastfiler-win      Win32 相互運用 (OLE D&D / フォント列挙 / 多重起動)
+crates/fastfiler-iced     GUI バイナリ (これをビルドする。bin 名 fastfiler)
 ```
 
-- `vendor/` の更新 (GPUI のバージョンアップ) 手順は [`../vendor/README.md`](../vendor/README.md)。
+- iced は 0.14.0 にピン留め (`=0.14.0`)。更新時は ADR 0013 の検証項目 (IME/仮想リスト/OLE 共存) を再確認する。
 - アーキテクチャの詳細は [`ARCHITECTURE.md`](./ARCHITECTURE.md)。
 
 ---
@@ -71,15 +72,16 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 
 - デバッグ起動でコンソールにパニックが出る (`RUST_BACKTRACE=1` 推奨)。
 - ユーザーデータは `%APPDATA%\FastFiler\` 配下:
-  - `gpui_session.json` — セッション (タブ / 分割 / 列幅 / ロック / ウィンドウ位置)
-  - `gpui_settings.json` — 設定 (テーマ / スタイル / フォント / タブ列数 / Everything ポート 等)
-  - `gpui_hotkeys.json` — ホットキー割り当て
+  - `session.json` — セッション (タブ / 分割 / 列幅 / ロック / ウィンドウ位置)
+  - `settings.json` — 設定 (テーマ / スタイル / フォント / レンダラ / タブ列数 / Everything ポート 等)
+  - `hotkeys.json` — ホットキー割り当て
+  - 旧版 (gpui_/iced_ 接頭辞) のファイルからは初回起動時に自動移行 (読むだけ)
   - `themes/*.json` — カスタムテーマ (初回起動でサンプル生成)
   - 壊れた場合は該当ファイルを削除すれば既定値で再生成される。
 - メモリ健全性の計装 `PANES_ALIVE` (pane.rs) は残しているが、常時表示の
   `live panes: N` は通常利用の邪魔になるため UI からは撤去した (2026-06-09)。
   リーク調査時はタブバー下部に一時的に表示を足すか `PANES_ALIVE` をログ出力する。
-- GPUI の API を調べるときは `vendor/crates/gpui/examples/` が最短
+- iced の API を調べるときは docs.rs/iced と公式 examples が最短
   (hello_world / uniform_list / input など)。
 
 ---
@@ -88,7 +90,7 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 
 | 項目 | 値 |
 |---|---|
-| バージョン | `crates/fastfiler-gpui/Cargo.toml` の `version` |
+| バージョン | `crates/fastfiler-iced/Cargo.toml` の `version` |
 | プラットフォーム | Windows 10 / 11 (x64) のみ |
 | 配布形式 | 単一実行ファイル `fastfiler.exe` + ドキュメント (ZIP) |
 | ランタイム依存 | なし (WebView2 不要) |
@@ -99,7 +101,7 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 
 - [ ] `cargo fmt --all` (差分なし)
 - [ ] `cargo clippy -p fastfiler-gpui -p fastfiler-domain -- -D warnings`
-- [ ] `cargo build -p fastfiler-gpui --release` (warnings 0)
+- [ ] `cargo build -p fastfiler-iced --release` (warnings 0)
 
 動作確認 (手動):
 
@@ -119,7 +121,7 @@ vendor/                   GPUI と依存クレート (独立サブワークス�
 ### ビルドと梱包
 
 ```powershell
-cargo build -p fastfiler-gpui --release
+cargo build -p fastfiler-iced --release
 
 # ZIP 構成
 fastfiler-<version>-win-x64/

@@ -1,4 +1,4 @@
-# FastFiler ユーザーマニュアル (GPUI 版)
+# FastFiler ユーザーマニュアル 
 
 最終更新: 2026-06-09 (矩形選択 / Esc 選択解除を追加・live panes 表示を撤去)
 
@@ -182,7 +182,7 @@
 | 検索 — Everything ポート | Everything HTTP サーバのポート (既定 80)。`Enter` か「適用」 |
 
 閉じる: `Esc` / 外側クリック / `×`。
-設定の保存先: `%APPDATA%\FastFiler\gpui_settings.json` (即時保存)。
+設定の保存先: `%APPDATA%\FastFiler\settings.json` (即時保存)。
 
 ### カスタマイズの詳細ガイド
 
@@ -190,7 +190,7 @@
 |---|---|
 | 配色を変える / 自作テーマ JSON を書く (全色キーの説明) | [THEMES.md](./THEMES.md) |
 | 右クリックメニューに独自コマンドを足す (commands.json) | [COMMANDS.md](./COMMANDS.md) |
-| キー割り当てを変える (gpui_hotkeys.json、全アクションの説明) | [HOTKEYS.md](./HOTKEYS.md) |
+| キー割り当てを変える (hotkeys.json、全アクションの説明) | [HOTKEYS.md](./HOTKEYS.md) |
 
 概要だけ:
 
@@ -198,7 +198,7 @@
   `base` のプリセットに `colors` の hex を上書きする形式。設定画面の「再読み込み」で即反映
 - **ユーザーコマンド**: `%APPDATA%\fastfiler\commands\commands.json`。
   `{path}` `{cwd}` 等のプレースホルダ付きで任意の外部コマンドをメニューに追加
-- **ホットキー**: `%APPDATA%\FastFiler\gpui_hotkeys.json`。`{ "action": "combo" }` 形式で
+- **ホットキー**: `%APPDATA%\FastFiler\hotkeys.json`。`{ "action": "combo" }` 形式で
   18 アクションを変更可。矢印などの移動系とモーダル内 Enter/Esc は固定
 
 ---
@@ -206,7 +206,7 @@
 ## 4. セッション復元
 
 以下が自動保存され、次回起動時に復元される
-(`%APPDATA%\FastFiler\gpui_session.json`):
+(`%APPDATA%\FastFiler\session.json`):
 
 - タブ一覧 (並び順・**ロック状態**) とアクティブタブ
 - 各タブの分割構成 (方向・比率) と各ペインのフォルダ・フォーカス・**列幅**
@@ -233,6 +233,6 @@
 - **検索が「検索エラー」になる**: Everything 未起動またはポート不一致。
   設定画面でポートを確認 (内蔵検索へは自動フォールバックする)。
 - **セッションを初期化したい**: アプリ終了後に
-  `%APPDATA%\FastFiler\gpui_session.json` を削除。
-- **設定 / ホットキーを初期化したい**: 同フォルダの `gpui_settings.json` /
-  `gpui_hotkeys.json` を削除 (次回起動時に既定値で再生成)。
+  `%APPDATA%\FastFiler\session.json` を削除。
+- **設定 / ホットキーを初期化したい**: 同フォルダの `settings.json` /
+  `hotkeys.json` を削除 (次回起動時に既定値で再生成)。
