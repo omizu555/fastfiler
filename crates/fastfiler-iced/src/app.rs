@@ -848,7 +848,10 @@ impl App {
             },
         );
         match r {
-            Ok(()) => ole_diag("register ok"),
+            Ok(()) => ole_diag(&format!(
+                "register ok hwnd={hwnd:#x} pid={}",
+                std::process::id()
+            )),
             Err(e) => {
                 ole_diag(&format!("register FAILED: {e}"));
                 eprintln!("OLE 受信登録に失敗: {e}");
@@ -1317,6 +1320,11 @@ type OleSnapshot = std::sync::Arc<std::sync::Mutex<Vec<(PaneId, iced::Rectangle,
 /// OLE 受信の診断ログ (%APPDATA%\FastFiler\ole_diag.log へ追記)。
 /// 外部 D&D はヘッドレステスト不可のため、実機からの報告用に常時軽量記録する
 /// (enter/drop/登録時のみ — over では書かない)。
+/// main.rs からも書けるログ入口。
+pub fn ole_diag_pub(msg: &str) {
+    ole_diag(msg);
+}
+
 fn ole_diag(msg: &str) {
     use std::io::Write as _;
     let Ok(base) = std::env::var("APPDATA") else {

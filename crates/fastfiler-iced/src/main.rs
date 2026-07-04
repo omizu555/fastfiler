@@ -39,7 +39,15 @@ pub fn main() -> iced::Result {
     ]
     .iter()
     .any(|k| std::env::var_os(k).is_some());
+    fastfiler_iced::app::ole_diag_pub(&format!(
+        "boot pid={} build={}",
+        std::process::id(),
+        env!("FF_BUILD_STAMP")
+    ));
     if !dev_run && !fastfiler_win::single_instance::acquire_single_instance() {
+        fastfiler_iced::app::ole_diag_pub(
+            "boot: 既存インスタンスへ前面化して終了 (このプロセスは動いていない)",
+        );
         fastfiler_win::single_instance::activate_existing_window();
         return Ok(());
     }
