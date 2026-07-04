@@ -73,3 +73,15 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
   Stop フックにブロックされる (仕様。無限ループはしない)。
 - この環境に `jq` は無い。JSON の検証は PowerShell の `ConvertFrom-Json` を使う。
   curl は `--ssl-no-revoke` が必要 (社内網の失効チェック問題。cargo は設定済み)。
+
+## 2026-07-04 メモリ調査 (Issue #9)
+- **iced 0.14 既定の wgpu は `Backends::all()`** — DX12+Vulkan+GL を全初期化し、素の
+  ウィンドウ 1 枚で Private ~190MB。`WGPU_BACKEND=dx12` (main 冒頭 set_var) で −64MB、
+  `ICED_BACKEND=tiny-skia` で 7MB。WS はメモリ圧で OS が自動トリム (iced#3161) —
+  比較は Private で行うこと。
+- tiny-skia は 10 万行 vlist で p95 9.6ms・起動 12 倍速 (中型ウィンドウでは wgpu より速い)。
+  コストはピクセル数比例 → 大画面のみ注意。
+- 検証フラグ (FASTFILER_OPEN) が実セッションを上書きする事故 — 「読み込みをスキップ
+  する開発フラグは書き込みも対で抑止する」。
+- 置換パッチ (python replace) は不適用でも無音 — 適用後に **grep で存在確認**を必ず行う
+  (設定ボタン欠落の原因)。
