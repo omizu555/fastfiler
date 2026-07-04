@@ -148,6 +148,8 @@ pub enum Msg {
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
     Frame(Instant),
+    /// 省メモリの残像対策: 入力イベントで theme 再評価を駆動するだけの no-op。
+    RedrawPing,
     AutoClose,
 }
 
@@ -633,6 +635,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 "元に戻す操作はありません".into(),
             ))),
         },
+        Msg::RedrawPing => Task::none(),
         Msg::Frame(now) => {
             // ベンチ: Loaded 後の最初の描画フレームで計測を打ち切る
             if let Some(b) = &mut app.bench {
@@ -1406,14 +1409,22 @@ pub fn subscription(app: &App) -> Subscription<Msg> {
             _ => None,
         }),
     ];
-    // 省メモリ (tiny-skia): 描画が起きているフレームごとに Msg を流す。
-    // コンボボックスのドロップダウンのスクロール等「メッセージを発行しない
-    // 内部動作」では theme() (背景揺らし = 全画面描画の引き金) が再評価されず、
-    // そのフレームだけ差分描画に落ちて残像が積もる — フレーム Msg で
-    // theme 再評価を駆動する。描画が無いアイドル時は発火しない (コストゼロ)。
-    // (bench 計測も同じストリームに相乗り)
-    if app.bench.is_some() || app.settings.renderer.as_deref() != Some("gpu") {
+    if app.bench.is_some() {
         subs.push(window::frames().map(Msg::Frame));
+    }
+    // 省メモリ (tiny-skia): スクロール/マウス移動など「Msg を発行しない内部の
+    // 視覚変化」(コンボボックスのドロップダウン、ホバー等) では theme() —
+    // 背景揺らし = 全画面描画の引き金 — が再評価されず、そのフレームだけ
+    // 差分描画に落ちて残像が出る。入力イベントを Msg 化して theme 再評価を
+    // 駆動する (イベント駆動 — アイドル時のコストはゼロ。
+    // ※ window::frames() 方式は Msg→再描画→frames の自走ループで
+    //   アイドルでも 1 コア食い続けるため使わない — 実測済み)
+    if app.settings.renderer.as_deref() != Some("gpu") {
+        subs.push(iced::event::listen_with(|ev, _status, _id| match ev {
+            Event::Mouse(mouse::Event::WheelScrolled { .. })
+            | Event::Mouse(mouse::Event::CursorMoved { .. }) => Some(Msg::RedrawPing),
+            _ => None,
+        }));
     }
     Subscription::batch(subs)
 }
