@@ -2,7 +2,7 @@
 name = "fastfiler-win"
 version = "0.1.0"
 edition = "2021"
-license = "GPL-3.0-or-later"
+license = "MIT OR Apache-2.0"
 description = "FastFiler の HWND を要する Win32 統合 (OLE 受信 / 多重起動 / ウィンドウ連携)"
 
 [dependencies]

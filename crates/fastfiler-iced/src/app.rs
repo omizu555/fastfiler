@@ -1228,8 +1228,9 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
             }
         }
         SettingsMsg::SetRenderer(label) => {
-            let value = if label.contains("省メモリ") {
-                Some("lowmem".to_string())
+            // 既定 = 省メモリ (None)。GPU は明示選択
+            let value = if label.contains("GPU") {
+                Some("gpu".to_string())
             } else {
                 None
             };

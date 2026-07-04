@@ -113,13 +113,13 @@ pub fn view<'a>(
     .align_y(iced::Alignment::Center);
 
     let renderer_labels = vec![
-        "標準 (GPU)".to_string(),
-        "省メモリ (ソフトウェア描画)".to_string(),
+        "省メモリ (既定)".to_string(),
+        "GPU (wgpu/DX12)".to_string(),
     ];
-    let current_renderer = if settings.renderer.as_deref() == Some("lowmem") {
-        "省メモリ (ソフトウェア描画)".to_string()
+    let current_renderer = if settings.renderer.as_deref() == Some("gpu") {
+        "GPU (wgpu/DX12)".to_string()
     } else {
-        "標準 (GPU)".to_string()
+        "省メモリ (既定)".to_string()
     };
     let renderer_row = row![
         pick_list(
@@ -143,7 +143,7 @@ pub fn view<'a>(
         button(text("再読み込み").size(12))
             .padding([4, 10])
             .on_press(SettingsMsg::ReloadHotkeys),
-        text("iced_hotkeys.json (gpui_hotkeys.json から自動移行)").size(11),
+        text("hotkeys.json (旧ファイルから自動移行)").size(11),
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center);

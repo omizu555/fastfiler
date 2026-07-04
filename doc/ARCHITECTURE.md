@@ -1,6 +1,6 @@
-# FastFiler アーキテクチャ (GPUI 版)
+# FastFiler アーキテクチャ (iced 版)
 
-最終更新: 2026-06-04 (floem → GPUI 全面移植後。経緯は [ADR 0012](./adr/0012-migrate-floem-to-gpui.md))
+最終更新: 2026-07-04 (GPUI → iced 全面移植後。経緯は [ADR 0013](./adr/0013-migrate-gpui-to-iced.md)。詳細な設計は [plan/2026-07-02-iced-rewrite.md](./plan/2026-07-02-iced-rewrite.md))
 
 ---
 
@@ -9,13 +9,15 @@
 ```
 fastfiler/
 ├── Cargo.toml                  workspace 定義 ([patch.crates-io] async-task 含む)
-├── rust-toolchain.toml         1.95.0 (GPUI 要求)
+├── rust-toolchain.toml         1.95.0 (再現性のための固定 — 要求ではない)
 ├── .cargo/config.toml          check-revoke=false (社内網などの失効チェック回避)
 ├── crates/
 │   ├── fastfiler-domain/       OS / GUI 非依存のロジック (lib) — floem 時代から無改造
 │   │   └── src/                fs / file_ops / file_jobs / watcher / search /
 │   │                           shell / icons / win_clipboard / ole_dnd / undo ほか
-│   └── fastfiler-gpui/         GPUI GUI (bin)
+│   ├── fastfiler-core/         状態遷移 (Elm 型 update、I/O なし、単体テスト対象)
+│   ├── fastfiler-win/          Win32 相互運用 (OLE D&D / フォント列挙 / 多重起動)
+│   └── fastfiler-iced/         iced GUI (bin 名 fastfiler)
 │       └── src/
 │           ├── main.rs         エントリ。キーバインド登録 / セッション復元 / 窓生成
 │           ├── app.rs          FastFilerApp (ルート Entity)。タブ / BSP ツリー /
@@ -23,16 +25,16 @@ fastfiler/
 │           ├── pane.rs         PaneView (1 ペイン)。一覧 / 選択 / 操作 / モーダル /
 │           │                   右クリックメニュー / D&D / 検索 / Undo / watcher 連携
 │           ├── tree.rs         ワークスペースツリー (ドライブ起点 / 遅延展開 / UNC)
-│           ├── text_input.rs   IME 対応の単一行テキスト入力 (gpui 公式例の移植)
+│           ├── widgets/        直描きカスタム widget (FileList/TreeList/TabBar/ContextMenu)
 │           ├── theme.rs        テーマ (プリセット + themes/*.json) / スタイル /
 │           │                   UI フォントサイズの static アクセサ (th() ほか)
-│           ├── settings_store.rs  設定の読み書き (gpui_settings.json、即時保存)
-│           ├── hotkeys.rs      ホットキー定義と読み込み (gpui_hotkeys.json)
+│           ├── settings.rs     設定の読み書き (settings.json、即時保存)
+│           ├── hotkeys.rs      ホットキー定義と読み込み (hotkeys.json)
 │           ├── sink.rs         EventSink → async-channel ブリッジ
 │           ├── persist.rs      設定/セッションのクラッシュ安全な保存 (tmp+fsync+rename / .bak)
 │           ├── session.rs      セッション永続化 (JSON、persist 経由)
 │           └── win32_single_instance.rs  多重起動防止 (既存窓の前面化)
-└── vendor/                     GPUI と依存 18 クレート (zed から完全移植・自己完結)
+└── doc/                        ドキュメント
     └── README.md               取り込み元コミット / 改変点 / 再 vendor 手順
 ```
 
@@ -118,12 +120,12 @@ Entity<FastFilerApp>                    ルート
 | 永続化項目追加 | `session.rs` の `SessionData` (serde default で後方互換) |
 | 設定項目追加 | `settings_store.rs` の `AppSettings` + `app.rs` の `render_settings` |
 | テーマの色追加 | `theme.rs` の `theme_colors!` マクロに 1 行 + 各プリセット |
-| GPUI 自体の更新 | `vendor/README.md` の再 vendor 手順 |
+| iced 自体の更新 | `=0.14.0` ピンを進め、ADR 0013 の検証項目 (IME/仮想リスト/OLE) を再確認 |
 
 ---
 
 ## 6. 不採用機能
 
-[`adr/`](./adr/) の決定は GPUI 版でも有効 (プラグイン機構 / 内蔵ターミナル /
+[`adr/`](./adr/) の決定は iced 版でも有効 (プラグイン機構 / 内蔵ターミナル /
 メディアプレビュー等は持たない)。旧 floem 実装は ADR 0012 により削除済み
 (履歴: コミット `wip(floem): メモリ増殖調査の計装を保全` 以前)。

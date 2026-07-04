@@ -1,7 +1,7 @@
 //! ホットキー設定 (コマンド系キー割り当てのカスタマイズ — GPUI 版 hotkeys.rs 互換)。
 //!
-//! 設定ファイル: `%APPDATA%\FastFiler\iced_hotkeys.json` (無ければ
-//! **gpui_hotkeys.json から自動移行** (N-05)、それも無ければ既定値で自動生成)。
+//! 設定ファイル: `%APPDATA%\FastFiler\hotkeys.json` (無ければ旧ファイル
+//! (iced_/gpui_ 接頭辞) から自動移行 (N-05)、それも無ければ既定値で自動生成)。
 //! 形式: `{ "action": "combo", ... }`。combo は `ctrl+shift+n` / `f2` / `alt+left` など。
 //! 反映: 設定画面の「再読み込み」または再起動。
 //!
@@ -147,15 +147,17 @@ fn defaults_json() -> serde_json::Value {
 fn load() -> HashMap<Combo, HotAction> {
     let raw: HashMap<String, String> = (|| {
         let dir = config_dir()?;
-        let own = dir.join("iced_hotkeys.json");
+        let own = dir.join("hotkeys.json");
         if let Ok(text) = std::fs::read_to_string(&own) {
             return serde_json::from_str(&text).ok();
         }
-        // 初回: GPUI 版から自動移行して iced_hotkeys.json を生成 (元は触らない)
-        let gpui = dir.join("gpui_hotkeys.json");
-        let migrated: Option<HashMap<String, String>> = std::fs::read_to_string(&gpui)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok());
+        // 初回: 開発期の iced_ 名 → GPUI 版から自動移行して hotkeys.json を生成
+        let migrated: Option<HashMap<String, String>> =
+            ["iced_hotkeys.json", "gpui_hotkeys.json"].iter().find_map(|n| {
+                std::fs::read_to_string(dir.join(n))
+                    .ok()
+                    .and_then(|t| serde_json::from_str(&t).ok())
+            });
         let value = match &migrated {
             Some(m) => serde_json::to_value(m).unwrap_or_else(|_| defaults_json()),
             None => defaults_json(),
@@ -189,7 +191,7 @@ pub fn action_for(key: &Key<&str>, m: Modifiers) -> Option<HotAction> {
     MAP.read().ok()?.get(&combo).copied()
 }
 
-/// iced_hotkeys.json を再読込する。
+/// hotkeys.json を再読込する。
 pub fn reload() {
     let new = load();
     if let Ok(mut g) = MAP.write() {
@@ -199,7 +201,7 @@ pub fn reload() {
 
 /// 設定ファイルパス (設定画面の「ファイルを開く」用)。
 pub fn config_path() -> Option<PathBuf> {
-    Some(config_dir()?.join("iced_hotkeys.json"))
+    Some(config_dir()?.join("hotkeys.json"))
 }
 
 #[cfg(test)]

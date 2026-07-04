@@ -1,0 +1,178 @@
+{
+  "total_inventory": 326,
+  "inventory_required_min": 50,
+  "macro_inventory_count": 0,
+  "macro_inventory_ratio": 0.0,
+  "covered_by_fill_rate": 1.0,
+  "coverage_rate": 100.0,
+  "drafts_scanned": 15,
+  "uncovered_inventory": [],
+  "questions_total": 73,
+  "questions_open": 73,
+  "open_question_ratio": 1.0,
+  "integrity_issues": [],
+  "naming_warnings": [],
+  "missing_required": [],
+  "chapter_metrics": [
+    {
+      "file": "00-metadata.md",
+      "total_lines": 5,
+      "body_lines": 3,
+      "refs": 0,
+      "code_blocks": 0,
+      "mermaid_blocks": 0,
+      "sources_read_count": 0,
+      "failures": []
+    },
+    {
+      "file": "01-overview.md",
+      "total_lines": 360,
+      "body_lines": 207,
+      "refs": 79,
+      "code_blocks": 4,
+      "mermaid_blocks": 1,
+      "sources_read_count": 10,
+      "failures": []
+    },
+    {
+      "file": "02-architecture.md",
+      "total_lines": 388,
+      "body_lines": 203,
+      "refs": 94,
+      "code_blocks": 3,
+      "mermaid_blocks": 1,
+      "sources_read_count": 16,
+      "failures": []
+    },
+    {
+      "file": "03-state-model.md",
+      "total_lines": 556,
+      "body_lines": 222,
+      "refs": 42,
+      "code_blocks": 10,
+      "mermaid_blocks": 1,
+      "sources_read_count": 6,
+      "failures": []
+    },
+    {
+      "file": "04-domain-fs.md",
+      "total_lines": 437,
+      "body_lines": 254,
+      "refs": 134,
+      "code_blocks": 3,
+      "mermaid_blocks": 1,
+      "sources_read_count": 8,
+      "failures": []
+    },
+    {
+      "file": "05-domain-shell.md",
+      "total_lines": 442,
+      "body_lines": 234,
+      "refs": 84,
+      "code_blocks": 5,
+      "mermaid_blocks": 1,
+      "sources_read_count": 5,
+      "failures": []
+    },
+    {
+      "file": "06-domain-services.md",
+      "total_lines": 473,
+      "body_lines": 231,
+      "refs": 116,
+      "code_blocks": 6,
+      "mermaid_blocks": 2,
+      "sources_read_count": 8,
+      "failures": []
+    },
+    {
+      "file": "07-gui-app.md",
+      "total_lines": 584,
+      "body_lines": 238,
+      "refs": 110,
+      "code_blocks": 8,
+      "mermaid_blocks": 1,
+      "sources_read_count": 6,
+      "failures": []
+    },
+    {
+      "file": "08-gui-pane.md",
+      "total_lines": 431,
+      "body_lines": 223,
+      "refs": 81,
+      "code_blocks": 5,
+      "mermaid_blocks": 2,
+      "sources_read_count": 8,
+      "failures": []
+    },
+    {
+      "file": "09-gui-tree-input.md",
+      "total_lines": 546,
+      "body_lines": 238,
+      "refs": 75,
+      "code_blocks": 9,
+      "mermaid_blocks": 2,
+      "sources_read_count": 5,
+      "failures": []
+    },
+    {
+      "file": "10-theme-settings.md",
+      "total_lines": 586,
+      "body_lines": 230,
+      "refs": 43,
+      "code_blocks": 11,
+      "mermaid_blocks": 2,
+      "sources_read_count": 7,
+      "failures": []
+    },
+    {
+      "file": "11-persistence-session.md",
+      "total_lines": 538,
+      "body_lines": 221,
+      "refs": 57,
+      "code_blocks": 10,
+      "mermaid_blocks": 3,
+      "sources_read_count": 6,
+      "failures": []
+    },
+    {
+      "file": "12-cross-cutting.md",
+      "total_lines": 449,
+      "body_lines": 204,
+      "refs": 50,
+      "code_blocks": 7,
+      "mermaid_blocks": 1,
+      "sources_read_count": 9,
+      "failures": []
+    },
+    {
+      "file": "99-unresolved.md",
+      "total_lines": 5,
+      "body_lines": 3,
+      "refs": 0,
+      "code_blocks": 0,
+      "mermaid_blocks": 0,
+      "sources_read_count": 0,
+      "failures": []
+    },
+    {
+      "file": "traceability.md",
+      "total_lines": 5,
+      "body_lines": 3,
+      "refs": 0,
+      "code_blocks": 0,
+      "mermaid_blocks": 0,
+      "sources_read_count": 0,
+      "failures": []
+    }
+  ],
+  "mece_total": 326,
+  "mece_covered": 277,
+  "mece_excluded": 0,
+  "mece_uncovered": 49,
+  "mece_coverage_rate": 0.8496932515337423,
+  "user_custom_expected": [],
+  "user_custom_failures": [],
+  "gate_failures": [
+    "open-status ratio 100.0% > cap 20.0% (complete the Phase 5 three-stage dialogue)"
+  ]
+}

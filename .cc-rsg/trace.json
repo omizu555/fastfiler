@@ -1,0 +1,6983 @@
+{
+  "schema_version": "0.2.0",
+  "generated_at": "2026-06-28T13:32:45.176390+00:00",
+  "source_units_total": 326,
+  "source_units_covered": 277,
+  "source_units_excluded": 0,
+  "source_units_uncovered": 49,
+  "mece_passed": false,
+  "by_source": {
+    "SRC-0001": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        12,
+        12
+      ],
+      "kind": "rust_const",
+      "name": "BRANCH",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0002": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        13,
+        13
+      ],
+      "kind": "rust_const",
+      "name": "LAST",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0003": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        14,
+        14
+      ],
+      "kind": "rust_const",
+      "name": "VERT",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0004": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        15,
+        18
+      ],
+      "kind": "rust_const",
+      "name": "SPACE",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0005": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        19,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden_default",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0006": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        49,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "render_ascii_tree",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0007": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        61,
+        83
+      ],
+      "kind": "rust_fn",
+      "name": "write_children",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.11 横断的な観察"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0008": {
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        84,
+        105
+      ],
+      "kind": "rust_fn",
+      "name": "collect_visible_dirs",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.3 ASCII ツリー描画 — `ascii_tree.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0009": {
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        5,
+        27
+      ],
+      "kind": "rust_enum",
+      "name": "AppError",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.1 エラー型 — `error.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0010": {
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        28,
+        47
+      ],
+      "kind": "rust_impl",
+      "name": "impl AppError",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.1 エラー型 — `error.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0011": {
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        48,
+        53
+      ],
+      "kind": "rust_impl",
+      "name": "impl Serialize for AppError",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.1 エラー型 — `error.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0012": {
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        54,
+        54
+      ],
+      "kind": "rust_type",
+      "name": "AppResult",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.1 エラー型 — `error.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0013": {
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        10,
+        13
+      ],
+      "kind": "rust_trait",
+      "name": "EventSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.12 アーキテクチャ図"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0014": {
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        14,
+        23
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for F",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0015": {
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        24,
+        31
+      ],
+      "kind": "rust_fn",
+      "name": "emit",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.0 この章の位置づけ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0016": {
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        32,
+        32
+      ],
+      "kind": "rust_struct",
+      "name": "NullSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0017": {
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        33,
+        35
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for NullSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0018": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        15,
+        22
+      ],
+      "kind": "rust_struct",
+      "name": "RawResponse",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0019": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        23,
+        34
+      ],
+      "kind": "rust_struct",
+      "name": "RawHit",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0020": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        35,
+        41
+      ],
+      "kind": "rust_struct",
+      "name": "EverythingHit",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0021": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        42,
+        43
+      ],
+      "kind": "rust_struct",
+      "name": "EverythingError",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0022": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        44,
+        57
+      ],
+      "kind": "rust_impl",
+      "name": "impl std::fmt::Display for EverythingError",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0023": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        58,
+        131
+      ],
+      "kind": "rust_fn",
+      "name": "query",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0024": {
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        132,
+        139
+      ],
+      "kind": "rust_fn",
+      "name": "ping",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.5 Everything HTTP クライアント — `everything.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0025": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        21,
+        24
+      ],
+      "kind": "rust_struct",
+      "name": "JobRegistry",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.1 JobRegistry — キャンセルフラグの管理"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0026": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        25,
+        129
+      ],
+      "kind": "rust_impl",
+      "name": "impl JobRegistry",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.1 JobRegistry — キャンセルフラグの管理"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.2 ジョブのペイロード型"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.6 run_copy / run_move / run_delete"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0027": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        130,
+        135
+      ],
+      "kind": "rust_struct",
+      "name": "JobItem",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.2 ジョブのペイロード型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0028": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        136,
+        147
+      ],
+      "kind": "rust_struct",
+      "name": "JobProgress",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.2 ジョブのペイロード型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0029": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        148,
+        159
+      ],
+      "kind": "rust_struct",
+      "name": "JobDone",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.2 ジョブのペイロード型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0030": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        160,
+        174
+      ],
+      "kind": "rust_fn",
+      "name": "scan_size",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.3 サイズスキャンと進捗スロットリング"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0031": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        175,
+        178
+      ],
+      "kind": "rust_fn",
+      "name": "emit_progress",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.3 サイズスキャンと進捗スロットリング"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0032": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        179,
+        186
+      ],
+      "kind": "rust_struct",
+      "name": "Counters",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.3 サイズスキャンと進捗スロットリング"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0033": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        187,
+        213
+      ],
+      "kind": "rust_fn",
+      "name": "maybe_emit",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.3 サイズスキャンと進捗スロットリング"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0034": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        214,
+        246
+      ],
+      "kind": "rust_fn",
+      "name": "copy_file_with_progress",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.4 進捗付きコピー / 再帰コピー / 再帰削除"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0035": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        247,
+        273
+      ],
+      "kind": "rust_fn",
+      "name": "copy_recursive",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.4 進捗付きコピー / 再帰コピー / 再帰削除"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0036": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        274,
+        307
+      ],
+      "kind": "rust_fn",
+      "name": "delete_recursive",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.4 進捗付きコピー / 再帰コピー / 再帰削除"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0037": {
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        308,
+        375
+      ],
+      "kind": "rust_fn",
+      "name": "run_job",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.5 run_job — ジョブのライフサイクル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0038": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        12,
+        16
+      ],
+      "kind": "rust_fn",
+      "name": "create_dir",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0039": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        17,
+        21
+      ],
+      "kind": "rust_fn",
+      "name": "rename_path",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0040": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        22,
+        35
+      ],
+      "kind": "rust_fn",
+      "name": "delete_path",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0041": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        36,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "copy_path",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0042": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        49,
+        68
+      ],
+      "kind": "rust_fn",
+      "name": "move_path",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0043": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        69,
+        85
+      ],
+      "kind": "rust_fn",
+      "name": "copy_dir_recursive",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.1 基本 4 操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0044": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        86,
+        105
+      ],
+      "kind": "rust_fn",
+      "name": "delete_to_trash",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.2 delete_to_trash — Windows ゴミ箱送り"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0045": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        106,
+        118
+      ],
+      "kind": "rust_fn",
+      "name": "rename_path_no_overwrite",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.3 Undo 経路用の上書き禁止操作"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0046": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        119,
+        144
+      ],
+      "kind": "rust_fn",
+      "name": "move_path_no_overwrite",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.3 Undo 経路用の上書き禁止操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0047": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        145,
+        169
+      ],
+      "kind": "rust_fn",
+      "name": "copy_dir_no_overwrite",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.3 Undo 経路用の上書き禁止操作"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0048": {
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        170,
+        184
+      ],
+      "kind": "rust_fn",
+      "name": "restore_from_trash",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.4 restore_from_trash — ゴミ箱からの復元"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0049": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        13,
+        24
+      ],
+      "kind": "rust_struct",
+      "name": "FileEntry",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0050": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        25,
+        33
+      ],
+      "kind": "rust_struct",
+      "name": "DriveInfo",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0051": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        34,
+        39
+      ],
+      "kind": "rust_struct",
+      "name": "DiskInfo",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0052": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        40,
+        46
+      ],
+      "kind": "rust_fn",
+      "name": "to_unix_secs",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0053": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        47,
+        52
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0054": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        53,
+        56
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.1 データ型: FileEntry / DriveInfo / DiskInfo"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0055": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        57,
+        95
+      ],
+      "kind": "rust_fn",
+      "name": "list_dir",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.2 list_dir — 全エントリ列挙"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0056": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        96,
+        117
+      ],
+      "kind": "rust_fn",
+      "name": "stat_path",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.3 stat_path / list_dirs"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0057": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        118,
+        149
+      ],
+      "kind": "rust_fn",
+      "name": "list_dirs",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.3 stat_path / list_dirs"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0058": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        150,
+        156
+      ],
+      "kind": "rust_fn",
+      "name": "home_dir",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.4 home_dir / list_drives / disk_free"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0059": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        157,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "list_drives",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.4 home_dir / list_drives / disk_free"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0060": {
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        273,
+        305
+      ],
+      "kind": "rust_fn",
+      "name": "disk_free",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.1.4 home_dir / list_drives / disk_free"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0061": {
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        250,
+        258
+      ],
+      "kind": "rust_fn",
+      "name": "system_icon_png",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.6 アイコン抽出（icons.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0062": {
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        259,
+        267
+      ],
+      "kind": "rust_fn",
+      "name": "system_icon_png",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.6 アイコン抽出（icons.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0063": {
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        268,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "folder_icon_png",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.6 アイコン抽出（icons.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0064": {
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        273,
+        275
+      ],
+      "kind": "rust_fn",
+      "name": "folder_icon_png",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.6 アイコン抽出（icons.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0065": {
+      "path": "crates/fastfiler-domain/src/lib.rs",
+      "line_range": [
+        1,
+        34
+      ],
+      "kind": "rust_file",
+      "name": "lib.rs",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.2 中核アイデンティティと非目標"
+        },
+        {
+          "file": "01-overview.md",
+          "section": "1.4 ドメイン層 — fastfiler-domain クレート"
+        },
+        {
+          "file": "01-overview.md",
+          "section": "1.11 本章のまとめ"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.6 ドメイン層のモジュール組織"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0066": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        50,
+        56
+      ],
+      "kind": "rust_enum",
+      "name": "PreferredEffect",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0067": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        57,
+        73
+      ],
+      "kind": "rust_enum",
+      "name": "DragOutcome",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDropSource（IDropSource 実装）"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0068": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        74,
+        78
+      ],
+      "kind": "rust_enum",
+      "name": "DragButton",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDropSource（IDropSource 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0069": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        79,
+        89
+      ],
+      "kind": "rust_struct",
+      "name": "DragRequest",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0070": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        90,
+        122
+      ],
+      "kind": "rust_fn",
+      "name": "build_hdrop_bytes",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "送信側のデータ構造と HGLOBAL ヘルパ"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.9 この章の安全性に関するまとめ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0071": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        123,
+        138
+      ],
+      "kind": "rust_fn",
+      "name": "alloc_hglobal_from_bytes",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "送信側のデータ構造と HGLOBAL ヘルパ"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.9 この章の安全性に関するまとめ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0072": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        139,
+        142
+      ],
+      "kind": "rust_fn",
+      "name": "alloc_hglobal_dword",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0073": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        143,
+        168
+      ],
+      "kind": "rust_fn",
+      "name": "read_hglobal_dword",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "送信側のデータ構造と HGLOBAL ヘルパ"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.9 この章の安全性に関するまとめ"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.3 信頼できない入力 (HDROP) の防御的解析"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0074": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        169,
+        170
+      ],
+      "kind": "rust_struct",
+      "name": "StgMediumGuard",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0075": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        171,
+        181
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for StgMediumGuard",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0076": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        182,
+        220
+      ],
+      "kind": "rust_fn",
+      "name": "extract_hdrop_paths",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0077": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        221,
+        241
+      ],
+      "kind": "rust_fn",
+      "name": "parse_paths_w",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.3 信頼できない入力 (HDROP) の防御的解析"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0078": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        242,
+        265
+      ],
+      "kind": "rust_fn",
+      "name": "parse_paths_a",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.3 信頼できない入力 (HDROP) の防御的解析"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0079": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        266,
+        269
+      ],
+      "kind": "rust_fn",
+      "name": "cf_preferred_drop_effect",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0080": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        270,
+        273
+      ],
+      "kind": "rust_fn",
+      "name": "cf_performed_drop_effect",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0081": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        274,
+        281
+      ],
+      "kind": "rust_fn",
+      "name": "cf_logical_performed_drop_effect",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0082": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        282,
+        291
+      ],
+      "kind": "rust_struct",
+      "name": "DataState",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0083": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        292,
+        298
+      ],
+      "kind": "rust_struct",
+      "name": "CDataObject",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0084": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        299,
+        333
+      ],
+      "kind": "rust_impl",
+      "name": "impl CDataObject",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0085": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        334,
+        451
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDataObject_Impl for CDataObject_Impl",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDataObject（IDataObject 実装）"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDropSource（IDropSource 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0086": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        452,
+        456
+      ],
+      "kind": "rust_struct",
+      "name": "CDropSource",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDropSource（IDropSource 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0087": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        457,
+        483
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDropSource_Impl for CDropSource_Impl",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CDropSource（IDropSource 実装）"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0088": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        484,
+        484
+      ],
+      "kind": "rust_const",
+      "name": "MAX_PATHS",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.5 入力サイズの上限 (OOM / フリーズ防止)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0089": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        485,
+        486
+      ],
+      "kind": "rust_const",
+      "name": "MAX_PAYLOAD_BYTES",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.5 入力サイズの上限 (OOM / フリーズ防止)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0090": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        487,
+        579
+      ],
+      "kind": "rust_fn",
+      "name": "start_drag",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "start_drag と DoDragDrop、そして「移動なら元を消す」の二条件"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.5 入力サイズの上限 (OOM / フリーズ防止)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.3 エラーの可視化とロギングの不在"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0091": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        580,
+        588
+      ],
+      "kind": "rust_static",
+      "name": "OLE_AVAILABLE",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "OLE 初期化とドロップ時の修飾キー読み取り"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0092": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        589,
+        603
+      ],
+      "kind": "rust_fn",
+      "name": "drop_modifiers",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "OLE 初期化とドロップ時の修飾キー読み取り"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0093": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        604,
+        618
+      ],
+      "kind": "rust_fn",
+      "name": "init_ole",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "OLE 初期化とドロップ時の修飾キー読み取り"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.5 COM アパートメントとスレッディングの一貫性"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0094": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        619,
+        624
+      ],
+      "kind": "rust_fn",
+      "name": "shutdown_ole",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "OLE 初期化とドロップ時の修飾キー読み取り"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0095": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        625,
+        633
+      ],
+      "kind": "rust_fn",
+      "name": "is_ole_available",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "OLE 初期化とドロップ時の修飾キー読み取り"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0096": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        634,
+        635
+      ],
+      "kind": "rust_type",
+      "name": "DropEffectFn",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0097": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        636,
+        643
+      ],
+      "kind": "rust_type",
+      "name": "DropLeaveFn",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0098": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        644,
+        657
+      ],
+      "kind": "rust_struct",
+      "name": "DropTargetCallbacks",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "受信側：CDropTarget（IDropTarget 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0099": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        658,
+        663
+      ],
+      "kind": "rust_struct",
+      "name": "CDropTarget",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "受信側：CDropTarget（IDropTarget 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0100": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        664,
+        682
+      ],
+      "kind": "rust_impl",
+      "name": "impl CDropTarget",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "受信側：CDropTarget（IDropTarget 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0101": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        683,
+        800
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDropTarget_Impl for CDropTarget_Impl",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "受信側：CDropTarget（IDropTarget 実装）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0102": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        801,
+        806
+      ],
+      "kind": "rust_struct",
+      "name": "DropTargetRegistration",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0103": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        807,
+        812
+      ],
+      "kind": "rust_impl",
+      "name": "impl DropTargetRegistration",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0104": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        813,
+        831
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for DropTargetRegistration",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0105": {
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        832,
+        848
+      ],
+      "kind": "rust_fn",
+      "name": "register_drop_target",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STGMEDIUM と登録の RAII"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0106": {
+      "path": "crates/fastfiler-domain/src/path_util.rs",
+      "line_range": [
+        18,
+        49
+      ],
+      "kind": "rust_fn",
+      "name": "volume_key",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.2 パスのボリューム判定 — `path_util.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0107": {
+      "path": "crates/fastfiler-domain/src/path_util.rs",
+      "line_range": [
+        50,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "unc_two_segments",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.2 パスのボリューム判定 — `path_util.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0108": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        19,
+        26
+      ],
+      "kind": "rust_struct",
+      "name": "SearchHit",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.1 データ型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0109": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        27,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "SearchDone",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.1 データ型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0110": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        37,
+        42
+      ],
+      "kind": "rust_struct",
+      "name": "SearchState",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.1 データ型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0111": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        43,
+        52
+      ],
+      "kind": "rust_struct",
+      "name": "SearchOptions",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.1 データ型"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0112": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        53,
+        90
+      ],
+      "kind": "rust_impl",
+      "name": "impl SearchState",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.0 この章の位置づけ"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.2 ジョブ起動とキャンセル"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.12 確信度と要確認事項"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0113": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        91,
+        179
+      ],
+      "kind": "rust_fn",
+      "name": "run_job",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.3 バックエンド分岐とフォールバック"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0114": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        180,
+        228
+      ],
+      "kind": "rust_fn",
+      "name": "run_builtin",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.4 組み込みウォーカーとマッチャ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0115": {
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        229,
+        251
+      ],
+      "kind": "rust_fn",
+      "name": "build_matcher",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.4.4 組み込みウォーカーとマッチャ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0116": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        19,
+        31
+      ],
+      "kind": "rust_fn",
+      "name": "show_shell_context_menu",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.3 シェルコンテキストメニュー（IContextMenu）と PIDL のライフサイクル"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0117": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        32,
+        120
+      ],
+      "kind": "rust_fn",
+      "name": "shell_context_menu_impl",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.3 シェルコンテキストメニュー（IContextMenu）と PIDL のライフサイクル"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.2 `unsafe` / COM の境界面"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0118": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        121,
+        170
+      ],
+      "kind": "rust_fn",
+      "name": "open_with_shell",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.2 ShellExecuteW による既定アプリ起動とエクスプローラ表示"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "STA スレッドへの隔離（UI スレッド再入の回避）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0119": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        171,
+        188
+      ],
+      "kind": "rust_fn",
+      "name": "open_with_shell_async",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STA スレッドへの隔離（UI スレッド再入の回避）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0120": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        189,
+        206
+      ],
+      "kind": "rust_fn",
+      "name": "launch_with_shell",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "STA スレッドへの隔離（UI スレッド再入の回避）"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.4 ブロッキング処理の追い出し (非同期ジョブ)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0121": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        207,
+        220
+      ],
+      "kind": "rust_fn",
+      "name": "reveal_in_explorer",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.2 ShellExecuteW による既定アプリ起動とエクスプローラ表示"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0122": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        221,
+        235
+      ],
+      "kind": "rust_fn",
+      "name": "show_properties",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0123": {
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        236,
+        247
+      ],
+      "kind": "rust_fn",
+      "name": "show_properties_async",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0124": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        17,
+        21
+      ],
+      "kind": "rust_fn",
+      "name": "current_exe_path",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0125": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        22,
+        26
+      ],
+      "kind": "rust_fn",
+      "name": "build_command_value",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0126": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        27,
+        77
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0127": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        78,
+        96
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_status",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0128": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        97,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0129": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        102,
+        106
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_status",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0130": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        107,
+        111
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0131": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        112,
+        130
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_disable",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0132": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        131,
+        163
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_diagnose",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "5.4 ファイルタイプ関連付け（shell_assoc.rs）"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0133": {
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        164,
+        166
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_diagnose",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0134": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        16,
+        21
+      ],
+      "kind": "rust_struct",
+      "name": "TemplateInfo",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0135": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        22,
+        30
+      ],
+      "kind": "rust_fn",
+      "name": "templates_dir_inner",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.11 横断的な観察"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0136": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        31,
+        35
+      ],
+      "kind": "rust_fn",
+      "name": "templates_dir",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0137": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        36,
+        66
+      ],
+      "kind": "rust_fn",
+      "name": "list_templates",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.11 横断的な観察"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0138": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        67,
+        94
+      ],
+      "kind": "rust_fn",
+      "name": "unique_path",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0139": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        95,
+        103
+      ],
+      "kind": "rust_fn",
+      "name": "split_base_ext",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0140": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        104,
+        126
+      ],
+      "kind": "rust_fn",
+      "name": "create_empty_file",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0141": {
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        127,
+        155
+      ],
+      "kind": "rust_fn",
+      "name": "create_file_from_template",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.6 ファイルテンプレート — `templates.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0142": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        21,
+        25
+      ],
+      "kind": "rust_const",
+      "name": "MAX_HISTORY",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.4 restore_from_trash — ゴミ箱からの復元"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0143": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        26,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "TrashedItem",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.2.4 restore_from_trash — ゴミ箱からの復元"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0144": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        37,
+        49
+      ],
+      "kind": "rust_enum",
+      "name": "UndoOp",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0145": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        50,
+        54
+      ],
+      "kind": "rust_struct",
+      "name": "MoveItem",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0146": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        55,
+        85
+      ],
+      "kind": "rust_impl",
+      "name": "impl UndoOp",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0147": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        86,
+        89
+      ],
+      "kind": "rust_struct",
+      "name": "UndoManager",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0148": {
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        90,
+        125
+      ],
+      "kind": "rust_impl",
+      "name": "impl UndoManager",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.8 Undo モデル — `undo.rs`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0149": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        23,
+        44
+      ],
+      "kind": "rust_struct",
+      "name": "UserCommand",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.1 コマンド定義とプレースホルダ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0150": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        45,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "default_when",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0151": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        49,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "commands_dir_inner",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.2 ディレクトリ初期化と読み込み"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.11 横断的な観察"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0152": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        62,
+        66
+      ],
+      "kind": "rust_fn",
+      "name": "user_commands_dir",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0153": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        67,
+        79
+      ],
+      "kind": "rust_fn",
+      "name": "list_user_commands",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.2 ディレクトリ初期化と読み込み"
+        },
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0154": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        80,
+        84
+      ],
+      "kind": "rust_struct",
+      "name": "RunCtx",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0155": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        85,
+        182
+      ],
+      "kind": "rust_fn",
+      "name": "run_user_command",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "バイナリプランティング対策 (resolve_in_path)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.5 グレースフルデグラデーション (段階的縮退)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0156": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        183,
+        217
+      ],
+      "kind": "rust_fn",
+      "name": "build_shell_command",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "コマンドインジェクション対策 (cmd_quote / build_shell_command)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0157": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        218,
+        228
+      ],
+      "kind": "rust_fn",
+      "name": "is_batch_file",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0158": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        229,
+        268
+      ],
+      "kind": "rust_fn",
+      "name": "resolve_in_path",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "バイナリプランティング対策 (resolve_in_path)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "コマンドインジェクション対策 (cmd_quote / build_shell_command)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0159": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        269,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "cmd_quote",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "コマンドインジェクション対策 (cmd_quote / build_shell_command)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0160": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        273,
+        310
+      ],
+      "kind": "rust_fn",
+      "name": "expand_placeholders",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.1 コマンド定義とプレースホルダ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0161": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        311,
+        321
+      ],
+      "kind": "rust_fn",
+      "name": "quote_if_needed",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.3 実行フローとセキュリティ対策"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0162": {
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        322,
+        411
+      ],
+      "kind": "rust_const",
+      "name": "SAMPLE_JSON",
+      "covered_by_sections": [
+        {
+          "file": "06-domain-services.md",
+          "section": "6.7.2 ディレクトリ初期化と読み込み"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0163": {
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        16,
+        22
+      ],
+      "kind": "rust_struct",
+      "name": "FsChange",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "トレース2: ファイル監視からの自動更新"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.4 `watcher.rs` — ディレクトリ監視"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0164": {
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        23,
+        26
+      ],
+      "kind": "rust_struct",
+      "name": "WatcherCore",
+      "covered_by_sections": [
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.4 `watcher.rs` — ディレクトリ監視"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0165": {
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        27,
+        61
+      ],
+      "kind": "rust_impl",
+      "name": "impl WatcherCore",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "トレース2: ファイル監視からの自動更新"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.4 `watcher.rs` — ディレクトリ監視"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.3 監視イベントのバースト対策 (デバウンス)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.4 リソースのライフサイクルと自動解放"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0166": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        15,
+        30
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_write_paths",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0167": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        31,
+        133
+      ],
+      "kind": "rust_fn",
+      "name": "write_paths_win",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "CF_HDROP の組み立てと HGLOBAL 確保"
+        },
+        {
+          "file": "05-domain-shell.md",
+          "section": "貼り付け側の読み出し"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0168": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        134,
+        139
+      ],
+      "kind": "rust_struct",
+      "name": "ClipboardPaths",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "貼り付け側の読み出し"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0169": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        140,
+        151
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_read_paths",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0170": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        152,
+        225
+      ],
+      "kind": "rust_fn",
+      "name": "read_paths_win",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "貼り付け側の読み出し"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0171": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        226,
+        238
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_write_text",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0172": {
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        239,
+        278
+      ],
+      "kind": "rust_fn",
+      "name": "write_text_win",
+      "covered_by_sections": [
+        {
+          "file": "05-domain-shell.md",
+          "section": "貼り付け側の読み出し"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0173": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        34,
+        37
+      ],
+      "kind": "rust_const",
+      "name": "MIN_PANE_PX",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.6 リサイズハンドルとドラッグ機構"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0174": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        38,
+        43
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedHandle",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.6 リサイズハンドルとドラッグ機構"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.9 ツリーへのファイルドロップに関する事実確認"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0175": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        44,
+        46
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTreeHandle",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.9 ツリーへのファイルドロップに関する事実確認"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0176": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        47,
+        49
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTabBarHandle",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0177": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        50,
+        54
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTab",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0178": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        55,
+        56
+      ],
+      "kind": "rust_struct",
+      "name": "TabDragPreview",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.5 縦タブバーのレイアウトと描画"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0179": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        57,
+        71
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TabDragPreview",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.5 縦タブバーのレイアウトと描画"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0180": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        72,
+        84
+      ],
+      "kind": "rust_enum",
+      "name": "PaneNode",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "タブとペインツリー"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.3 シェルの状態: `FastFilerApp` 構造体"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0181": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        85,
+        94
+      ],
+      "kind": "rust_struct",
+      "name": "TabState",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "タブとペインツリー"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.3 シェルの状態: `FastFilerApp` 構造体"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0182": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        95,
+        115
+      ],
+      "kind": "rust_impl",
+      "name": "impl TabState",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "タブとペインツリー"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0183": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        116,
+        152
+      ],
+      "kind": "rust_struct",
+      "name": "FastFilerApp",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "ルート状態: FastFilerApp"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.3 シェルの状態: `FastFilerApp` 構造体"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0184": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        153,
+        1383
+      ],
+      "kind": "rust_impl",
+      "name": "impl FastFilerApp",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "変化観測 (observe) による波及"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "トレース1: ツリーのクリックからフォルダ移動まで"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ライフサイクルとリーク防止"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.5 縦タブバーのレイアウトと描画"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.6 リサイズハンドルとドラッグ機構"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.8 グローバルアクションとイベントルーティング"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.9 キーバインドとフォーカス"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.10 設定オーバーレイ (モーダル) のレイアウト"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.11 フッターとウィンドウ位置の保存"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.5 reveal — ペインへの追従"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.6 UNC share の登録と解除"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.8 仮想化描画とイベント発行"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.4.2 変更伝播 (app.rs)"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.4 保存タイミング — デバウンスと終了時フック"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.5 メモリ表現 ⇄ 直列化表現の変換"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0185": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1384,
+        1701
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for FastFilerApp",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.4 最上位レイアウトツリー (`Render for FastFilerApp`)"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.5 縦タブバーのレイアウトと描画"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.6 リサイズハンドルとドラッグ機構"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.9 キーバインドとフォーカス"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.10 設定オーバーレイ (モーダル) のレイアウト"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.11 フッターとウィンドウ位置の保存"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0186": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1702,
+        1718
+      ],
+      "kind": "rust_fn",
+      "name": "render_handle",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.6 リサイズハンドルとドラッグ機構"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0187": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1719,
+        1746
+      ],
+      "kind": "rust_fn",
+      "name": "node_data",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.5 メモリ表現 ⇄ 直列化表現の変換"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0188": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1747,
+        1753
+      ],
+      "kind": "rust_fn",
+      "name": "find_pane",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0189": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1754,
+        1760
+      ],
+      "kind": "rust_fn",
+      "name": "first_pane",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0190": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1761,
+        1768
+      ],
+      "kind": "rust_fn",
+      "name": "count_leaves",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0191": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1769,
+        1780
+      ],
+      "kind": "rust_fn",
+      "name": "collect_pane_entities",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0192": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1781,
+        1792
+      ],
+      "kind": "rust_fn",
+      "name": "collect_leaves",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0193": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1793,
+        1811
+      ],
+      "kind": "rust_fn",
+      "name": "find_split_mut",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0194": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1812,
+        1849
+      ],
+      "kind": "rust_fn",
+      "name": "split_node",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0195": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1850,
+        1892
+      ],
+      "kind": "rust_fn",
+      "name": "remove_node",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.7 ペインツリーの再帰描画 (`render_node`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0196": {
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1893,
+        1896
+      ],
+      "kind": "rust_fn",
+      "name": "default_start",
+      "covered_by_sections": [
+        {
+          "file": "07-gui-app.md",
+          "section": "7.2 プロセス起動とウィンドウブートストラップ (`main.rs`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0197": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        17,
+        38
+      ],
+      "kind": "rust_enum",
+      "name": "HotAction",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.1 カスタマイズ可能なアクション"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0198": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        39,
+        59
+      ],
+      "kind": "rust_const",
+      "name": "ACTIONS",
+      "covered_by_sections": [
+        {
+          "file": "08-gui-pane.md",
+          "section": "キーボード入力の経路"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.2 既定割り当てテーブル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0199": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        60,
+        61
+      ],
+      "kind": "rust_static",
+      "name": "MAP",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.4 読み込みとフォールバック生成"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0200": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        62,
+        65
+      ],
+      "kind": "rust_fn",
+      "name": "map",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.4 読み込みとフォールバック生成"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0201": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        66,
+        75
+      ],
+      "kind": "rust_fn",
+      "name": "config_path",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.4 読み込みとフォールバック生成"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0202": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        76,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "normalize",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.3 combo 文字列の正規化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0203": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        102,
+        118
+      ],
+      "kind": "rust_fn",
+      "name": "combo_key",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.3 combo 文字列の正規化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0204": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        119,
+        164
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.4 読み込みとフォールバック生成"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0205": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        165,
+        175
+      ],
+      "kind": "rust_fn",
+      "name": "lookup",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.5 キーストロークの解決と消費"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0206": {
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        176,
+        182
+      ],
+      "kind": "rust_fn",
+      "name": "config_file",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.5 キーストロークの解決と消費"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0207": {
+      "path": "crates/fastfiler-gpui/src/main.rs",
+      "line_range": [
+        28,
+        108
+      ],
+      "kind": "rust_fn",
+      "name": "main",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.6 起動シーケンス — main の流れ"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.10 GPUI アプリのブートストラップ"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.2 プロセス起動とウィンドウブートストラップ (`main.rs`)"
+        },
+        {
+          "file": "07-gui-app.md",
+          "section": "7.9 キーバインドとフォーカス"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.10 TextInput の状態モデルとキーバインド"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.4.1 起動シーケンス (main.rs)"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.6 起動シーケンスでのセッション復元"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.2 既存ウィンドウの前面化"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.3 起動シーケンスへの組み込み"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.5 COM アパートメントとスレッディングの一貫性"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.2 多重起動防止と既存ウィンドウ前面化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0208": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        44,
+        50
+      ],
+      "kind": "rust_enum",
+      "name": "ModalKind",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0209": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        51,
+        57
+      ],
+      "kind": "rust_struct",
+      "name": "ModalState",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0210": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        58,
+        83
+      ],
+      "kind": "rust_enum",
+      "name": "MenuAction",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0211": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        84,
+        95
+      ],
+      "kind": "rust_struct",
+      "name": "SearchUi",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0212": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        96,
+        105
+      ],
+      "kind": "rust_struct",
+      "name": "SearchResult",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0213": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        106,
+        108
+      ],
+      "kind": "rust_static",
+      "name": "SELF_DROP",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0214": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        109,
+        111
+      ],
+      "kind": "rust_static",
+      "name": "RIGHT_DRAG",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0215": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        112,
+        124
+      ],
+      "kind": "rust_struct",
+      "name": "DragCand",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0216": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        125,
+        138
+      ],
+      "kind": "rust_struct",
+      "name": "RubberBand",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0217": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        139,
+        144
+      ],
+      "kind": "rust_struct",
+      "name": "ColHandle",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0218": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        145,
+        155
+      ],
+      "kind": "rust_struct",
+      "name": "DropMenu",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0219": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        156,
+        165
+      ],
+      "kind": "rust_struct",
+      "name": "PendingTransfer",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0220": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        166,
+        174
+      ],
+      "kind": "rust_enum",
+      "name": "Submenu",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0221": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        175,
+        184
+      ],
+      "kind": "rust_struct",
+      "name": "MenuCmd",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0222": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        185,
+        186
+      ],
+      "kind": "rust_const",
+      "name": "MENU_MAX_DEPTH",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0223": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        187,
+        189
+      ],
+      "kind": "rust_const",
+      "name": "MENU_MAX_USER_CMDS",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0224": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        190,
+        203
+      ],
+      "kind": "rust_fn",
+      "name": "parse_group",
+      "covered_by_sections": [
+        {
+          "file": "08-gui-pane.md",
+          "section": "コンテキストメニュー"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0225": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        204,
+        223
+      ],
+      "kind": "rust_struct",
+      "name": "MenuState",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0226": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        224,
+        229
+      ],
+      "kind": "rust_enum",
+      "name": "SplitDir",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0227": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        230,
+        244
+      ],
+      "kind": "rust_enum",
+      "name": "PaneEvent",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0228": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        245,
+        249
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventEmitter<PaneEvent> for PaneView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0229": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        250,
+        253
+      ],
+      "kind": "rust_static",
+      "name": "PANES_ALIVE",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "ペイン状態: PaneView"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0230": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        254,
+        261
+      ],
+      "kind": "rust_enum",
+      "name": "SortCol",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0231": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        262,
+        335
+      ],
+      "kind": "rust_struct",
+      "name": "PaneView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "ペイン状態: PaneView"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "この章で扱うもの"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "PaneView が保持する状態"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0232": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        336,
+        340
+      ],
+      "kind": "rust_fn",
+      "name": "undo_store",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0233": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        341,
+        3319
+      ],
+      "kind": "rust_impl",
+      "name": "impl PaneView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "受信ループ: チャネルから UI スレッドへ"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "on_domain_event: 文字列イベントの分岐"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "トレース1: ツリーのクリックからフォルダ移動まで"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "トレース2: ファイル監視からの自動更新"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "コピー/移動ジョブの進捗"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.3.7 スレッディング: ジョブはどう起動されるか"
+        },
+        {
+          "file": "04-domain-fs.md",
+          "section": "4.4 `watcher.rs` — ディレクトリ監視"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "PaneView が保持する状態"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "選択モデル"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "キーボード入力の経路"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "マウスのクリックと行の活性化"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ラバーバンド (矩形) 選択"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドラッグ&ドロップの開始"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドラッグ&ドロップの完了処理"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドロップを受け取る側"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "コンテキストメニュー"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "アドレスバーと検索"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ソートと列幅"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "描画の全体構成"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドメインイベントとライフサイクル"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "まだ確認しきれていない点"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.3.5 キーストロークの解決と消費"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.4.2 変更伝播 (app.rs)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.2 アイコン取得のコスト削減"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.3 監視イベントのバースト対策 (デバウンス)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.4 ブロッキング処理の追い出し (非同期ジョブ)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.3 エラーの可視化とロギングの不在"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.4 リソースのライフサイクルと自動解放"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0234": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3320,
+        3327
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for PaneView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "ライフサイクルとリーク防止"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドメインイベントとライフサイクル"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.4 リソースのライフサイクルと自動解放"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0235": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3328,
+        3705
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for PaneView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "再描画の起点"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "ソートと列幅"
+        },
+        {
+          "file": "08-gui-pane.md",
+          "section": "描画の全体構成"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.1 一覧描画の仮想化"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.2 アイコン取得のコスト削減"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0236": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3706,
+        3724
+      ],
+      "kind": "rust_fn",
+      "name": "load_row_icons",
+      "covered_by_sections": [
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.2 アイコン取得のコスト削減"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0237": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3725,
+        3743
+      ],
+      "kind": "rust_fn",
+      "name": "load_icon",
+      "covered_by_sections": [
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.1.2 アイコン取得のコスト削減"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.4 パス取り扱いの安全性"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0238": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3744,
+        3755
+      ],
+      "kind": "rust_fn",
+      "name": "path_starts_with_ci",
+      "covered_by_sections": [
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドロップを受け取る側"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.4 パス取り扱いの安全性"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0239": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3756,
+        3790
+      ],
+      "kind": "rust_fn",
+      "name": "build_job_items",
+      "covered_by_sections": [
+        {
+          "file": "08-gui-pane.md",
+          "section": "ドロップを受け取る側"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.2.4 パス取り扱いの安全性"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0240": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3791,
+        3800
+      ],
+      "kind": "rust_fn",
+      "name": "hwnd_of",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0241": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3801,
+        3824
+      ],
+      "kind": "rust_fn",
+      "name": "unique_dest",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0242": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3825,
+        3834
+      ],
+      "kind": "rust_fn",
+      "name": "menu_sep",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0243": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3835,
+        3866
+      ],
+      "kind": "rust_fn",
+      "name": "format_modified",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0244": {
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3867,
+        3883
+      ],
+      "kind": "rust_fn",
+      "name": "human_size",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0245": {
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        19,
+        27
+      ],
+      "kind": "rust_fn",
+      "name": "with_suffix",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.1.2 補助関数 `with_suffix`"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.3 保存先パスと load / save"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0246": {
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        28,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "write_atomic",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.11 永続化という第二の継ぎ目"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.5 セーブ処理 — read-modify-write とアトミック書き込み"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.1.3 中核処理 `write_atomic` — tmp + fsync + rename"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.1 クラッシュ安全な永続化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0247": {
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        62,
+        73
+      ],
+      "kind": "rust_fn",
+      "name": "load_with_backup",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.4 ロード処理 — クラッシュ安全な読み込み"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.1.4 読み込み側 `load_with_backup` — 本体 → `.bak` フォールバック"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.1 クラッシュ安全な永続化"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.5 グレースフルデグラデーション (段階的縮退)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0248": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        16,
+        45
+      ],
+      "kind": "rust_struct",
+      "name": "SessionData",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.11 永続化という第二の継ぎ目"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.1 セッションデータの形式 `SessionData`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0249": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        46,
+        49
+      ],
+      "kind": "rust_fn",
+      "name": "default_true",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.1 セッションデータの形式 `SessionData`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0250": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        50,
+        53
+      ],
+      "kind": "rust_fn",
+      "name": "default_tree_width",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.1 セッションデータの形式 `SessionData`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0251": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        54,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "default_tab_width",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.1 セッションデータの形式 `SessionData`"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.2 ペインツリーの直列化表現 `NodeData`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0252": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        61,
+        77
+      ],
+      "kind": "rust_enum",
+      "name": "NodeData",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.2 ペインツリーの直列化表現 `NodeData`"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0253": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        78,
+        86
+      ],
+      "kind": "rust_fn",
+      "name": "session_path",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.3 保存先パスと load / save"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0254": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        87,
+        92
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.3 保存先パスと load / save"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0255": {
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        93,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "save",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.2.3 保存先パスと load / save"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.1 クラッシュ安全な永続化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0256": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        13,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "AppSettings",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.11 永続化という第二の継ぎ目"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0257": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        37,
+        40
+      ],
+      "kind": "rust_fn",
+      "name": "default_true",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0258": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        41,
+        44
+      ],
+      "kind": "rust_fn",
+      "name": "default_port",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0259": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        45,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "default_tab_columns",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0260": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        49,
+        52
+      ],
+      "kind": "rust_fn",
+      "name": "default_font_size",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0261": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        53,
+        66
+      ],
+      "kind": "rust_impl",
+      "name": "impl Default for AppSettings",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.2 スキーマと既定値"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0262": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        67,
+        75
+      ],
+      "kind": "rust_fn",
+      "name": "config_path",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.3 設定の永続化も同じ基盤に載る (`settings_store.rs`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0263": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        76,
+        81
+      ],
+      "kind": "rust_fn",
+      "name": "store",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0264": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        82,
+        93
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.3 設定の永続化も同じ基盤に載る (`settings_store.rs`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0265": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        94,
+        98
+      ],
+      "kind": "rust_fn",
+      "name": "get",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.3 設定の永続化も同じ基盤に載る (`settings_store.rs`)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0266": {
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        99,
+        111
+      ],
+      "kind": "rust_fn",
+      "name": "update",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.3 static ストアとアクセサ"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.1.5 セーブ処理 — read-modify-write とアトミック書き込み"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.3 設定の永続化も同じ基盤に載る (`settings_store.rs`)"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.1 クラッシュ安全な永続化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0267": {
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        13,
+        16
+      ],
+      "kind": "rust_type",
+      "name": "DomainEvent",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0268": {
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        17,
+        20
+      ],
+      "kind": "rust_struct",
+      "name": "ChannelSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0269": {
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        21,
+        27
+      ],
+      "kind": "rust_impl",
+      "name": "impl ChannelSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0270": {
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        28,
+        33
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for ChannelSink",
+      "covered_by_sections": [
+        {
+          "file": "01-overview.md",
+          "section": "1.8 ドメイン層と GUI 層の橋渡し"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.5 GUI とドメインを橋渡しする依存"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.12 アーキテクチャ図"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "ドメインイベントのブリッジ: EventSink とチャネル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0271": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        44,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "bind_keys",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.10 TextInput の状態モデルとキーバインド"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0272": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        62,
+        73
+      ],
+      "kind": "rust_struct",
+      "name": "TextInput",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.10 TextInput の状態モデルとキーバインド"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0273": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        74,
+        322
+      ],
+      "kind": "rust_impl",
+      "name": "impl TextInput",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.11 カーソル移動と選択範囲"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.12 文字の挿入と削除"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.13 クリップボード操作"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.14 マウスによるカーソル配置と範囲選択"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.15 IME 対応 — EntityInputHandler"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0274": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        323,
+        449
+      ],
+      "kind": "rust_impl",
+      "name": "impl EntityInputHandler for TextInput",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.12 文字の挿入と削除"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.15 IME 対応 — EntityInputHandler"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0275": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        450,
+        453
+      ],
+      "kind": "rust_struct",
+      "name": "TextElement",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0276": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        454,
+        459
+      ],
+      "kind": "rust_struct",
+      "name": "PrepaintState",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0277": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        460,
+        467
+      ],
+      "kind": "rust_impl",
+      "name": "impl IntoElement for TextElement",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0278": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        468,
+        633
+      ],
+      "kind": "rust_impl",
+      "name": "impl Element for TextElement",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.16 カスタム Element による低レベル描画"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0279": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        634,
+        675
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TextInput",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.10 TextInput の状態モデルとキーバインド"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.16 カスタム Element による低レベル描画"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0280": {
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        676,
+        680
+      ],
+      "kind": "rust_impl",
+      "name": "impl Focusable for TextInput",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.16 カスタム Element による低レベル描画"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0281": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        77,
+        119
+      ],
+      "kind": "rust_fn",
+      "name": "dark",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.3 組み込みプリセット 3 種"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0282": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        120,
+        162
+      ],
+      "kind": "rust_fn",
+      "name": "light",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0283": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        163,
+        205
+      ],
+      "kind": "rust_fn",
+      "name": "midnight",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0284": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        206,
+        207
+      ],
+      "kind": "rust_static",
+      "name": "PRESETS",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.3 組み込みプリセット 3 種"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0285": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        208,
+        216
+      ],
+      "kind": "rust_fn",
+      "name": "presets",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.3 組み込みプリセット 3 種"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0286": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        217,
+        219
+      ],
+      "kind": "rust_static",
+      "name": "CURRENT",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.4 現在テーマの保持と解決 — th() / CURRENT / set_by_name"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0287": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        220,
+        231
+      ],
+      "kind": "rust_fn",
+      "name": "th",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.4 現在テーマの保持と解決 — th() / CURRENT / set_by_name"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0288": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        232,
+        253
+      ],
+      "kind": "rust_fn",
+      "name": "set_by_name",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.4 現在テーマの保持と解決 — th() / CURRENT / set_by_name"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0289": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        254,
+        263
+      ],
+      "kind": "rust_fn",
+      "name": "all_themes",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.4 現在テーマの保持と解決 — th() / CURRENT / set_by_name"
+        },
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.5 ユーザーテーマ — JSON ファイルからの読み込み"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0290": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        264,
+        274
+      ],
+      "kind": "rust_struct",
+      "name": "ThemeFile",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.5 ユーザーテーマ — JSON ファイルからの読み込み"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0291": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        275,
+        280
+      ],
+      "kind": "rust_fn",
+      "name": "user_themes",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0292": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        281,
+        288
+      ],
+      "kind": "rust_fn",
+      "name": "themes_dir",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0293": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        289,
+        361
+      ],
+      "kind": "rust_fn",
+      "name": "load_user_themes",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.5 ユーザーテーマ — JSON ファイルからの読み込み"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0294": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        362,
+        405
+      ],
+      "kind": "rust_fn",
+      "name": "write_samples",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.5 ユーザーテーマ — JSON ファイルからの読み込み"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0295": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        406,
+        449
+      ],
+      "kind": "rust_fn",
+      "name": "sample_nord",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0296": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        450,
+        493
+      ],
+      "kind": "rust_fn",
+      "name": "sample_high_contrast",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0297": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        494,
+        543
+      ],
+      "kind": "rust_fn",
+      "name": "sample_sepia",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0298": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        544,
+        551
+      ],
+      "kind": "rust_struct",
+      "name": "UiStyle",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0299": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        552,
+        552
+      ],
+      "kind": "rust_static",
+      "name": "STYLE_IX",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0300": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        553,
+        554
+      ],
+      "kind": "rust_static",
+      "name": "STYLES",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0301": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        555,
+        578
+      ],
+      "kind": "rust_fn",
+      "name": "style_presets",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0302": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        579,
+        585
+      ],
+      "kind": "rust_fn",
+      "name": "ui_style",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0303": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        586,
+        595
+      ],
+      "kind": "rust_fn",
+      "name": "set_style_by_name",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.6 スタイル (形状プリセット)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0304": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        596,
+        600
+      ],
+      "kind": "rust_fn",
+      "name": "radius_md",
+      "covered_by_sections": [],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0305": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        601,
+        611
+      ],
+      "kind": "rust_fn",
+      "name": "radius_sm",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0306": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        612,
+        612
+      ],
+      "kind": "rust_const",
+      "name": "FONT_MIN",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0307": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        613,
+        614
+      ],
+      "kind": "rust_const",
+      "name": "FONT_MAX",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0308": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        615,
+        617
+      ],
+      "kind": "rust_static",
+      "name": "FONT_PX",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0309": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        618,
+        622
+      ],
+      "kind": "rust_fn",
+      "name": "font_px",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0310": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        623,
+        632
+      ],
+      "kind": "rust_fn",
+      "name": "set_font_px",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0311": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        633,
+        637
+      ],
+      "kind": "rust_fn",
+      "name": "row_h",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0312": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        638,
+        642
+      ],
+      "kind": "rust_fn",
+      "name": "header_h",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0313": {
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        643,
+        645
+      ],
+      "kind": "rust_fn",
+      "name": "bar_h",
+      "covered_by_sections": [
+        {
+          "file": "10-theme-settings.md",
+          "section": "10.2.7 UI フォントサイズのキャッシュ"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0314": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        23,
+        29
+      ],
+      "kind": "rust_enum",
+      "name": "TreeEvent",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.8 仮想化描画とイベント発行"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0315": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        30,
+        32
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventEmitter<TreeEvent> for TreeView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.8 仮想化描画とイベント発行"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0316": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        33,
+        41
+      ],
+      "kind": "rust_struct",
+      "name": "TreeItem",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.2 TreeView の状態モデル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0317": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        42,
+        56
+      ],
+      "kind": "rust_struct",
+      "name": "TreeView",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.2 TreeView の状態モデル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0318": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        57,
+        326
+      ],
+      "kind": "rust_impl",
+      "name": "impl TreeView",
+      "covered_by_sections": [
+        {
+          "file": "03-state-model.md",
+          "section": "親子間の型付きイベント: EventEmitter"
+        },
+        {
+          "file": "03-state-model.md",
+          "section": "トレース1: ツリーのクリックからフォルダ移動まで"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.3 表示リストの再構築 — rebuild と push_item"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.4 遅延読み込みとキャッシュ — children_of と toggle"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.5 reveal — ペインへの追従"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.6 UNC share の登録と解除"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.7 行の描画 — render_item"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.8 仮想化描画とイベント発行"
+        },
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.9 ツリーへのファイルドロップに関する事実確認"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0319": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        327,
+        376
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TreeView",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.8 仮想化描画とイベント発行"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0320": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        377,
+        388
+      ],
+      "kind": "rust_fn",
+      "name": "split_unc",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.6 UNC share の登録と解除"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0321": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        389,
+        401
+      ],
+      "kind": "rust_fn",
+      "name": "unc_share_of",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.6 UNC share の登録と解除"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0322": {
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        402,
+        417
+      ],
+      "kind": "rust_fn",
+      "name": "load_drives",
+      "covered_by_sections": [
+        {
+          "file": "09-gui-tree-input.md",
+          "section": "9.2 TreeView の状態モデル"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0323": {
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        19,
+        29
+      ],
+      "kind": "rust_const",
+      "name": "MUTEX_NAME",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.10 GPUI アプリのブートストラップ"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.1 名前付き Mutex による多重起動判定"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0324": {
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        30,
+        47
+      ],
+      "kind": "rust_fn",
+      "name": "acquire_single_instance",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.10 GPUI アプリのブートストラップ"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.1 名前付き Mutex による多重起動判定"
+        },
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.2 既存ウィンドウの前面化"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.2 多重起動防止と既存ウィンドウ前面化"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.5 グレースフルデグラデーション (段階的縮退)"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0325": {
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        48,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "activate_existing_window",
+      "covered_by_sections": [
+        {
+          "file": "11-persistence-session.md",
+          "section": "11.4.2 既存ウィンドウの前面化"
+        },
+        {
+          "file": "12-cross-cutting.md",
+          "section": "12.3.2 多重起動防止と既存ウィンドウ前面化"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    },
+    "SRC-0326": {
+      "path": "crates/fastfiler-gpui/build.rs",
+      "line_range": [
+        1,
+        10
+      ],
+      "kind": "rust_fn",
+      "name": "main",
+      "covered_by_sections": [
+        {
+          "file": "02-architecture.md",
+          "section": "2.9 build.rs の責務"
+        },
+        {
+          "file": "02-architecture.md",
+          "section": "2.13 確実性と未解決点"
+        }
+      ],
+      "excluded": false,
+      "excluded_reason": null
+    }
+  },
+  "by_section": {
+    "06-domain-services.md::6.3 ASCII ツリー描画 — `ascii_tree.rs`": [
+      "SRC-0001",
+      "SRC-0002",
+      "SRC-0003",
+      "SRC-0004",
+      "SRC-0005",
+      "SRC-0006",
+      "SRC-0007",
+      "SRC-0008"
+    ],
+    "06-domain-services.md::6.11 横断的な観察": [
+      "SRC-0007",
+      "SRC-0135",
+      "SRC-0137",
+      "SRC-0151"
+    ],
+    "04-domain-fs.md::4.0 この章の位置づけ": [
+      "SRC-0009",
+      "SRC-0010",
+      "SRC-0011",
+      "SRC-0013",
+      "SRC-0014",
+      "SRC-0015"
+    ],
+    "04-domain-fs.md::4.5 横断的な観察: エラー処理・上書きポリシー・リンク扱い": [
+      "SRC-0009",
+      "SRC-0030",
+      "SRC-0045",
+      "SRC-0055",
+      "SRC-0056"
+    ],
+    "06-domain-services.md::6.1 エラー型 — `error.rs`": [
+      "SRC-0009",
+      "SRC-0010",
+      "SRC-0011",
+      "SRC-0012"
+    ],
+    "01-overview.md::1.8 ドメイン層と GUI 層の橋渡し": [
+      "SRC-0013",
+      "SRC-0014",
+      "SRC-0015",
+      "SRC-0016",
+      "SRC-0017",
+      "SRC-0267",
+      "SRC-0268",
+      "SRC-0269",
+      "SRC-0270"
+    ],
+    "02-architecture.md::2.5 GUI とドメインを橋渡しする依存": [
+      "SRC-0013",
+      "SRC-0014",
+      "SRC-0015",
+      "SRC-0016",
+      "SRC-0017",
+      "SRC-0267",
+      "SRC-0268",
+      "SRC-0270"
+    ],
+    "02-architecture.md::2.12 アーキテクチャ図": [
+      "SRC-0013",
+      "SRC-0270"
+    ],
+    "02-architecture.md::2.13 確実性と未解決点": [
+      "SRC-0013",
+      "SRC-0065",
+      "SRC-0267",
+      "SRC-0268",
+      "SRC-0269",
+      "SRC-0270",
+      "SRC-0326"
+    ],
+    "03-state-model.md::ドメインイベントのブリッジ: EventSink とチャネル": [
+      "SRC-0013",
+      "SRC-0014",
+      "SRC-0015",
+      "SRC-0016",
+      "SRC-0017",
+      "SRC-0267",
+      "SRC-0268",
+      "SRC-0269",
+      "SRC-0270"
+    ],
+    "06-domain-services.md::6.5 Everything HTTP クライアント — `everything.rs`": [
+      "SRC-0018",
+      "SRC-0019",
+      "SRC-0020",
+      "SRC-0021",
+      "SRC-0022",
+      "SRC-0023",
+      "SRC-0024"
+    ],
+    "04-domain-fs.md::4.3.1 JobRegistry — キャンセルフラグの管理": [
+      "SRC-0025",
+      "SRC-0026"
+    ],
+    "04-domain-fs.md::4.3.2 ジョブのペイロード型": [
+      "SRC-0026",
+      "SRC-0027",
+      "SRC-0028",
+      "SRC-0029"
+    ],
+    "04-domain-fs.md::4.3.6 run_copy / run_move / run_delete": [
+      "SRC-0026"
+    ],
+    "04-domain-fs.md::4.3.3 サイズスキャンと進捗スロットリング": [
+      "SRC-0030",
+      "SRC-0031",
+      "SRC-0032",
+      "SRC-0033"
+    ],
+    "04-domain-fs.md::4.3.4 進捗付きコピー / 再帰コピー / 再帰削除": [
+      "SRC-0034",
+      "SRC-0035",
+      "SRC-0036"
+    ],
+    "04-domain-fs.md::4.3.5 run_job — ジョブのライフサイクル": [
+      "SRC-0037"
+    ],
+    "04-domain-fs.md::4.2.1 基本 4 操作": [
+      "SRC-0038",
+      "SRC-0039",
+      "SRC-0040",
+      "SRC-0041",
+      "SRC-0042",
+      "SRC-0043"
+    ],
+    "04-domain-fs.md::4.2.2 delete_to_trash — Windows ゴミ箱送り": [
+      "SRC-0044"
+    ],
+    "04-domain-fs.md::4.2.3 Undo 経路用の上書き禁止操作": [
+      "SRC-0045",
+      "SRC-0046",
+      "SRC-0047"
+    ],
+    "04-domain-fs.md::4.2.4 restore_from_trash — ゴミ箱からの復元": [
+      "SRC-0048",
+      "SRC-0142",
+      "SRC-0143"
+    ],
+    "04-domain-fs.md::4.1.1 データ型: FileEntry / DriveInfo / DiskInfo": [
+      "SRC-0049",
+      "SRC-0050",
+      "SRC-0051",
+      "SRC-0052",
+      "SRC-0053",
+      "SRC-0054"
+    ],
+    "04-domain-fs.md::4.1.2 list_dir — 全エントリ列挙": [
+      "SRC-0055"
+    ],
+    "04-domain-fs.md::4.1.3 stat_path / list_dirs": [
+      "SRC-0056",
+      "SRC-0057"
+    ],
+    "04-domain-fs.md::4.1.4 home_dir / list_drives / disk_free": [
+      "SRC-0058",
+      "SRC-0059",
+      "SRC-0060"
+    ],
+    "05-domain-shell.md::5.6 アイコン抽出（icons.rs）": [
+      "SRC-0061",
+      "SRC-0062",
+      "SRC-0063",
+      "SRC-0064"
+    ],
+    "01-overview.md::1.2 中核アイデンティティと非目標": [
+      "SRC-0065"
+    ],
+    "01-overview.md::1.4 ドメイン層 — fastfiler-domain クレート": [
+      "SRC-0065"
+    ],
+    "01-overview.md::1.11 本章のまとめ": [
+      "SRC-0065"
+    ],
+    "02-architecture.md::2.6 ドメイン層のモジュール組織": [
+      "SRC-0065"
+    ],
+    "05-domain-shell.md::start_drag と DoDragDrop、そして「移動なら元を消す」の二条件": [
+      "SRC-0066",
+      "SRC-0067",
+      "SRC-0087",
+      "SRC-0088",
+      "SRC-0089",
+      "SRC-0090"
+    ],
+    "05-domain-shell.md::CDropSource（IDropSource 実装）": [
+      "SRC-0067",
+      "SRC-0068",
+      "SRC-0085",
+      "SRC-0086",
+      "SRC-0087"
+    ],
+    "05-domain-shell.md::送信側のデータ構造と HGLOBAL ヘルパ": [
+      "SRC-0070",
+      "SRC-0071",
+      "SRC-0073"
+    ],
+    "05-domain-shell.md::5.9 この章の安全性に関するまとめ": [
+      "SRC-0070",
+      "SRC-0071",
+      "SRC-0073"
+    ],
+    "12-cross-cutting.md::12.2.2 `unsafe` / COM の境界面": [
+      "SRC-0073",
+      "SRC-0074",
+      "SRC-0075",
+      "SRC-0090",
+      "SRC-0116",
+      "SRC-0117"
+    ],
+    "12-cross-cutting.md::12.2.3 信頼できない入力 (HDROP) の防御的解析": [
+      "SRC-0073",
+      "SRC-0077",
+      "SRC-0078"
+    ],
+    "05-domain-shell.md::STGMEDIUM と登録の RAII": [
+      "SRC-0074",
+      "SRC-0075",
+      "SRC-0076",
+      "SRC-0077",
+      "SRC-0078",
+      "SRC-0102",
+      "SRC-0103",
+      "SRC-0104",
+      "SRC-0105"
+    ],
+    "05-domain-shell.md::CDataObject（IDataObject 実装）": [
+      "SRC-0079",
+      "SRC-0080",
+      "SRC-0081",
+      "SRC-0082",
+      "SRC-0083",
+      "SRC-0084",
+      "SRC-0085"
+    ],
+    "12-cross-cutting.md::12.1.5 入力サイズの上限 (OOM / フリーズ防止)": [
+      "SRC-0088",
+      "SRC-0089",
+      "SRC-0090"
+    ],
+    "12-cross-cutting.md::12.3.3 エラーの可視化とロギングの不在": [
+      "SRC-0090",
+      "SRC-0233"
+    ],
+    "05-domain-shell.md::OLE 初期化とドロップ時の修飾キー読み取り": [
+      "SRC-0091",
+      "SRC-0092",
+      "SRC-0093",
+      "SRC-0094",
+      "SRC-0095"
+    ],
+    "12-cross-cutting.md::12.2.5 COM アパートメントとスレッディングの一貫性": [
+      "SRC-0093",
+      "SRC-0207"
+    ],
+    "05-domain-shell.md::受信側：CDropTarget（IDropTarget 実装）": [
+      "SRC-0098",
+      "SRC-0099",
+      "SRC-0100",
+      "SRC-0101"
+    ],
+    "06-domain-services.md::6.2 パスのボリューム判定 — `path_util.rs`": [
+      "SRC-0106",
+      "SRC-0107"
+    ],
+    "06-domain-services.md::6.4.1 データ型": [
+      "SRC-0108",
+      "SRC-0109",
+      "SRC-0110",
+      "SRC-0111"
+    ],
+    "06-domain-services.md::6.0 この章の位置づけ": [
+      "SRC-0112"
+    ],
+    "06-domain-services.md::6.4.2 ジョブ起動とキャンセル": [
+      "SRC-0112"
+    ],
+    "06-domain-services.md::6.12 確信度と要確認事項": [
+      "SRC-0112"
+    ],
+    "06-domain-services.md::6.4.3 バックエンド分岐とフォールバック": [
+      "SRC-0113"
+    ],
+    "06-domain-services.md::6.4.4 組み込みウォーカーとマッチャ": [
+      "SRC-0114",
+      "SRC-0115"
+    ],
+    "05-domain-shell.md::5.3 シェルコンテキストメニュー（IContextMenu）と PIDL のライフサイクル": [
+      "SRC-0116",
+      "SRC-0117"
+    ],
+    "05-domain-shell.md::5.2 ShellExecuteW による既定アプリ起動とエクスプローラ表示": [
+      "SRC-0118",
+      "SRC-0121"
+    ],
+    "05-domain-shell.md::STA スレッドへの隔離（UI スレッド再入の回避）": [
+      "SRC-0118",
+      "SRC-0119",
+      "SRC-0120"
+    ],
+    "12-cross-cutting.md::12.1.4 ブロッキング処理の追い出し (非同期ジョブ)": [
+      "SRC-0120",
+      "SRC-0233"
+    ],
+    "05-domain-shell.md::5.4 ファイルタイプ関連付け（shell_assoc.rs）": [
+      "SRC-0125",
+      "SRC-0126",
+      "SRC-0127",
+      "SRC-0128",
+      "SRC-0129",
+      "SRC-0130",
+      "SRC-0131",
+      "SRC-0132"
+    ],
+    "06-domain-services.md::6.6 ファイルテンプレート — `templates.rs`": [
+      "SRC-0134",
+      "SRC-0135",
+      "SRC-0137",
+      "SRC-0138",
+      "SRC-0139",
+      "SRC-0140",
+      "SRC-0141"
+    ],
+    "06-domain-services.md::6.8 Undo モデル — `undo.rs`": [
+      "SRC-0142",
+      "SRC-0143",
+      "SRC-0144",
+      "SRC-0145",
+      "SRC-0146",
+      "SRC-0147",
+      "SRC-0148"
+    ],
+    "06-domain-services.md::6.7.1 コマンド定義とプレースホルダ": [
+      "SRC-0149",
+      "SRC-0160"
+    ],
+    "06-domain-services.md::6.7.2 ディレクトリ初期化と読み込み": [
+      "SRC-0151",
+      "SRC-0153",
+      "SRC-0162"
+    ],
+    "06-domain-services.md::6.7.3 実行フローとセキュリティ対策": [
+      "SRC-0153",
+      "SRC-0154",
+      "SRC-0155",
+      "SRC-0156",
+      "SRC-0158",
+      "SRC-0159",
+      "SRC-0161"
+    ],
+    "12-cross-cutting.md::バイナリプランティング対策 (resolve_in_path)": [
+      "SRC-0155",
+      "SRC-0158"
+    ],
+    "12-cross-cutting.md::12.3.5 グレースフルデグラデーション (段階的縮退)": [
+      "SRC-0155",
+      "SRC-0247",
+      "SRC-0324"
+    ],
+    "12-cross-cutting.md::コマンドインジェクション対策 (cmd_quote / build_shell_command)": [
+      "SRC-0156",
+      "SRC-0158",
+      "SRC-0159"
+    ],
+    "03-state-model.md::トレース2: ファイル監視からの自動更新": [
+      "SRC-0163",
+      "SRC-0165",
+      "SRC-0233"
+    ],
+    "04-domain-fs.md::4.4 `watcher.rs` — ディレクトリ監視": [
+      "SRC-0163",
+      "SRC-0164",
+      "SRC-0165",
+      "SRC-0233"
+    ],
+    "12-cross-cutting.md::12.1.3 監視イベントのバースト対策 (デバウンス)": [
+      "SRC-0165",
+      "SRC-0233"
+    ],
+    "12-cross-cutting.md::12.3.4 リソースのライフサイクルと自動解放": [
+      "SRC-0165",
+      "SRC-0233",
+      "SRC-0234"
+    ],
+    "05-domain-shell.md::CF_HDROP の組み立てと HGLOBAL 確保": [
+      "SRC-0167"
+    ],
+    "05-domain-shell.md::貼り付け側の読み出し": [
+      "SRC-0167",
+      "SRC-0168",
+      "SRC-0170",
+      "SRC-0172"
+    ],
+    "07-gui-app.md::7.6 リサイズハンドルとドラッグ機構": [
+      "SRC-0173",
+      "SRC-0174",
+      "SRC-0184",
+      "SRC-0185",
+      "SRC-0186"
+    ],
+    "09-gui-tree-input.md::9.9 ツリーへのファイルドロップに関する事実確認": [
+      "SRC-0174",
+      "SRC-0175",
+      "SRC-0318"
+    ],
+    "07-gui-app.md::7.5 縦タブバーのレイアウトと描画": [
+      "SRC-0178",
+      "SRC-0179",
+      "SRC-0184",
+      "SRC-0185"
+    ],
+    "03-state-model.md::タブとペインツリー": [
+      "SRC-0180",
+      "SRC-0181",
+      "SRC-0182"
+    ],
+    "07-gui-app.md::7.3 シェルの状態: `FastFilerApp` 構造体": [
+      "SRC-0180",
+      "SRC-0181",
+      "SRC-0183"
+    ],
+    "03-state-model.md::ルート状態: FastFilerApp": [
+      "SRC-0183"
+    ],
+    "03-state-model.md::親子間の型付きイベント: EventEmitter": [
+      "SRC-0184",
+      "SRC-0227",
+      "SRC-0228",
+      "SRC-0233",
+      "SRC-0314",
+      "SRC-0315",
+      "SRC-0318"
+    ],
+    "03-state-model.md::変化観測 (observe) による波及": [
+      "SRC-0184"
+    ],
+    "03-state-model.md::トレース1: ツリーのクリックからフォルダ移動まで": [
+      "SRC-0184",
+      "SRC-0233",
+      "SRC-0318"
+    ],
+    "03-state-model.md::ライフサイクルとリーク防止": [
+      "SRC-0184",
+      "SRC-0234"
+    ],
+    "07-gui-app.md::7.7 ペインツリーの再帰描画 (`render_node`)": [
+      "SRC-0184",
+      "SRC-0185",
+      "SRC-0186",
+      "SRC-0187",
+      "SRC-0188",
+      "SRC-0189",
+      "SRC-0190",
+      "SRC-0191",
+      "SRC-0192",
+      "SRC-0193",
+      "SRC-0194",
+      "SRC-0195"
+    ],
+    "07-gui-app.md::7.8 グローバルアクションとイベントルーティング": [
+      "SRC-0184"
+    ],
+    "07-gui-app.md::7.9 キーバインドとフォーカス": [
+      "SRC-0184",
+      "SRC-0185",
+      "SRC-0207"
+    ],
+    "07-gui-app.md::7.10 設定オーバーレイ (モーダル) のレイアウト": [
+      "SRC-0184",
+      "SRC-0185"
+    ],
+    "07-gui-app.md::7.11 フッターとウィンドウ位置の保存": [
+      "SRC-0184",
+      "SRC-0185"
+    ],
+    "09-gui-tree-input.md::9.5 reveal — ペインへの追従": [
+      "SRC-0184",
+      "SRC-0318"
+    ],
+    "09-gui-tree-input.md::9.6 UNC share の登録と解除": [
+      "SRC-0184",
+      "SRC-0318",
+      "SRC-0320",
+      "SRC-0321"
+    ],
+    "09-gui-tree-input.md::9.8 仮想化描画とイベント発行": [
+      "SRC-0184",
+      "SRC-0314",
+      "SRC-0315",
+      "SRC-0318",
+      "SRC-0319"
+    ],
+    "09-gui-tree-input.md::9.17 TextInput の呼び出し側 — 1 つの実装を 4 用途で共有": [
+      "SRC-0184",
+      "SRC-0208",
+      "SRC-0209",
+      "SRC-0211",
+      "SRC-0233"
+    ],
+    "10-theme-settings.md::10.4.2 変更伝播 (app.rs)": [
+      "SRC-0184",
+      "SRC-0233"
+    ],
+    "11-persistence-session.md::11.2.4 保存タイミング — デバウンスと終了時フック": [
+      "SRC-0184"
+    ],
+    "11-persistence-session.md::11.2.5 メモリ表現 ⇄ 直列化表現の変換": [
+      "SRC-0184",
+      "SRC-0187"
+    ],
+    "07-gui-app.md::7.4 最上位レイアウトツリー (`Render for FastFilerApp`)": [
+      "SRC-0185"
+    ],
+    "07-gui-app.md::7.2 プロセス起動とウィンドウブートストラップ (`main.rs`)": [
+      "SRC-0196",
+      "SRC-0207"
+    ],
+    "10-theme-settings.md::10.3.1 カスタマイズ可能なアクション": [
+      "SRC-0197"
+    ],
+    "08-gui-pane.md::キーボード入力の経路": [
+      "SRC-0198",
+      "SRC-0233"
+    ],
+    "10-theme-settings.md::10.3.2 既定割り当てテーブル": [
+      "SRC-0198"
+    ],
+    "10-theme-settings.md::10.3.4 読み込みとフォールバック生成": [
+      "SRC-0199",
+      "SRC-0200",
+      "SRC-0201",
+      "SRC-0204"
+    ],
+    "10-theme-settings.md::10.3.3 combo 文字列の正規化": [
+      "SRC-0202",
+      "SRC-0203"
+    ],
+    "10-theme-settings.md::10.3.5 キーストロークの解決と消費": [
+      "SRC-0205",
+      "SRC-0206",
+      "SRC-0233"
+    ],
+    "01-overview.md::1.6 起動シーケンス — main の流れ": [
+      "SRC-0207"
+    ],
+    "02-architecture.md::2.10 GPUI アプリのブートストラップ": [
+      "SRC-0207",
+      "SRC-0323",
+      "SRC-0324"
+    ],
+    "09-gui-tree-input.md::9.10 TextInput の状態モデルとキーバインド": [
+      "SRC-0207",
+      "SRC-0271",
+      "SRC-0272",
+      "SRC-0279"
+    ],
+    "10-theme-settings.md::10.4.1 起動シーケンス (main.rs)": [
+      "SRC-0207"
+    ],
+    "11-persistence-session.md::11.2.6 起動シーケンスでのセッション復元": [
+      "SRC-0207"
+    ],
+    "11-persistence-session.md::11.4.2 既存ウィンドウの前面化": [
+      "SRC-0207",
+      "SRC-0324",
+      "SRC-0325"
+    ],
+    "11-persistence-session.md::11.4.3 起動シーケンスへの組み込み": [
+      "SRC-0207"
+    ],
+    "12-cross-cutting.md::12.3.2 多重起動防止と既存ウィンドウ前面化": [
+      "SRC-0207",
+      "SRC-0324",
+      "SRC-0325"
+    ],
+    "08-gui-pane.md::コンテキストメニュー": [
+      "SRC-0224",
+      "SRC-0233"
+    ],
+    "03-state-model.md::ペイン状態: PaneView": [
+      "SRC-0229",
+      "SRC-0231"
+    ],
+    "08-gui-pane.md::この章で扱うもの": [
+      "SRC-0231"
+    ],
+    "08-gui-pane.md::PaneView が保持する状態": [
+      "SRC-0231",
+      "SRC-0233"
+    ],
+    "03-state-model.md::受信ループ: チャネルから UI スレッドへ": [
+      "SRC-0233"
+    ],
+    "03-state-model.md::on_domain_event: 文字列イベントの分岐": [
+      "SRC-0233"
+    ],
+    "03-state-model.md::コピー/移動ジョブの進捗": [
+      "SRC-0233"
+    ],
+    "04-domain-fs.md::4.3.7 スレッディング: ジョブはどう起動されるか": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::選択モデル": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::マウスのクリックと行の活性化": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::ラバーバンド (矩形) 選択": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::ドラッグ&ドロップの開始": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::ドラッグ&ドロップの完了処理": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::ドロップを受け取る側": [
+      "SRC-0233",
+      "SRC-0238",
+      "SRC-0239"
+    ],
+    "08-gui-pane.md::アドレスバーと検索": [
+      "SRC-0233"
+    ],
+    "08-gui-pane.md::ソートと列幅": [
+      "SRC-0233",
+      "SRC-0235"
+    ],
+    "08-gui-pane.md::描画の全体構成": [
+      "SRC-0233",
+      "SRC-0235"
+    ],
+    "08-gui-pane.md::ドメインイベントとライフサイクル": [
+      "SRC-0233",
+      "SRC-0234"
+    ],
+    "08-gui-pane.md::まだ確認しきれていない点": [
+      "SRC-0233"
+    ],
+    "10-theme-settings.md::10.1.3 static ストアとアクセサ": [
+      "SRC-0233",
+      "SRC-0262",
+      "SRC-0263",
+      "SRC-0264",
+      "SRC-0265",
+      "SRC-0266"
+    ],
+    "12-cross-cutting.md::12.1.2 アイコン取得のコスト削減": [
+      "SRC-0233",
+      "SRC-0235",
+      "SRC-0236",
+      "SRC-0237"
+    ],
+    "03-state-model.md::再描画の起点": [
+      "SRC-0235"
+    ],
+    "12-cross-cutting.md::12.1.1 一覧描画の仮想化": [
+      "SRC-0235"
+    ],
+    "12-cross-cutting.md::12.2.4 パス取り扱いの安全性": [
+      "SRC-0237",
+      "SRC-0238",
+      "SRC-0239"
+    ],
+    "11-persistence-session.md::11.1.2 補助関数 `with_suffix`": [
+      "SRC-0245"
+    ],
+    "11-persistence-session.md::11.2.3 保存先パスと load / save": [
+      "SRC-0245",
+      "SRC-0253",
+      "SRC-0254",
+      "SRC-0255"
+    ],
+    "02-architecture.md::2.11 永続化という第二の継ぎ目": [
+      "SRC-0246",
+      "SRC-0248",
+      "SRC-0256"
+    ],
+    "10-theme-settings.md::10.1.5 セーブ処理 — read-modify-write とアトミック書き込み": [
+      "SRC-0246",
+      "SRC-0266"
+    ],
+    "11-persistence-session.md::11.1.3 中核処理 `write_atomic` — tmp + fsync + rename": [
+      "SRC-0246"
+    ],
+    "12-cross-cutting.md::12.3.1 クラッシュ安全な永続化": [
+      "SRC-0246",
+      "SRC-0247",
+      "SRC-0255",
+      "SRC-0266"
+    ],
+    "10-theme-settings.md::10.1.4 ロード処理 — クラッシュ安全な読み込み": [
+      "SRC-0247"
+    ],
+    "11-persistence-session.md::11.1.4 読み込み側 `load_with_backup` — 本体 → `.bak` フォールバック": [
+      "SRC-0247"
+    ],
+    "11-persistence-session.md::11.2.1 セッションデータの形式 `SessionData`": [
+      "SRC-0248",
+      "SRC-0249",
+      "SRC-0250",
+      "SRC-0251"
+    ],
+    "11-persistence-session.md::11.2.2 ペインツリーの直列化表現 `NodeData`": [
+      "SRC-0251",
+      "SRC-0252"
+    ],
+    "10-theme-settings.md::10.1.2 スキーマと既定値": [
+      "SRC-0256",
+      "SRC-0257",
+      "SRC-0258",
+      "SRC-0259",
+      "SRC-0260",
+      "SRC-0261"
+    ],
+    "11-persistence-session.md::11.3 設定の永続化も同じ基盤に載る (`settings_store.rs`)": [
+      "SRC-0262",
+      "SRC-0264",
+      "SRC-0265",
+      "SRC-0266"
+    ],
+    "09-gui-tree-input.md::9.11 カーソル移動と選択範囲": [
+      "SRC-0273"
+    ],
+    "09-gui-tree-input.md::9.12 文字の挿入と削除": [
+      "SRC-0273",
+      "SRC-0274"
+    ],
+    "09-gui-tree-input.md::9.13 クリップボード操作": [
+      "SRC-0273"
+    ],
+    "09-gui-tree-input.md::9.14 マウスによるカーソル配置と範囲選択": [
+      "SRC-0273"
+    ],
+    "09-gui-tree-input.md::9.15 IME 対応 — EntityInputHandler": [
+      "SRC-0273",
+      "SRC-0274"
+    ],
+    "09-gui-tree-input.md::9.16 カスタム Element による低レベル描画": [
+      "SRC-0278",
+      "SRC-0279",
+      "SRC-0280"
+    ],
+    "10-theme-settings.md::10.2.3 組み込みプリセット 3 種": [
+      "SRC-0281",
+      "SRC-0284",
+      "SRC-0285"
+    ],
+    "10-theme-settings.md::10.2.4 現在テーマの保持と解決 — th() / CURRENT / set_by_name": [
+      "SRC-0286",
+      "SRC-0287",
+      "SRC-0288",
+      "SRC-0289"
+    ],
+    "10-theme-settings.md::10.2.5 ユーザーテーマ — JSON ファイルからの読み込み": [
+      "SRC-0289",
+      "SRC-0290",
+      "SRC-0293",
+      "SRC-0294"
+    ],
+    "10-theme-settings.md::10.2.6 スタイル (形状プリセット)": [
+      "SRC-0297",
+      "SRC-0298",
+      "SRC-0299",
+      "SRC-0300",
+      "SRC-0301",
+      "SRC-0302",
+      "SRC-0303"
+    ],
+    "10-theme-settings.md::10.2.7 UI フォントサイズのキャッシュ": [
+      "SRC-0305",
+      "SRC-0306",
+      "SRC-0307",
+      "SRC-0308",
+      "SRC-0309",
+      "SRC-0310",
+      "SRC-0311",
+      "SRC-0312",
+      "SRC-0313"
+    ],
+    "09-gui-tree-input.md::9.2 TreeView の状態モデル": [
+      "SRC-0316",
+      "SRC-0317",
+      "SRC-0322"
+    ],
+    "09-gui-tree-input.md::9.3 表示リストの再構築 — rebuild と push_item": [
+      "SRC-0318"
+    ],
+    "09-gui-tree-input.md::9.4 遅延読み込みとキャッシュ — children_of と toggle": [
+      "SRC-0318"
+    ],
+    "09-gui-tree-input.md::9.7 行の描画 — render_item": [
+      "SRC-0318"
+    ],
+    "11-persistence-session.md::11.4.1 名前付き Mutex による多重起動判定": [
+      "SRC-0323",
+      "SRC-0324"
+    ],
+    "02-architecture.md::2.9 build.rs の責務": [
+      "SRC-0326"
+    ]
+  },
+  "uncovered_units": [
+    "SRC-0069",
+    "SRC-0072",
+    "SRC-0096",
+    "SRC-0097",
+    "SRC-0122",
+    "SRC-0123",
+    "SRC-0124",
+    "SRC-0133",
+    "SRC-0136",
+    "SRC-0150",
+    "SRC-0152",
+    "SRC-0157",
+    "SRC-0166",
+    "SRC-0169",
+    "SRC-0171",
+    "SRC-0176",
+    "SRC-0177",
+    "SRC-0210",
+    "SRC-0212",
+    "SRC-0213",
+    "SRC-0214",
+    "SRC-0215",
+    "SRC-0216",
+    "SRC-0217",
+    "SRC-0218",
+    "SRC-0219",
+    "SRC-0220",
+    "SRC-0221",
+    "SRC-0222",
+    "SRC-0223",
+    "SRC-0225",
+    "SRC-0226",
+    "SRC-0230",
+    "SRC-0232",
+    "SRC-0240",
+    "SRC-0241",
+    "SRC-0242",
+    "SRC-0243",
+    "SRC-0244",
+    "SRC-0275",
+    "SRC-0276",
+    "SRC-0277",
+    "SRC-0282",
+    "SRC-0283",
+    "SRC-0291",
+    "SRC-0292",
+    "SRC-0295",
+    "SRC-0296",
+    "SRC-0304"
+  ]
+}

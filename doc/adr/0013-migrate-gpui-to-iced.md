@@ -1,7 +1,7 @@
 # ADR 0013: GUI を GPUI (vendor) から iced 0.14 へ移行する
 
 日付: 2026-07-04
-状態: 採用 (Phase 0〜6 完了、Phase 7 切替作業中)
+状態: 採用 (2026-07-04 切替完了 — GPUI/vendor 撤去、bin=fastfiler、MIT OR Apache-2.0 へ)
 
 ## 背景
 

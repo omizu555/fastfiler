@@ -649,3 +649,14 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - ADR 0013 (GPUI → iced 移行) 起草。ユーザー実機確認: Issue #3/#4/#5 の
   手動確認項目が消化され「当初の UI に戻りつつある」と好評価。
 - 残: bin 切替 / GPUI・vendor 撤去 / ドキュメント更新 / main マージ (ユーザー承認後)。
+
+### 2026-07-04 — Phase 7 完了: 切替 (ユーザー承認済み)
+- D&D 全パターンの実機確認完了 (Issue #10 クローズ)。UI 操作シミュレーション
+  テスト 5 本 + core 77 本。
+- 省メモリレンダラ (tiny-skia) を既定化 (GPU は設定で選択可)。
+- ファイル名継承: session/settings/hotkeys.json (旧 gpui_/iced_ 接頭辞から自動移行
+  チェーン。実機で 25 ペイン構成の移行を確認)。
+- bin 名を fastfiler へ (exe アイコン継承)。fastfiler-gpui / vendor/ /
+  [patch.crates-io] async-task を撤去。
+- ライセンスを GPL-3.0 → **MIT OR Apache-2.0** へ (GPL 強制源の vendor 撤去による)。
+- README / ARCHITECTURE / BUILD / USAGE / doc README を iced 版に更新。ADR 0013 完了。

@@ -1,0 +1,3935 @@
+{
+  "schema_version": "0.1.0",
+  "target_root": "Files",
+  "generated_at": "2026-06-28T12:49:22.179196+00:00",
+  "stats": {
+    "files_scanned": 32,
+    "files_excluded": 0,
+    "units_total": 326,
+    "by_kind": {
+      "rust_const": 15,
+      "rust_fn": 180,
+      "rust_enum": 15,
+      "rust_impl": 38,
+      "rust_type": 4,
+      "rust_trait": 1,
+      "rust_struct": 62,
+      "rust_file": 1,
+      "rust_static": 10
+    }
+  },
+  "units": [
+    {
+      "id": "SRC-0001",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        12,
+        12
+      ],
+      "kind": "rust_const",
+      "name": "BRANCH",
+      "signature": "const BRANCH: &str = \"├── \";",
+      "fingerprint": "sha1:6e4474213e80c9b3"
+    },
+    {
+      "id": "SRC-0002",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        13,
+        13
+      ],
+      "kind": "rust_const",
+      "name": "LAST",
+      "signature": "const LAST: &str = \"└── \";",
+      "fingerprint": "sha1:11a26bd7b8e6df81"
+    },
+    {
+      "id": "SRC-0003",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        14,
+        14
+      ],
+      "kind": "rust_const",
+      "name": "VERT",
+      "signature": "const VERT: &str = \"│   \";",
+      "fingerprint": "sha1:99bcc9d58942e4a4"
+    },
+    {
+      "id": "SRC-0004",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        15,
+        18
+      ],
+      "kind": "rust_const",
+      "name": "SPACE",
+      "signature": "const SPACE: &str = \"    \";",
+      "fingerprint": "sha1:bd36483b88834862"
+    },
+    {
+      "id": "SRC-0005",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        19,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden_default",
+      "signature": "pub fn is_hidden_default(path: &Path) -> bool {",
+      "fingerprint": "sha1:bd6161e50d5f7d16"
+    },
+    {
+      "id": "SRC-0006",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        49,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "render_ascii_tree",
+      "signature": "pub fn render_ascii_tree(root: &Path, is_hidden: &dyn Fn(&Path) -> bool) -> String {",
+      "fingerprint": "sha1:7268e7acba7c5bb5"
+    },
+    {
+      "id": "SRC-0007",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        61,
+        83
+      ],
+      "kind": "rust_fn",
+      "name": "write_children",
+      "signature": "fn write_children(out: &mut String, dir: &Path, prefix: &str, is_hidden: &dyn Fn(&Path) -> bool) {",
+      "fingerprint": "sha1:01ef97a347b1b8d5"
+    },
+    {
+      "id": "SRC-0008",
+      "path": "crates/fastfiler-domain/src/ascii_tree.rs",
+      "line_range": [
+        84,
+        105
+      ],
+      "kind": "rust_fn",
+      "name": "collect_visible_dirs",
+      "signature": "fn collect_visible_dirs(dir: &Path, is_hidden: &dyn Fn(&Path) -> bool) -> Result<Vec<String>, ()> {",
+      "fingerprint": "sha1:39fd443a7d072146"
+    },
+    {
+      "id": "SRC-0009",
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        5,
+        27
+      ],
+      "kind": "rust_enum",
+      "name": "AppError",
+      "signature": "pub enum AppError {",
+      "fingerprint": "sha1:585afd3e8085b1fe"
+    },
+    {
+      "id": "SRC-0010",
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        28,
+        47
+      ],
+      "kind": "rust_impl",
+      "name": "impl AppError",
+      "signature": "impl AppError {",
+      "fingerprint": "sha1:ea40c77332d35e98"
+    },
+    {
+      "id": "SRC-0011",
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        48,
+        53
+      ],
+      "kind": "rust_impl",
+      "name": "impl Serialize for AppError",
+      "signature": "impl Serialize for AppError {",
+      "fingerprint": "sha1:b69fdf0ac4e28967"
+    },
+    {
+      "id": "SRC-0012",
+      "path": "crates/fastfiler-domain/src/error.rs",
+      "line_range": [
+        54,
+        54
+      ],
+      "kind": "rust_type",
+      "name": "AppResult",
+      "signature": "pub type AppResult<T> = Result<T, AppError>;",
+      "fingerprint": "sha1:6abaaf7859a53b09"
+    },
+    {
+      "id": "SRC-0013",
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        10,
+        13
+      ],
+      "kind": "rust_trait",
+      "name": "EventSink",
+      "signature": "pub trait EventSink: Send + Sync {",
+      "fingerprint": "sha1:600587260cae6d1a"
+    },
+    {
+      "id": "SRC-0014",
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        14,
+        23
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for F",
+      "signature": "impl<F> EventSink for F",
+      "fingerprint": "sha1:c69c858d18e91662"
+    },
+    {
+      "id": "SRC-0015",
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        24,
+        31
+      ],
+      "kind": "rust_fn",
+      "name": "emit",
+      "signature": "pub fn emit<T: Serialize>(sink: &dyn EventSink, event: &str, payload: &T) {",
+      "fingerprint": "sha1:9c14859985a80e51"
+    },
+    {
+      "id": "SRC-0016",
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        32,
+        32
+      ],
+      "kind": "rust_struct",
+      "name": "NullSink",
+      "signature": "pub struct NullSink;",
+      "fingerprint": "sha1:319ff206b5333852"
+    },
+    {
+      "id": "SRC-0017",
+      "path": "crates/fastfiler-domain/src/events.rs",
+      "line_range": [
+        33,
+        35
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for NullSink",
+      "signature": "impl EventSink for NullSink {",
+      "fingerprint": "sha1:da5e52dd9d067000"
+    },
+    {
+      "id": "SRC-0018",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        15,
+        22
+      ],
+      "kind": "rust_struct",
+      "name": "RawResponse",
+      "signature": "struct RawResponse {",
+      "fingerprint": "sha1:1ce54f8ee87a0efb"
+    },
+    {
+      "id": "SRC-0019",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        23,
+        34
+      ],
+      "kind": "rust_struct",
+      "name": "RawHit",
+      "signature": "struct RawHit {",
+      "fingerprint": "sha1:75c55be5454712b8"
+    },
+    {
+      "id": "SRC-0020",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        35,
+        41
+      ],
+      "kind": "rust_struct",
+      "name": "EverythingHit",
+      "signature": "pub struct EverythingHit {",
+      "fingerprint": "sha1:7a09f7047242e342"
+    },
+    {
+      "id": "SRC-0021",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        42,
+        43
+      ],
+      "kind": "rust_struct",
+      "name": "EverythingError",
+      "signature": "pub struct EverythingError(pub String);",
+      "fingerprint": "sha1:eafa91be2af75a96"
+    },
+    {
+      "id": "SRC-0022",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        44,
+        57
+      ],
+      "kind": "rust_impl",
+      "name": "impl std::fmt::Display for EverythingError",
+      "signature": "impl std::fmt::Display for EverythingError {",
+      "fingerprint": "sha1:55762057eddd6a4e"
+    },
+    {
+      "id": "SRC-0023",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        58,
+        131
+      ],
+      "kind": "rust_fn",
+      "name": "query",
+      "signature": "pub fn query(",
+      "fingerprint": "sha1:1f3f91711b88b654"
+    },
+    {
+      "id": "SRC-0024",
+      "path": "crates/fastfiler-domain/src/everything.rs",
+      "line_range": [
+        132,
+        139
+      ],
+      "kind": "rust_fn",
+      "name": "ping",
+      "signature": "pub fn ping(port: u16) -> bool {",
+      "fingerprint": "sha1:7735db3ce10b1221"
+    },
+    {
+      "id": "SRC-0025",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        21,
+        24
+      ],
+      "kind": "rust_struct",
+      "name": "JobRegistry",
+      "signature": "pub struct JobRegistry {",
+      "fingerprint": "sha1:c9f6a9229aea032a"
+    },
+    {
+      "id": "SRC-0026",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        25,
+        129
+      ],
+      "kind": "rust_impl",
+      "name": "impl JobRegistry",
+      "signature": "impl JobRegistry {",
+      "fingerprint": "sha1:5101205cd0256ba8"
+    },
+    {
+      "id": "SRC-0027",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        130,
+        135
+      ],
+      "kind": "rust_struct",
+      "name": "JobItem",
+      "signature": "pub struct JobItem {",
+      "fingerprint": "sha1:a098a04d7be7979d"
+    },
+    {
+      "id": "SRC-0028",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        136,
+        147
+      ],
+      "kind": "rust_struct",
+      "name": "JobProgress",
+      "signature": "pub struct JobProgress {",
+      "fingerprint": "sha1:31777b7a42cc4f49"
+    },
+    {
+      "id": "SRC-0029",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        148,
+        159
+      ],
+      "kind": "rust_struct",
+      "name": "JobDone",
+      "signature": "pub struct JobDone {",
+      "fingerprint": "sha1:2c990f3123a08cdc"
+    },
+    {
+      "id": "SRC-0030",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        160,
+        174
+      ],
+      "kind": "rust_fn",
+      "name": "scan_size",
+      "signature": "fn scan_size(path: &Path, total_files: &mut u64, total_bytes: &mut u64) {",
+      "fingerprint": "sha1:4c2b3baa64652ee3"
+    },
+    {
+      "id": "SRC-0031",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        175,
+        178
+      ],
+      "kind": "rust_fn",
+      "name": "emit_progress",
+      "signature": "fn emit_progress(sink: &dyn EventSink, p: &JobProgress) {",
+      "fingerprint": "sha1:a5862811bdf95e49"
+    },
+    {
+      "id": "SRC-0032",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        179,
+        186
+      ],
+      "kind": "rust_struct",
+      "name": "Counters",
+      "signature": "struct Counters {",
+      "fingerprint": "sha1:a9684caf02cc15d5"
+    },
+    {
+      "id": "SRC-0033",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        187,
+        213
+      ],
+      "kind": "rust_fn",
+      "name": "maybe_emit",
+      "signature": "fn maybe_emit(",
+      "fingerprint": "sha1:8777ffef70843b9d"
+    },
+    {
+      "id": "SRC-0034",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        214,
+        246
+      ],
+      "kind": "rust_fn",
+      "name": "copy_file_with_progress",
+      "signature": "fn copy_file_with_progress(",
+      "fingerprint": "sha1:e4e2b0f6ebfcc34c"
+    },
+    {
+      "id": "SRC-0035",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        247,
+        273
+      ],
+      "kind": "rust_fn",
+      "name": "copy_recursive",
+      "signature": "fn copy_recursive(",
+      "fingerprint": "sha1:42d761aa2b6b7615"
+    },
+    {
+      "id": "SRC-0036",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        274,
+        307
+      ],
+      "kind": "rust_fn",
+      "name": "delete_recursive",
+      "signature": "fn delete_recursive(",
+      "fingerprint": "sha1:c724917d385ff3b7"
+    },
+    {
+      "id": "SRC-0037",
+      "path": "crates/fastfiler-domain/src/file_jobs.rs",
+      "line_range": [
+        308,
+        375
+      ],
+      "kind": "rust_fn",
+      "name": "run_job",
+      "signature": "fn run_job<F>(",
+      "fingerprint": "sha1:1636b41382c41d81"
+    },
+    {
+      "id": "SRC-0038",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        12,
+        16
+      ],
+      "kind": "rust_fn",
+      "name": "create_dir",
+      "signature": "pub fn create_dir(path: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:f5339d21d0377373"
+    },
+    {
+      "id": "SRC-0039",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        17,
+        21
+      ],
+      "kind": "rust_fn",
+      "name": "rename_path",
+      "signature": "pub fn rename_path(from: &Path, to: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:0775e49f8865b3d4"
+    },
+    {
+      "id": "SRC-0040",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        22,
+        35
+      ],
+      "kind": "rust_fn",
+      "name": "delete_path",
+      "signature": "pub fn delete_path(path: &Path, recursive: bool) -> AppResult<()> {",
+      "fingerprint": "sha1:95ac8bb1d54ef74c"
+    },
+    {
+      "id": "SRC-0041",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        36,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "copy_path",
+      "signature": "pub fn copy_path(from: &Path, to: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:80a5e91db1e62a78"
+    },
+    {
+      "id": "SRC-0042",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        49,
+        68
+      ],
+      "kind": "rust_fn",
+      "name": "move_path",
+      "signature": "pub fn move_path(from: &Path, to: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:ae1e04dd06d8cf82"
+    },
+    {
+      "id": "SRC-0043",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        69,
+        85
+      ],
+      "kind": "rust_fn",
+      "name": "copy_dir_recursive",
+      "signature": "fn copy_dir_recursive(src: &Path, dst: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:2850c022b75e5638"
+    },
+    {
+      "id": "SRC-0044",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        86,
+        105
+      ],
+      "kind": "rust_fn",
+      "name": "delete_to_trash",
+      "signature": "pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {",
+      "fingerprint": "sha1:8a4a9a1796d1f5f7"
+    },
+    {
+      "id": "SRC-0045",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        106,
+        118
+      ],
+      "kind": "rust_fn",
+      "name": "rename_path_no_overwrite",
+      "signature": "pub fn rename_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:db12b5af6c86e73a"
+    },
+    {
+      "id": "SRC-0046",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        119,
+        144
+      ],
+      "kind": "rust_fn",
+      "name": "move_path_no_overwrite",
+      "signature": "pub fn move_path_no_overwrite(from: &Path, to: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:321386a3bb5b5a91"
+    },
+    {
+      "id": "SRC-0047",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        145,
+        169
+      ],
+      "kind": "rust_fn",
+      "name": "copy_dir_no_overwrite",
+      "signature": "fn copy_dir_no_overwrite(src: &Path, dst: &Path) -> AppResult<()> {",
+      "fingerprint": "sha1:beea73eb1a11946a"
+    },
+    {
+      "id": "SRC-0048",
+      "path": "crates/fastfiler-domain/src/file_ops.rs",
+      "line_range": [
+        170,
+        184
+      ],
+      "kind": "rust_fn",
+      "name": "restore_from_trash",
+      "signature": "pub fn restore_from_trash(item: &TrashedItem) -> AppResult<()> {",
+      "fingerprint": "sha1:28394f9ecea998ca"
+    },
+    {
+      "id": "SRC-0049",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        13,
+        24
+      ],
+      "kind": "rust_struct",
+      "name": "FileEntry",
+      "signature": "pub struct FileEntry {",
+      "fingerprint": "sha1:7cc004132a2e7d8c"
+    },
+    {
+      "id": "SRC-0050",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        25,
+        33
+      ],
+      "kind": "rust_struct",
+      "name": "DriveInfo",
+      "signature": "pub struct DriveInfo {",
+      "fingerprint": "sha1:000e5a64a31d701d"
+    },
+    {
+      "id": "SRC-0051",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        34,
+        39
+      ],
+      "kind": "rust_struct",
+      "name": "DiskInfo",
+      "signature": "pub struct DiskInfo {",
+      "fingerprint": "sha1:b460f4caed69b626"
+    },
+    {
+      "id": "SRC-0052",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        40,
+        46
+      ],
+      "kind": "rust_fn",
+      "name": "to_unix_secs",
+      "signature": "fn to_unix_secs(t: SystemTime) -> i64 {",
+      "fingerprint": "sha1:8b1704a8867efa6c"
+    },
+    {
+      "id": "SRC-0053",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        47,
+        52
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden",
+      "signature": "fn is_hidden(meta: &fs::Metadata) -> bool {",
+      "fingerprint": "sha1:207970dfcb1c5b76"
+    },
+    {
+      "id": "SRC-0054",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        53,
+        56
+      ],
+      "kind": "rust_fn",
+      "name": "is_hidden",
+      "signature": "fn is_hidden(_meta: &fs::Metadata) -> bool {",
+      "fingerprint": "sha1:6c18ce0a160b9fc3"
+    },
+    {
+      "id": "SRC-0055",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        57,
+        95
+      ],
+      "kind": "rust_fn",
+      "name": "list_dir",
+      "signature": "pub fn list_dir(path: String) -> AppResult<Vec<FileEntry>> {",
+      "fingerprint": "sha1:b930c269208f5e78"
+    },
+    {
+      "id": "SRC-0056",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        96,
+        117
+      ],
+      "kind": "rust_fn",
+      "name": "stat_path",
+      "signature": "pub fn stat_path(path: String) -> AppResult<FileEntry> {",
+      "fingerprint": "sha1:c7d48609929ad5bd"
+    },
+    {
+      "id": "SRC-0057",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        118,
+        149
+      ],
+      "kind": "rust_fn",
+      "name": "list_dirs",
+      "signature": "pub fn list_dirs(path: String, include_hidden: Option<bool>) -> AppResult<Vec<FileEntry>> {",
+      "fingerprint": "sha1:d91f7256cedca68b"
+    },
+    {
+      "id": "SRC-0058",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        150,
+        156
+      ],
+      "kind": "rust_fn",
+      "name": "home_dir",
+      "signature": "pub fn home_dir() -> AppResult<String> {",
+      "fingerprint": "sha1:c0deac57f920d0c5"
+    },
+    {
+      "id": "SRC-0059",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        157,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "list_drives",
+      "signature": "pub fn list_drives() -> AppResult<Vec<DriveInfo>> {",
+      "fingerprint": "sha1:76b5f9eb6592b4ad"
+    },
+    {
+      "id": "SRC-0060",
+      "path": "crates/fastfiler-domain/src/fs.rs",
+      "line_range": [
+        273,
+        305
+      ],
+      "kind": "rust_fn",
+      "name": "disk_free",
+      "signature": "pub fn disk_free(path: String) -> AppResult<DiskInfo> {",
+      "fingerprint": "sha1:2dd6fd03aa2ff5ed"
+    },
+    {
+      "id": "SRC-0061",
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        250,
+        258
+      ],
+      "kind": "rust_fn",
+      "name": "system_icon_png",
+      "signature": "pub fn system_icon_png(",
+      "fingerprint": "sha1:05573899c003798c"
+    },
+    {
+      "id": "SRC-0062",
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        259,
+        267
+      ],
+      "kind": "rust_fn",
+      "name": "system_icon_png",
+      "signature": "pub fn system_icon_png(",
+      "fingerprint": "sha1:ec1d5c69889c6f77"
+    },
+    {
+      "id": "SRC-0063",
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        268,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "folder_icon_png",
+      "signature": "pub fn folder_icon_png(large: bool) -> AppResult<std::sync::Arc<Vec<u8>>> {",
+      "fingerprint": "sha1:516d4e004cb66205"
+    },
+    {
+      "id": "SRC-0064",
+      "path": "crates/fastfiler-domain/src/icons.rs",
+      "line_range": [
+        273,
+        275
+      ],
+      "kind": "rust_fn",
+      "name": "folder_icon_png",
+      "signature": "pub fn folder_icon_png(_large: bool) -> AppResult<std::sync::Arc<Vec<u8>>> {",
+      "fingerprint": "sha1:f51d6c75647a7406"
+    },
+    {
+      "id": "SRC-0065",
+      "path": "crates/fastfiler-domain/src/lib.rs",
+      "line_range": [
+        1,
+        34
+      ],
+      "kind": "rust_file",
+      "name": "lib.rs",
+      "signature": "//! FastFiler のドメインロジック (GUI 非依存)。",
+      "fingerprint": "sha1:4ec1bce461ff9d66"
+    },
+    {
+      "id": "SRC-0066",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        50,
+        56
+      ],
+      "kind": "rust_enum",
+      "name": "PreferredEffect",
+      "signature": "pub enum PreferredEffect {",
+      "fingerprint": "sha1:716ac4e8042be41a"
+    },
+    {
+      "id": "SRC-0067",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        57,
+        73
+      ],
+      "kind": "rust_enum",
+      "name": "DragOutcome",
+      "signature": "pub enum DragOutcome {",
+      "fingerprint": "sha1:6eac78ef390aaf16"
+    },
+    {
+      "id": "SRC-0068",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        74,
+        78
+      ],
+      "kind": "rust_enum",
+      "name": "DragButton",
+      "signature": "pub enum DragButton {",
+      "fingerprint": "sha1:a45bdd134f6f5414"
+    },
+    {
+      "id": "SRC-0069",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        79,
+        89
+      ],
+      "kind": "rust_struct",
+      "name": "DragRequest",
+      "signature": "pub struct DragRequest {",
+      "fingerprint": "sha1:010ed1238b3ce2d4"
+    },
+    {
+      "id": "SRC-0070",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        90,
+        122
+      ],
+      "kind": "rust_fn",
+      "name": "build_hdrop_bytes",
+      "signature": "fn build_hdrop_bytes(paths: &[PathBuf]) -> Vec<u8> {",
+      "fingerprint": "sha1:38eb790f0c5bc8d0"
+    },
+    {
+      "id": "SRC-0071",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        123,
+        138
+      ],
+      "kind": "rust_fn",
+      "name": "alloc_hglobal_from_bytes",
+      "signature": "unsafe fn alloc_hglobal_from_bytes(bytes: &[u8]) -> AppResult<HANDLE> {",
+      "fingerprint": "sha1:59af21bffe5d8332"
+    },
+    {
+      "id": "SRC-0072",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        139,
+        142
+      ],
+      "kind": "rust_fn",
+      "name": "alloc_hglobal_dword",
+      "signature": "unsafe fn alloc_hglobal_dword(v: u32) -> AppResult<HANDLE> {",
+      "fingerprint": "sha1:88990949675f8c71"
+    },
+    {
+      "id": "SRC-0073",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        143,
+        168
+      ],
+      "kind": "rust_fn",
+      "name": "read_hglobal_dword",
+      "signature": "unsafe fn read_hglobal_dword(stgm: &STGMEDIUM) -> Option<u32> {",
+      "fingerprint": "sha1:e8644526433984cd"
+    },
+    {
+      "id": "SRC-0074",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        169,
+        170
+      ],
+      "kind": "rust_struct",
+      "name": "StgMediumGuard",
+      "signature": "struct StgMediumGuard(STGMEDIUM);",
+      "fingerprint": "sha1:2bce2cfd67916723"
+    },
+    {
+      "id": "SRC-0075",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        171,
+        181
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for StgMediumGuard",
+      "signature": "impl Drop for StgMediumGuard {",
+      "fingerprint": "sha1:50356b50da576e8e"
+    },
+    {
+      "id": "SRC-0076",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        182,
+        220
+      ],
+      "kind": "rust_fn",
+      "name": "extract_hdrop_paths",
+      "signature": "pub fn extract_hdrop_paths(data: &IDataObject) -> AppResult<Vec<PathBuf>> {",
+      "fingerprint": "sha1:98eef776f627b35f"
+    },
+    {
+      "id": "SRC-0077",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        221,
+        241
+      ],
+      "kind": "rust_fn",
+      "name": "parse_paths_w",
+      "signature": "unsafe fn parse_paths_w(start: *const u16) -> Vec<PathBuf> {",
+      "fingerprint": "sha1:1c852f1e89de1273"
+    },
+    {
+      "id": "SRC-0078",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        242,
+        265
+      ],
+      "kind": "rust_fn",
+      "name": "parse_paths_a",
+      "signature": "unsafe fn parse_paths_a(start: *const u8) -> Vec<PathBuf> {",
+      "fingerprint": "sha1:0c663bd6ca634006"
+    },
+    {
+      "id": "SRC-0079",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        266,
+        269
+      ],
+      "kind": "rust_fn",
+      "name": "cf_preferred_drop_effect",
+      "signature": "fn cf_preferred_drop_effect() -> u16 {",
+      "fingerprint": "sha1:4997016ec5ad65ca"
+    },
+    {
+      "id": "SRC-0080",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        270,
+        273
+      ],
+      "kind": "rust_fn",
+      "name": "cf_performed_drop_effect",
+      "signature": "fn cf_performed_drop_effect() -> u16 {",
+      "fingerprint": "sha1:1171342b67e0be78"
+    },
+    {
+      "id": "SRC-0081",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        274,
+        281
+      ],
+      "kind": "rust_fn",
+      "name": "cf_logical_performed_drop_effect",
+      "signature": "fn cf_logical_performed_drop_effect() -> u16 {",
+      "fingerprint": "sha1:0f61c92311448aca"
+    },
+    {
+      "id": "SRC-0082",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        282,
+        291
+      ],
+      "kind": "rust_struct",
+      "name": "DataState",
+      "signature": "struct DataState {",
+      "fingerprint": "sha1:094a034fc9628fcd"
+    },
+    {
+      "id": "SRC-0083",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        292,
+        298
+      ],
+      "kind": "rust_struct",
+      "name": "CDataObject",
+      "signature": "struct CDataObject {",
+      "fingerprint": "sha1:8f7de13d4379f8a1"
+    },
+    {
+      "id": "SRC-0084",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        299,
+        333
+      ],
+      "kind": "rust_impl",
+      "name": "impl CDataObject",
+      "signature": "impl CDataObject {",
+      "fingerprint": "sha1:894f5883f24e3882"
+    },
+    {
+      "id": "SRC-0085",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        334,
+        451
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDataObject_Impl for CDataObject_Impl",
+      "signature": "impl IDataObject_Impl for CDataObject_Impl {",
+      "fingerprint": "sha1:7509d1a57a05ac42"
+    },
+    {
+      "id": "SRC-0086",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        452,
+        456
+      ],
+      "kind": "rust_struct",
+      "name": "CDropSource",
+      "signature": "struct CDropSource {",
+      "fingerprint": "sha1:252c21c983e693ec"
+    },
+    {
+      "id": "SRC-0087",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        457,
+        483
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDropSource_Impl for CDropSource_Impl",
+      "signature": "impl IDropSource_Impl for CDropSource_Impl {",
+      "fingerprint": "sha1:56a2b56b79366339"
+    },
+    {
+      "id": "SRC-0088",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        484,
+        484
+      ],
+      "kind": "rust_const",
+      "name": "MAX_PATHS",
+      "signature": "const MAX_PATHS: usize = 10_000;",
+      "fingerprint": "sha1:863117875f7894fd"
+    },
+    {
+      "id": "SRC-0089",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        485,
+        486
+      ],
+      "kind": "rust_const",
+      "name": "MAX_PAYLOAD_BYTES",
+      "signature": "const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;",
+      "fingerprint": "sha1:b13b220ace98ad0f"
+    },
+    {
+      "id": "SRC-0090",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        487,
+        579
+      ],
+      "kind": "rust_fn",
+      "name": "start_drag",
+      "signature": "pub fn start_drag(req: DragRequest) -> AppResult<DragOutcome> {",
+      "fingerprint": "sha1:597f677e2f1b7bfb"
+    },
+    {
+      "id": "SRC-0091",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        580,
+        588
+      ],
+      "kind": "rust_static",
+      "name": "OLE_AVAILABLE",
+      "signature": "static OLE_AVAILABLE: AtomicBool = AtomicBool::new(false);",
+      "fingerprint": "sha1:a96f94c94dc1fc7f"
+    },
+    {
+      "id": "SRC-0092",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        589,
+        603
+      ],
+      "kind": "rust_fn",
+      "name": "drop_modifiers",
+      "signature": "pub fn drop_modifiers() -> (bool, bool) {",
+      "fingerprint": "sha1:22295a47984585f5"
+    },
+    {
+      "id": "SRC-0093",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        604,
+        618
+      ],
+      "kind": "rust_fn",
+      "name": "init_ole",
+      "signature": "pub fn init_ole() {",
+      "fingerprint": "sha1:5cf66d79daadba80"
+    },
+    {
+      "id": "SRC-0094",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        619,
+        624
+      ],
+      "kind": "rust_fn",
+      "name": "shutdown_ole",
+      "signature": "pub fn shutdown_ole() {",
+      "fingerprint": "sha1:c9c87f9a0cc85f6f"
+    },
+    {
+      "id": "SRC-0095",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        625,
+        633
+      ],
+      "kind": "rust_fn",
+      "name": "is_ole_available",
+      "signature": "pub fn is_ole_available() -> bool {",
+      "fingerprint": "sha1:06391a6aeda21fda"
+    },
+    {
+      "id": "SRC-0096",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        634,
+        635
+      ],
+      "kind": "rust_type",
+      "name": "DropEffectFn",
+      "signature": "pub type DropEffectFn = Box<dyn Fn(&[PathBuf], POINTL, u32, u32) -> u32 + Send + Sync>;",
+      "fingerprint": "sha1:e42d048a549b6a48"
+    },
+    {
+      "id": "SRC-0097",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        636,
+        643
+      ],
+      "kind": "rust_type",
+      "name": "DropLeaveFn",
+      "signature": "pub type DropLeaveFn = Box<dyn Fn() + Send + Sync>;",
+      "fingerprint": "sha1:e9259bf6c589188e"
+    },
+    {
+      "id": "SRC-0098",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        644,
+        657
+      ],
+      "kind": "rust_struct",
+      "name": "DropTargetCallbacks",
+      "signature": "pub struct DropTargetCallbacks {",
+      "fingerprint": "sha1:c44820ffc777e654"
+    },
+    {
+      "id": "SRC-0099",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        658,
+        663
+      ],
+      "kind": "rust_struct",
+      "name": "CDropTarget",
+      "signature": "struct CDropTarget {",
+      "fingerprint": "sha1:83e34df4c8a5d647"
+    },
+    {
+      "id": "SRC-0100",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        664,
+        682
+      ],
+      "kind": "rust_impl",
+      "name": "impl CDropTarget",
+      "signature": "impl CDropTarget {",
+      "fingerprint": "sha1:1fbef42352624185"
+    },
+    {
+      "id": "SRC-0101",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        683,
+        800
+      ],
+      "kind": "rust_impl",
+      "name": "impl IDropTarget_Impl for CDropTarget_Impl",
+      "signature": "impl IDropTarget_Impl for CDropTarget_Impl {",
+      "fingerprint": "sha1:3927075ccb270bd5"
+    },
+    {
+      "id": "SRC-0102",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        801,
+        806
+      ],
+      "kind": "rust_struct",
+      "name": "DropTargetRegistration",
+      "signature": "pub struct DropTargetRegistration {",
+      "fingerprint": "sha1:a827a65f58855ea8"
+    },
+    {
+      "id": "SRC-0103",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        807,
+        812
+      ],
+      "kind": "rust_impl",
+      "name": "impl DropTargetRegistration",
+      "signature": "impl DropTargetRegistration {",
+      "fingerprint": "sha1:0dab7eb393e75de4"
+    },
+    {
+      "id": "SRC-0104",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        813,
+        831
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for DropTargetRegistration",
+      "signature": "impl Drop for DropTargetRegistration {",
+      "fingerprint": "sha1:c53ea9de1a28bb95"
+    },
+    {
+      "id": "SRC-0105",
+      "path": "crates/fastfiler-domain/src/ole_dnd.rs",
+      "line_range": [
+        832,
+        848
+      ],
+      "kind": "rust_fn",
+      "name": "register_drop_target",
+      "signature": "pub fn register_drop_target(",
+      "fingerprint": "sha1:0314a4df6096fad4"
+    },
+    {
+      "id": "SRC-0106",
+      "path": "crates/fastfiler-domain/src/path_util.rs",
+      "line_range": [
+        18,
+        49
+      ],
+      "kind": "rust_fn",
+      "name": "volume_key",
+      "signature": "pub fn volume_key(path: &Path) -> Option<String> {",
+      "fingerprint": "sha1:868cfdd0a00a5819"
+    },
+    {
+      "id": "SRC-0107",
+      "path": "crates/fastfiler-domain/src/path_util.rs",
+      "line_range": [
+        50,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "unc_two_segments",
+      "signature": "fn unc_two_segments(rest: &str) -> Option<String> {",
+      "fingerprint": "sha1:68ca3f7d36f8b89c"
+    },
+    {
+      "id": "SRC-0108",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        19,
+        26
+      ],
+      "kind": "rust_struct",
+      "name": "SearchHit",
+      "signature": "pub struct SearchHit {",
+      "fingerprint": "sha1:82ad1fbe7dc27ad9"
+    },
+    {
+      "id": "SRC-0109",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        27,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "SearchDone",
+      "signature": "pub struct SearchDone {",
+      "fingerprint": "sha1:63de7d4bcce9df3c"
+    },
+    {
+      "id": "SRC-0110",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        37,
+        42
+      ],
+      "kind": "rust_struct",
+      "name": "SearchState",
+      "signature": "pub struct SearchState {",
+      "fingerprint": "sha1:278d68f9b03ff559"
+    },
+    {
+      "id": "SRC-0111",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        43,
+        52
+      ],
+      "kind": "rust_struct",
+      "name": "SearchOptions",
+      "signature": "pub struct SearchOptions {",
+      "fingerprint": "sha1:8f1e93675b18a71d"
+    },
+    {
+      "id": "SRC-0112",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        53,
+        90
+      ],
+      "kind": "rust_impl",
+      "name": "impl SearchState",
+      "signature": "impl SearchState {",
+      "fingerprint": "sha1:ada5abe8e948f6f2"
+    },
+    {
+      "id": "SRC-0113",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        91,
+        179
+      ],
+      "kind": "rust_fn",
+      "name": "run_job",
+      "signature": "fn run_job(",
+      "fingerprint": "sha1:248f3f7ce14dba58"
+    },
+    {
+      "id": "SRC-0114",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        180,
+        228
+      ],
+      "kind": "rust_fn",
+      "name": "run_builtin",
+      "signature": "fn run_builtin(",
+      "fingerprint": "sha1:d85d1c8c41e0dde3"
+    },
+    {
+      "id": "SRC-0115",
+      "path": "crates/fastfiler-domain/src/search.rs",
+      "line_range": [
+        229,
+        251
+      ],
+      "kind": "rust_fn",
+      "name": "build_matcher",
+      "signature": "fn build_matcher(",
+      "fingerprint": "sha1:4f58f1ec6c804aba"
+    },
+    {
+      "id": "SRC-0116",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        19,
+        31
+      ],
+      "kind": "rust_fn",
+      "name": "show_shell_context_menu",
+      "signature": "pub fn show_shell_context_menu(hwnd: isize, paths: Vec<String>) -> AppResult<()> {",
+      "fingerprint": "sha1:9ccee1b7ece7514b"
+    },
+    {
+      "id": "SRC-0117",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        32,
+        120
+      ],
+      "kind": "rust_fn",
+      "name": "shell_context_menu_impl",
+      "signature": "unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResult<()> {",
+      "fingerprint": "sha1:7b8edb46ca96ca01"
+    },
+    {
+      "id": "SRC-0118",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        121,
+        170
+      ],
+      "kind": "rust_fn",
+      "name": "open_with_shell",
+      "signature": "pub fn open_with_shell(path: String) -> AppResult<()> {",
+      "fingerprint": "sha1:226a6ce47c320c8c"
+    },
+    {
+      "id": "SRC-0119",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        171,
+        188
+      ],
+      "kind": "rust_fn",
+      "name": "open_with_shell_async",
+      "signature": "pub fn open_with_shell_async(path: String) -> std::thread::JoinHandle<AppResult<()>> {",
+      "fingerprint": "sha1:f0ae8df5889a5a68"
+    },
+    {
+      "id": "SRC-0120",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        189,
+        206
+      ],
+      "kind": "rust_fn",
+      "name": "launch_with_shell",
+      "signature": "pub fn launch_with_shell(",
+      "fingerprint": "sha1:7d93d36a38c9efc6"
+    },
+    {
+      "id": "SRC-0121",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        207,
+        220
+      ],
+      "kind": "rust_fn",
+      "name": "reveal_in_explorer",
+      "signature": "pub fn reveal_in_explorer(path: String) -> AppResult<()> {",
+      "fingerprint": "sha1:403aa5fc9bf8fae5"
+    },
+    {
+      "id": "SRC-0122",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        221,
+        235
+      ],
+      "kind": "rust_fn",
+      "name": "show_properties",
+      "signature": "pub fn show_properties(path: String) -> AppResult<()> {",
+      "fingerprint": "sha1:00c7a1c13a28e99b"
+    },
+    {
+      "id": "SRC-0123",
+      "path": "crates/fastfiler-domain/src/shell.rs",
+      "line_range": [
+        236,
+        247
+      ],
+      "kind": "rust_fn",
+      "name": "show_properties_async",
+      "signature": "pub fn show_properties_async(path: String) -> std::thread::JoinHandle<AppResult<()>> {",
+      "fingerprint": "sha1:07a7dd2ac6cc8df5"
+    },
+    {
+      "id": "SRC-0124",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        17,
+        21
+      ],
+      "kind": "rust_fn",
+      "name": "current_exe_path",
+      "signature": "fn current_exe_path() -> Result<String, String> {",
+      "fingerprint": "sha1:ecd3b8fc3b287dc9"
+    },
+    {
+      "id": "SRC-0125",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        22,
+        26
+      ],
+      "kind": "rust_fn",
+      "name": "build_command_value",
+      "signature": "fn build_command_value(exe: &str) -> String {",
+      "fingerprint": "sha1:e5b53ea3c8faf430"
+    },
+    {
+      "id": "SRC-0126",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        27,
+        77
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "signature": "pub fn shell_assoc_enable() -> Result<(), String> {",
+      "fingerprint": "sha1:feb78a8d38beca8c"
+    },
+    {
+      "id": "SRC-0127",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        78,
+        96
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_status",
+      "signature": "pub fn shell_assoc_status() -> Result<bool, String> {",
+      "fingerprint": "sha1:df1890aa53ee72d5"
+    },
+    {
+      "id": "SRC-0128",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        97,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "signature": "pub fn shell_assoc_enable() -> Result<(), String> {",
+      "fingerprint": "sha1:764a0743e032dc98"
+    },
+    {
+      "id": "SRC-0129",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        102,
+        106
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_status",
+      "signature": "pub fn shell_assoc_status() -> Result<bool, String> {",
+      "fingerprint": "sha1:b908412fcc6a774e"
+    },
+    {
+      "id": "SRC-0130",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        107,
+        111
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_enable",
+      "signature": "pub fn shell_assoc_enable() -> Result<(), String> {",
+      "fingerprint": "sha1:d1433954eeaf5c00"
+    },
+    {
+      "id": "SRC-0131",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        112,
+        130
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_disable",
+      "signature": "pub fn shell_assoc_disable() -> Result<(), String> {",
+      "fingerprint": "sha1:8f7a10be5d34307d"
+    },
+    {
+      "id": "SRC-0132",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        131,
+        163
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_diagnose",
+      "signature": "pub fn shell_assoc_diagnose() -> Result<String, String> {",
+      "fingerprint": "sha1:307d84b673dd3c57"
+    },
+    {
+      "id": "SRC-0133",
+      "path": "crates/fastfiler-domain/src/shell_assoc.rs",
+      "line_range": [
+        164,
+        166
+      ],
+      "kind": "rust_fn",
+      "name": "shell_assoc_diagnose",
+      "signature": "pub fn shell_assoc_diagnose() -> Result<String, String> {",
+      "fingerprint": "sha1:a908d3da3c9e8d63"
+    },
+    {
+      "id": "SRC-0134",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        16,
+        21
+      ],
+      "kind": "rust_struct",
+      "name": "TemplateInfo",
+      "signature": "pub struct TemplateInfo {",
+      "fingerprint": "sha1:92c0353352650a3f"
+    },
+    {
+      "id": "SRC-0135",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        22,
+        30
+      ],
+      "kind": "rust_fn",
+      "name": "templates_dir_inner",
+      "signature": "fn templates_dir_inner() -> AppResult<PathBuf> {",
+      "fingerprint": "sha1:4b4fab3d3584c008"
+    },
+    {
+      "id": "SRC-0136",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        31,
+        35
+      ],
+      "kind": "rust_fn",
+      "name": "templates_dir",
+      "signature": "pub fn templates_dir() -> AppResult<String> {",
+      "fingerprint": "sha1:9b0d3b3aa377d1b2"
+    },
+    {
+      "id": "SRC-0137",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        36,
+        66
+      ],
+      "kind": "rust_fn",
+      "name": "list_templates",
+      "signature": "pub fn list_templates() -> AppResult<Vec<TemplateInfo>> {",
+      "fingerprint": "sha1:3c8fda5bd02c876a"
+    },
+    {
+      "id": "SRC-0138",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        67,
+        94
+      ],
+      "kind": "rust_fn",
+      "name": "unique_path",
+      "signature": "fn unique_path(dir: &std::path::Path, base: &str, ext: &str) -> PathBuf {",
+      "fingerprint": "sha1:969a001a53239fa3"
+    },
+    {
+      "id": "SRC-0139",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        95,
+        103
+      ],
+      "kind": "rust_fn",
+      "name": "split_base_ext",
+      "signature": "fn split_base_ext(name: &str) -> (String, String) {",
+      "fingerprint": "sha1:4c0119b96cb4e374"
+    },
+    {
+      "id": "SRC-0140",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        104,
+        126
+      ],
+      "kind": "rust_fn",
+      "name": "create_empty_file",
+      "signature": "pub fn create_empty_file(",
+      "fingerprint": "sha1:bd32563c2478512b"
+    },
+    {
+      "id": "SRC-0141",
+      "path": "crates/fastfiler-domain/src/templates.rs",
+      "line_range": [
+        127,
+        155
+      ],
+      "kind": "rust_fn",
+      "name": "create_file_from_template",
+      "signature": "pub fn create_file_from_template(",
+      "fingerprint": "sha1:53117f44163a68eb"
+    },
+    {
+      "id": "SRC-0142",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        21,
+        25
+      ],
+      "kind": "rust_const",
+      "name": "MAX_HISTORY",
+      "signature": "pub const MAX_HISTORY: usize = 20;",
+      "fingerprint": "sha1:7b1ca922c58f6bde"
+    },
+    {
+      "id": "SRC-0143",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        26,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "TrashedItem",
+      "signature": "pub struct TrashedItem {",
+      "fingerprint": "sha1:8cae99807659ff70"
+    },
+    {
+      "id": "SRC-0144",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        37,
+        49
+      ],
+      "kind": "rust_enum",
+      "name": "UndoOp",
+      "signature": "pub enum UndoOp {",
+      "fingerprint": "sha1:d2a2a627f845d6d9"
+    },
+    {
+      "id": "SRC-0145",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        50,
+        54
+      ],
+      "kind": "rust_struct",
+      "name": "MoveItem",
+      "signature": "pub struct MoveItem {",
+      "fingerprint": "sha1:29d39656efa9a90d"
+    },
+    {
+      "id": "SRC-0146",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        55,
+        85
+      ],
+      "kind": "rust_impl",
+      "name": "impl UndoOp",
+      "signature": "impl UndoOp {",
+      "fingerprint": "sha1:b988a9aa4f30b93f"
+    },
+    {
+      "id": "SRC-0147",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        86,
+        89
+      ],
+      "kind": "rust_struct",
+      "name": "UndoManager",
+      "signature": "pub struct UndoManager {",
+      "fingerprint": "sha1:33019e8b714d3f4d"
+    },
+    {
+      "id": "SRC-0148",
+      "path": "crates/fastfiler-domain/src/undo.rs",
+      "line_range": [
+        90,
+        125
+      ],
+      "kind": "rust_impl",
+      "name": "impl UndoManager",
+      "signature": "impl UndoManager {",
+      "fingerprint": "sha1:51a75fc0ada2a446"
+    },
+    {
+      "id": "SRC-0149",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        23,
+        44
+      ],
+      "kind": "rust_struct",
+      "name": "UserCommand",
+      "signature": "pub struct UserCommand {",
+      "fingerprint": "sha1:46b2204c39ebf363"
+    },
+    {
+      "id": "SRC-0150",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        45,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "default_when",
+      "signature": "fn default_when() -> String {",
+      "fingerprint": "sha1:10313aa19a7d3e0e"
+    },
+    {
+      "id": "SRC-0151",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        49,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "commands_dir_inner",
+      "signature": "fn commands_dir_inner() -> AppResult<PathBuf> {",
+      "fingerprint": "sha1:ac78ab3fa880b631"
+    },
+    {
+      "id": "SRC-0152",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        62,
+        66
+      ],
+      "kind": "rust_fn",
+      "name": "user_commands_dir",
+      "signature": "pub fn user_commands_dir() -> AppResult<String> {",
+      "fingerprint": "sha1:245cb0834f20f541"
+    },
+    {
+      "id": "SRC-0153",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        67,
+        79
+      ],
+      "kind": "rust_fn",
+      "name": "list_user_commands",
+      "signature": "pub fn list_user_commands() -> AppResult<Vec<UserCommand>> {",
+      "fingerprint": "sha1:f70d7e2ed4b7ac55"
+    },
+    {
+      "id": "SRC-0154",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        80,
+        84
+      ],
+      "kind": "rust_struct",
+      "name": "RunCtx",
+      "signature": "pub struct RunCtx {",
+      "fingerprint": "sha1:b657fb9dae1241e3"
+    },
+    {
+      "id": "SRC-0155",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        85,
+        182
+      ],
+      "kind": "rust_fn",
+      "name": "run_user_command",
+      "signature": "pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {",
+      "fingerprint": "sha1:4ef68c04a59f431c"
+    },
+    {
+      "id": "SRC-0156",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        183,
+        217
+      ],
+      "kind": "rust_fn",
+      "name": "build_shell_command",
+      "signature": "fn build_shell_command(exec: &str, args: &[String], working_dir: &str) -> Command {",
+      "fingerprint": "sha1:3a4a404392309e00"
+    },
+    {
+      "id": "SRC-0157",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        218,
+        228
+      ],
+      "kind": "rust_fn",
+      "name": "is_batch_file",
+      "signature": "fn is_batch_file(exec: &str) -> bool {",
+      "fingerprint": "sha1:81940703b5e14237"
+    },
+    {
+      "id": "SRC-0158",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        229,
+        268
+      ],
+      "kind": "rust_fn",
+      "name": "resolve_in_path",
+      "signature": "fn resolve_in_path(exec: &str) -> Option<String> {",
+      "fingerprint": "sha1:35d70f3f22b04c6c"
+    },
+    {
+      "id": "SRC-0159",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        269,
+        272
+      ],
+      "kind": "rust_fn",
+      "name": "cmd_quote",
+      "signature": "fn cmd_quote(s: &str) -> String {",
+      "fingerprint": "sha1:30150a99d8bc0217"
+    },
+    {
+      "id": "SRC-0160",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        273,
+        310
+      ],
+      "kind": "rust_fn",
+      "name": "expand_placeholders",
+      "signature": "fn expand_placeholders(input: &str, ctx: &RunCtx, _quote_paths: bool) -> String {",
+      "fingerprint": "sha1:0f2ac2fd538d5695"
+    },
+    {
+      "id": "SRC-0161",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        311,
+        321
+      ],
+      "kind": "rust_fn",
+      "name": "quote_if_needed",
+      "signature": "fn quote_if_needed(s: &str) -> String {",
+      "fingerprint": "sha1:8c6d4337f6bbf152"
+    },
+    {
+      "id": "SRC-0162",
+      "path": "crates/fastfiler-domain/src/user_commands.rs",
+      "line_range": [
+        322,
+        411
+      ],
+      "kind": "rust_const",
+      "name": "SAMPLE_JSON",
+      "signature": "const SAMPLE_JSON: &str = r#\"// FastFiler ユーザー定義コマンド サンプル",
+      "fingerprint": "sha1:e958fb0aec4adc08"
+    },
+    {
+      "id": "SRC-0163",
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        16,
+        22
+      ],
+      "kind": "rust_struct",
+      "name": "FsChange",
+      "signature": "pub struct FsChange {",
+      "fingerprint": "sha1:6072b3411a93e8d8"
+    },
+    {
+      "id": "SRC-0164",
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        23,
+        26
+      ],
+      "kind": "rust_struct",
+      "name": "WatcherCore",
+      "signature": "pub struct WatcherCore {",
+      "fingerprint": "sha1:16b93e160a6bb8e3"
+    },
+    {
+      "id": "SRC-0165",
+      "path": "crates/fastfiler-domain/src/watcher.rs",
+      "line_range": [
+        27,
+        61
+      ],
+      "kind": "rust_impl",
+      "name": "impl WatcherCore",
+      "signature": "impl WatcherCore {",
+      "fingerprint": "sha1:ec619bb8ac480eb4"
+    },
+    {
+      "id": "SRC-0166",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        15,
+        30
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_write_paths",
+      "signature": "pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {",
+      "fingerprint": "sha1:f98df2832f9df197"
+    },
+    {
+      "id": "SRC-0167",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        31,
+        133
+      ],
+      "kind": "rust_fn",
+      "name": "write_paths_win",
+      "signature": "unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {",
+      "fingerprint": "sha1:1ba0c6a390af28af"
+    },
+    {
+      "id": "SRC-0168",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        134,
+        139
+      ],
+      "kind": "rust_struct",
+      "name": "ClipboardPaths",
+      "signature": "pub struct ClipboardPaths {",
+      "fingerprint": "sha1:5bfe02062d281579"
+    },
+    {
+      "id": "SRC-0169",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        140,
+        151
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_read_paths",
+      "signature": "pub fn clipboard_read_paths() -> AppResult<Option<ClipboardPaths>> {",
+      "fingerprint": "sha1:94731233d88eff26"
+    },
+    {
+      "id": "SRC-0170",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        152,
+        225
+      ],
+      "kind": "rust_fn",
+      "name": "read_paths_win",
+      "signature": "unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {",
+      "fingerprint": "sha1:dc6f488dc187a374"
+    },
+    {
+      "id": "SRC-0171",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        226,
+        238
+      ],
+      "kind": "rust_fn",
+      "name": "clipboard_write_text",
+      "signature": "pub fn clipboard_write_text(text: &str) -> AppResult<()> {",
+      "fingerprint": "sha1:cf07b3fe183b9031"
+    },
+    {
+      "id": "SRC-0172",
+      "path": "crates/fastfiler-domain/src/win_clipboard.rs",
+      "line_range": [
+        239,
+        278
+      ],
+      "kind": "rust_fn",
+      "name": "write_text_win",
+      "signature": "unsafe fn write_text_win(text: &str) -> AppResult<()> {",
+      "fingerprint": "sha1:489485ef4c5f4337"
+    },
+    {
+      "id": "SRC-0173",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        34,
+        37
+      ],
+      "kind": "rust_const",
+      "name": "MIN_PANE_PX",
+      "signature": "const MIN_PANE_PX: f32 = 80.0;",
+      "fingerprint": "sha1:d9b6e6418926e810"
+    },
+    {
+      "id": "SRC-0174",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        38,
+        43
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedHandle",
+      "signature": "struct DraggedHandle {",
+      "fingerprint": "sha1:9ccffc165f09423c"
+    },
+    {
+      "id": "SRC-0175",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        44,
+        46
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTreeHandle",
+      "signature": "struct DraggedTreeHandle;",
+      "fingerprint": "sha1:05b9bb6cef2c7830"
+    },
+    {
+      "id": "SRC-0176",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        47,
+        49
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTabBarHandle",
+      "signature": "struct DraggedTabBarHandle;",
+      "fingerprint": "sha1:c89ab8b84f6acd4f"
+    },
+    {
+      "id": "SRC-0177",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        50,
+        54
+      ],
+      "kind": "rust_struct",
+      "name": "DraggedTab",
+      "signature": "struct DraggedTab {",
+      "fingerprint": "sha1:cf079df7eda06fd2"
+    },
+    {
+      "id": "SRC-0178",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        55,
+        56
+      ],
+      "kind": "rust_struct",
+      "name": "TabDragPreview",
+      "signature": "struct TabDragPreview(SharedString);",
+      "fingerprint": "sha1:3e6c4827e7841f0b"
+    },
+    {
+      "id": "SRC-0179",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        57,
+        71
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TabDragPreview",
+      "signature": "impl Render for TabDragPreview {",
+      "fingerprint": "sha1:ab65323eee24f2ec"
+    },
+    {
+      "id": "SRC-0180",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        72,
+        84
+      ],
+      "kind": "rust_enum",
+      "name": "PaneNode",
+      "signature": "enum PaneNode {",
+      "fingerprint": "sha1:beed1ebaac73f8e4"
+    },
+    {
+      "id": "SRC-0181",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        85,
+        94
+      ],
+      "kind": "rust_struct",
+      "name": "TabState",
+      "signature": "struct TabState {",
+      "fingerprint": "sha1:0090da85653cdfe6"
+    },
+    {
+      "id": "SRC-0182",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        95,
+        115
+      ],
+      "kind": "rust_impl",
+      "name": "impl TabState",
+      "signature": "impl TabState {",
+      "fingerprint": "sha1:9e0bea4d4483f29b"
+    },
+    {
+      "id": "SRC-0183",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        116,
+        152
+      ],
+      "kind": "rust_struct",
+      "name": "FastFilerApp",
+      "signature": "pub struct FastFilerApp {",
+      "fingerprint": "sha1:72707c48e4355246"
+    },
+    {
+      "id": "SRC-0184",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        153,
+        1383
+      ],
+      "kind": "rust_impl",
+      "name": "impl FastFilerApp",
+      "signature": "impl FastFilerApp {",
+      "fingerprint": "sha1:d465be169cb03410"
+    },
+    {
+      "id": "SRC-0185",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1384,
+        1701
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for FastFilerApp",
+      "signature": "impl Render for FastFilerApp {",
+      "fingerprint": "sha1:4097c2f9dd950fd9"
+    },
+    {
+      "id": "SRC-0186",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1702,
+        1718
+      ],
+      "kind": "rust_fn",
+      "name": "render_handle",
+      "signature": "fn render_handle(split_id: u64, ix: usize, dir: SplitDir) -> AnyElement {",
+      "fingerprint": "sha1:24090c1e4b250589"
+    },
+    {
+      "id": "SRC-0187",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1719,
+        1746
+      ],
+      "kind": "rust_fn",
+      "name": "node_data",
+      "signature": "fn node_data(node: &PaneNode, focused: Option<EntityId>, cx: &App) -> NodeData {",
+      "fingerprint": "sha1:d483fbdcbb6a0ced"
+    },
+    {
+      "id": "SRC-0188",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1747,
+        1753
+      ],
+      "kind": "rust_fn",
+      "name": "find_pane",
+      "signature": "fn find_pane(node: &PaneNode, id: EntityId) -> Option<&Entity<PaneView>> {",
+      "fingerprint": "sha1:370ecc4d1dc3f93d"
+    },
+    {
+      "id": "SRC-0189",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1754,
+        1760
+      ],
+      "kind": "rust_fn",
+      "name": "first_pane",
+      "signature": "fn first_pane(node: &PaneNode) -> Option<&Entity<PaneView>> {",
+      "fingerprint": "sha1:6f5448579ceb3bd1"
+    },
+    {
+      "id": "SRC-0190",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1761,
+        1768
+      ],
+      "kind": "rust_fn",
+      "name": "count_leaves",
+      "signature": "fn count_leaves(node: &PaneNode) -> usize {",
+      "fingerprint": "sha1:a07a2429e6cbad76"
+    },
+    {
+      "id": "SRC-0191",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1769,
+        1780
+      ],
+      "kind": "rust_fn",
+      "name": "collect_pane_entities",
+      "signature": "fn collect_pane_entities(node: &PaneNode, out: &mut Vec<Entity<PaneView>>) {",
+      "fingerprint": "sha1:81add20907770513"
+    },
+    {
+      "id": "SRC-0192",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1781,
+        1792
+      ],
+      "kind": "rust_fn",
+      "name": "collect_leaves",
+      "signature": "fn collect_leaves(node: &PaneNode, out: &mut Vec<EntityId>) {",
+      "fingerprint": "sha1:066f685a24a28610"
+    },
+    {
+      "id": "SRC-0193",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1793,
+        1811
+      ],
+      "kind": "rust_fn",
+      "name": "find_split_mut",
+      "signature": "fn find_split_mut(node: &mut PaneNode, id: u64) -> Option<(&mut Vec<f32>, SplitDir)> {",
+      "fingerprint": "sha1:8926b2e004ea653f"
+    },
+    {
+      "id": "SRC-0194",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1812,
+        1849
+      ],
+      "kind": "rust_fn",
+      "name": "split_node",
+      "signature": "fn split_node(",
+      "fingerprint": "sha1:6d835fea09c579cb"
+    },
+    {
+      "id": "SRC-0195",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1850,
+        1892
+      ],
+      "kind": "rust_fn",
+      "name": "remove_node",
+      "signature": "fn remove_node(node: &mut PaneNode, target: EntityId) -> bool {",
+      "fingerprint": "sha1:d07e220ac5c40dbe"
+    },
+    {
+      "id": "SRC-0196",
+      "path": "crates/fastfiler-gpui/src/app.rs",
+      "line_range": [
+        1893,
+        1896
+      ],
+      "kind": "rust_fn",
+      "name": "default_start",
+      "signature": "pub fn default_start() -> PathBuf {",
+      "fingerprint": "sha1:bc5475e90fc567e1"
+    },
+    {
+      "id": "SRC-0197",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        17,
+        38
+      ],
+      "kind": "rust_enum",
+      "name": "HotAction",
+      "signature": "pub enum HotAction {",
+      "fingerprint": "sha1:9b86f0a96f5be4f3"
+    },
+    {
+      "id": "SRC-0198",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        39,
+        59
+      ],
+      "kind": "rust_const",
+      "name": "ACTIONS",
+      "signature": "const ACTIONS: &[(&str, HotAction, &str)] = &[",
+      "fingerprint": "sha1:8f2f84c193d45506"
+    },
+    {
+      "id": "SRC-0199",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        60,
+        61
+      ],
+      "kind": "rust_static",
+      "name": "MAP",
+      "signature": "static MAP: OnceLock<RwLock<HashMap<String, HotAction>>> = OnceLock::new();",
+      "fingerprint": "sha1:1521c79286c9d1e0"
+    },
+    {
+      "id": "SRC-0200",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        62,
+        65
+      ],
+      "kind": "rust_fn",
+      "name": "map",
+      "signature": "fn map() -> &'static RwLock<HashMap<String, HotAction>> {",
+      "fingerprint": "sha1:6b1f3c2ac8299ccd"
+    },
+    {
+      "id": "SRC-0201",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        66,
+        75
+      ],
+      "kind": "rust_fn",
+      "name": "config_path",
+      "signature": "fn config_path() -> Option<PathBuf> {",
+      "fingerprint": "sha1:d744273b195d76cf"
+    },
+    {
+      "id": "SRC-0202",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        76,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "normalize",
+      "signature": "fn normalize(combo: &str) -> Option<String> {",
+      "fingerprint": "sha1:9685d7b84f6ba218"
+    },
+    {
+      "id": "SRC-0203",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        102,
+        118
+      ],
+      "kind": "rust_fn",
+      "name": "combo_key",
+      "signature": "fn combo_key(ctrl: bool, alt: bool, shift: bool, key: &str) -> String {",
+      "fingerprint": "sha1:2be64f16f8595ee4"
+    },
+    {
+      "id": "SRC-0204",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        119,
+        164
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "signature": "pub fn load() {",
+      "fingerprint": "sha1:2c54735e92e40e94"
+    },
+    {
+      "id": "SRC-0205",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        165,
+        175
+      ],
+      "kind": "rust_fn",
+      "name": "lookup",
+      "signature": "pub fn lookup(ks: &Keystroke) -> Option<HotAction> {",
+      "fingerprint": "sha1:40248531ee8d994a"
+    },
+    {
+      "id": "SRC-0206",
+      "path": "crates/fastfiler-gpui/src/hotkeys.rs",
+      "line_range": [
+        176,
+        182
+      ],
+      "kind": "rust_fn",
+      "name": "config_file",
+      "signature": "pub fn config_file() -> Option<String> {",
+      "fingerprint": "sha1:779d9f45db87c4c7"
+    },
+    {
+      "id": "SRC-0207",
+      "path": "crates/fastfiler-gpui/src/main.rs",
+      "line_range": [
+        28,
+        108
+      ],
+      "kind": "rust_fn",
+      "name": "main",
+      "signature": "fn main() {",
+      "fingerprint": "sha1:698681df8f379524"
+    },
+    {
+      "id": "SRC-0208",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        44,
+        50
+      ],
+      "kind": "rust_enum",
+      "name": "ModalKind",
+      "signature": "enum ModalKind {",
+      "fingerprint": "sha1:9ab8fad29b06db8c"
+    },
+    {
+      "id": "SRC-0209",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        51,
+        57
+      ],
+      "kind": "rust_struct",
+      "name": "ModalState",
+      "signature": "struct ModalState {",
+      "fingerprint": "sha1:78417c1efdd78e39"
+    },
+    {
+      "id": "SRC-0210",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        58,
+        83
+      ],
+      "kind": "rust_enum",
+      "name": "MenuAction",
+      "signature": "enum MenuAction {",
+      "fingerprint": "sha1:5d2d01ecef988924"
+    },
+    {
+      "id": "SRC-0211",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        84,
+        95
+      ],
+      "kind": "rust_struct",
+      "name": "SearchUi",
+      "signature": "struct SearchUi {",
+      "fingerprint": "sha1:9d00087c0c5c40d8"
+    },
+    {
+      "id": "SRC-0212",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        96,
+        105
+      ],
+      "kind": "rust_struct",
+      "name": "SearchResult",
+      "signature": "struct SearchResult {",
+      "fingerprint": "sha1:593339e57747004f"
+    },
+    {
+      "id": "SRC-0213",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        106,
+        108
+      ],
+      "kind": "rust_static",
+      "name": "SELF_DROP",
+      "signature": "static SELF_DROP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);",
+      "fingerprint": "sha1:5f1d5202c638bb06"
+    },
+    {
+      "id": "SRC-0214",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        109,
+        111
+      ],
+      "kind": "rust_static",
+      "name": "RIGHT_DRAG",
+      "signature": "static RIGHT_DRAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);",
+      "fingerprint": "sha1:72eef84aa5034450"
+    },
+    {
+      "id": "SRC-0215",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        112,
+        124
+      ],
+      "kind": "rust_struct",
+      "name": "DragCand",
+      "signature": "struct DragCand {",
+      "fingerprint": "sha1:592056ce801669fc"
+    },
+    {
+      "id": "SRC-0216",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        125,
+        138
+      ],
+      "kind": "rust_struct",
+      "name": "RubberBand",
+      "signature": "struct RubberBand {",
+      "fingerprint": "sha1:a304dcddc428b067"
+    },
+    {
+      "id": "SRC-0217",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        139,
+        144
+      ],
+      "kind": "rust_struct",
+      "name": "ColHandle",
+      "signature": "struct ColHandle {",
+      "fingerprint": "sha1:58a286feaa3aeefb"
+    },
+    {
+      "id": "SRC-0218",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        145,
+        155
+      ],
+      "kind": "rust_struct",
+      "name": "DropMenu",
+      "signature": "struct DropMenu {",
+      "fingerprint": "sha1:6344f42b63d4a237"
+    },
+    {
+      "id": "SRC-0219",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        156,
+        165
+      ],
+      "kind": "rust_struct",
+      "name": "PendingTransfer",
+      "signature": "struct PendingTransfer {",
+      "fingerprint": "sha1:9ee01dba325a6339"
+    },
+    {
+      "id": "SRC-0220",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        166,
+        174
+      ],
+      "kind": "rust_enum",
+      "name": "Submenu",
+      "signature": "enum Submenu {",
+      "fingerprint": "sha1:4a76c989f2ddb5a1"
+    },
+    {
+      "id": "SRC-0221",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        175,
+        184
+      ],
+      "kind": "rust_struct",
+      "name": "MenuCmd",
+      "signature": "struct MenuCmd {",
+      "fingerprint": "sha1:a7f262e9da425433"
+    },
+    {
+      "id": "SRC-0222",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        185,
+        186
+      ],
+      "kind": "rust_const",
+      "name": "MENU_MAX_DEPTH",
+      "signature": "const MENU_MAX_DEPTH: usize = 3;",
+      "fingerprint": "sha1:f8bcb04d813d7364"
+    },
+    {
+      "id": "SRC-0223",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        187,
+        189
+      ],
+      "kind": "rust_const",
+      "name": "MENU_MAX_USER_CMDS",
+      "signature": "const MENU_MAX_USER_CMDS: usize = 50;",
+      "fingerprint": "sha1:e8b43f676fcf44df"
+    },
+    {
+      "id": "SRC-0224",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        190,
+        203
+      ],
+      "kind": "rust_fn",
+      "name": "parse_group",
+      "signature": "fn parse_group(submenu: &Option<String>) -> Vec<String> {",
+      "fingerprint": "sha1:533111f950176ea7"
+    },
+    {
+      "id": "SRC-0225",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        204,
+        223
+      ],
+      "kind": "rust_struct",
+      "name": "MenuState",
+      "signature": "struct MenuState {",
+      "fingerprint": "sha1:fd2d7fba270086e6"
+    },
+    {
+      "id": "SRC-0226",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        224,
+        229
+      ],
+      "kind": "rust_enum",
+      "name": "SplitDir",
+      "signature": "pub enum SplitDir {",
+      "fingerprint": "sha1:fbc85b402d885437"
+    },
+    {
+      "id": "SRC-0227",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        230,
+        244
+      ],
+      "kind": "rust_enum",
+      "name": "PaneEvent",
+      "signature": "pub enum PaneEvent {",
+      "fingerprint": "sha1:d6bb2e84a8aef467"
+    },
+    {
+      "id": "SRC-0228",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        245,
+        249
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventEmitter<PaneEvent> for PaneView",
+      "signature": "impl EventEmitter<PaneEvent> for PaneView {}",
+      "fingerprint": "sha1:b621e97c6b8ce805"
+    },
+    {
+      "id": "SRC-0229",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        250,
+        253
+      ],
+      "kind": "rust_static",
+      "name": "PANES_ALIVE",
+      "signature": "pub static PANES_ALIVE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);",
+      "fingerprint": "sha1:c54c46eae03288d1"
+    },
+    {
+      "id": "SRC-0230",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        254,
+        261
+      ],
+      "kind": "rust_enum",
+      "name": "SortCol",
+      "signature": "enum SortCol {",
+      "fingerprint": "sha1:f9a233b60e35b014"
+    },
+    {
+      "id": "SRC-0231",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        262,
+        335
+      ],
+      "kind": "rust_struct",
+      "name": "PaneView",
+      "signature": "pub struct PaneView {",
+      "fingerprint": "sha1:9df720f07dbd64e8"
+    },
+    {
+      "id": "SRC-0232",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        336,
+        340
+      ],
+      "kind": "rust_fn",
+      "name": "undo_store",
+      "signature": "fn undo_store() -> &'static Mutex<UndoManager> {",
+      "fingerprint": "sha1:1d2a30ae4bac4216"
+    },
+    {
+      "id": "SRC-0233",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        341,
+        3319
+      ],
+      "kind": "rust_impl",
+      "name": "impl PaneView",
+      "signature": "impl PaneView {",
+      "fingerprint": "sha1:5120013470d88e58"
+    },
+    {
+      "id": "SRC-0234",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3320,
+        3327
+      ],
+      "kind": "rust_impl",
+      "name": "impl Drop for PaneView",
+      "signature": "impl Drop for PaneView {",
+      "fingerprint": "sha1:f93a8f99b921b644"
+    },
+    {
+      "id": "SRC-0235",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3328,
+        3705
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for PaneView",
+      "signature": "impl Render for PaneView {",
+      "fingerprint": "sha1:1594e4f81381ad1f"
+    },
+    {
+      "id": "SRC-0236",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3706,
+        3724
+      ],
+      "kind": "rust_fn",
+      "name": "load_row_icons",
+      "signature": "fn load_row_icons(entries: &[FileEntry], dir: &Path) -> Vec<Option<Arc<Image>>> {",
+      "fingerprint": "sha1:286c2d41d0352b48"
+    },
+    {
+      "id": "SRC-0237",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3725,
+        3743
+      ],
+      "kind": "rust_fn",
+      "name": "load_icon",
+      "signature": "fn load_icon(entry: &FileEntry, dir: &Path) -> Option<Arc<Image>> {",
+      "fingerprint": "sha1:2495dd873b59b739"
+    },
+    {
+      "id": "SRC-0238",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3744,
+        3755
+      ],
+      "kind": "rust_fn",
+      "name": "path_starts_with_ci",
+      "signature": "fn path_starts_with_ci(haystack: &Path, prefix: &Path) -> bool {",
+      "fingerprint": "sha1:abef3eb450d76ae7"
+    },
+    {
+      "id": "SRC-0239",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3756,
+        3790
+      ],
+      "kind": "rust_fn",
+      "name": "build_job_items",
+      "signature": "fn build_job_items(paths: &[String], dst_dir: &Path, is_move: bool) -> Vec<JobItem> {",
+      "fingerprint": "sha1:cd33bb89ad37a6cb"
+    },
+    {
+      "id": "SRC-0240",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3791,
+        3800
+      ],
+      "kind": "rust_fn",
+      "name": "hwnd_of",
+      "signature": "fn hwnd_of(window: &Window) -> Option<isize> {",
+      "fingerprint": "sha1:974c53c21bf1d1b2"
+    },
+    {
+      "id": "SRC-0241",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3801,
+        3824
+      ],
+      "kind": "rust_fn",
+      "name": "unique_dest",
+      "signature": "fn unique_dest(p: &Path) -> PathBuf {",
+      "fingerprint": "sha1:c134195baeb7db83"
+    },
+    {
+      "id": "SRC-0242",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3825,
+        3834
+      ],
+      "kind": "rust_fn",
+      "name": "menu_sep",
+      "signature": "fn menu_sep() -> AnyElement {",
+      "fingerprint": "sha1:0af68e71e520166d"
+    },
+    {
+      "id": "SRC-0243",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3835,
+        3866
+      ],
+      "kind": "rust_fn",
+      "name": "format_modified",
+      "signature": "fn format_modified(unix: i64) -> String {",
+      "fingerprint": "sha1:827240f8e7e44043"
+    },
+    {
+      "id": "SRC-0244",
+      "path": "crates/fastfiler-gpui/src/pane.rs",
+      "line_range": [
+        3867,
+        3883
+      ],
+      "kind": "rust_fn",
+      "name": "human_size",
+      "signature": "fn human_size(bytes: u64) -> String {",
+      "fingerprint": "sha1:dc2fe3d23fa88571"
+    },
+    {
+      "id": "SRC-0245",
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        19,
+        27
+      ],
+      "kind": "rust_fn",
+      "name": "with_suffix",
+      "signature": "fn with_suffix(path: &Path, suffix: &str) -> PathBuf {",
+      "fingerprint": "sha1:2700c50d7aa74f76"
+    },
+    {
+      "id": "SRC-0246",
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        28,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "write_atomic",
+      "signature": "pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {",
+      "fingerprint": "sha1:8ea2df9919268719"
+    },
+    {
+      "id": "SRC-0247",
+      "path": "crates/fastfiler-gpui/src/persist.rs",
+      "line_range": [
+        62,
+        73
+      ],
+      "kind": "rust_fn",
+      "name": "load_with_backup",
+      "signature": "pub fn load_with_backup<T>(path: &Path, parse: impl Fn(&str) -> Option<T>) -> Option<T> {",
+      "fingerprint": "sha1:4300456cd970fa42"
+    },
+    {
+      "id": "SRC-0248",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        16,
+        45
+      ],
+      "kind": "rust_struct",
+      "name": "SessionData",
+      "signature": "pub struct SessionData {",
+      "fingerprint": "sha1:035b8c9997c31d7a"
+    },
+    {
+      "id": "SRC-0249",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        46,
+        49
+      ],
+      "kind": "rust_fn",
+      "name": "default_true",
+      "signature": "fn default_true() -> bool {",
+      "fingerprint": "sha1:81e1adbd66567956"
+    },
+    {
+      "id": "SRC-0250",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        50,
+        53
+      ],
+      "kind": "rust_fn",
+      "name": "default_tree_width",
+      "signature": "fn default_tree_width() -> f32 {",
+      "fingerprint": "sha1:0ace8146ac5e0f9a"
+    },
+    {
+      "id": "SRC-0251",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        54,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "default_tab_width",
+      "signature": "fn default_tab_width() -> f32 {",
+      "fingerprint": "sha1:ec5897809508d229"
+    },
+    {
+      "id": "SRC-0252",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        61,
+        77
+      ],
+      "kind": "rust_enum",
+      "name": "NodeData",
+      "signature": "pub enum NodeData {",
+      "fingerprint": "sha1:45521d6bd1ab8057"
+    },
+    {
+      "id": "SRC-0253",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        78,
+        86
+      ],
+      "kind": "rust_fn",
+      "name": "session_path",
+      "signature": "fn session_path() -> Option<PathBuf> {",
+      "fingerprint": "sha1:3138146050df2fe5"
+    },
+    {
+      "id": "SRC-0254",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        87,
+        92
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "signature": "pub fn load() -> Option<SessionData> {",
+      "fingerprint": "sha1:3ef4920d5c4f4979"
+    },
+    {
+      "id": "SRC-0255",
+      "path": "crates/fastfiler-gpui/src/session.rs",
+      "line_range": [
+        93,
+        101
+      ],
+      "kind": "rust_fn",
+      "name": "save",
+      "signature": "pub fn save(data: &SessionData) {",
+      "fingerprint": "sha1:1d76cdc373661f0a"
+    },
+    {
+      "id": "SRC-0256",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        13,
+        36
+      ],
+      "kind": "rust_struct",
+      "name": "AppSettings",
+      "signature": "pub struct AppSettings {",
+      "fingerprint": "sha1:afa228031d3b9a1b"
+    },
+    {
+      "id": "SRC-0257",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        37,
+        40
+      ],
+      "kind": "rust_fn",
+      "name": "default_true",
+      "signature": "fn default_true() -> bool {",
+      "fingerprint": "sha1:81e1adbd66567956"
+    },
+    {
+      "id": "SRC-0258",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        41,
+        44
+      ],
+      "kind": "rust_fn",
+      "name": "default_port",
+      "signature": "fn default_port() -> u16 {",
+      "fingerprint": "sha1:56dff1c6743a5ad7"
+    },
+    {
+      "id": "SRC-0259",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        45,
+        48
+      ],
+      "kind": "rust_fn",
+      "name": "default_tab_columns",
+      "signature": "fn default_tab_columns() -> u8 {",
+      "fingerprint": "sha1:78ad33be8dbb4ea7"
+    },
+    {
+      "id": "SRC-0260",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        49,
+        52
+      ],
+      "kind": "rust_fn",
+      "name": "default_font_size",
+      "signature": "fn default_font_size() -> f32 {",
+      "fingerprint": "sha1:02b8bac4837e8512"
+    },
+    {
+      "id": "SRC-0261",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        53,
+        66
+      ],
+      "kind": "rust_impl",
+      "name": "impl Default for AppSettings",
+      "signature": "impl Default for AppSettings {",
+      "fingerprint": "sha1:f9c9983e3c8ea929"
+    },
+    {
+      "id": "SRC-0262",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        67,
+        75
+      ],
+      "kind": "rust_fn",
+      "name": "config_path",
+      "signature": "fn config_path() -> Option<PathBuf> {",
+      "fingerprint": "sha1:4fe164e3b62b6f44"
+    },
+    {
+      "id": "SRC-0263",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        76,
+        81
+      ],
+      "kind": "rust_fn",
+      "name": "store",
+      "signature": "fn store() -> &'static RwLock<AppSettings> {",
+      "fingerprint": "sha1:1500f9baa8dc9aa0"
+    },
+    {
+      "id": "SRC-0264",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        82,
+        93
+      ],
+      "kind": "rust_fn",
+      "name": "load",
+      "signature": "pub fn load() -> AppSettings {",
+      "fingerprint": "sha1:fd3ebf45e9bc8c25"
+    },
+    {
+      "id": "SRC-0265",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        94,
+        98
+      ],
+      "kind": "rust_fn",
+      "name": "get",
+      "signature": "pub fn get() -> AppSettings {",
+      "fingerprint": "sha1:b489e771f9c9f451"
+    },
+    {
+      "id": "SRC-0266",
+      "path": "crates/fastfiler-gpui/src/settings_store.rs",
+      "line_range": [
+        99,
+        111
+      ],
+      "kind": "rust_fn",
+      "name": "update",
+      "signature": "pub fn update(f: impl FnOnce(&mut AppSettings)) {",
+      "fingerprint": "sha1:a889c4254954934f"
+    },
+    {
+      "id": "SRC-0267",
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        13,
+        16
+      ],
+      "kind": "rust_type",
+      "name": "DomainEvent",
+      "signature": "pub type DomainEvent = (String, serde_json::Value);",
+      "fingerprint": "sha1:de468c61a72cfd6b"
+    },
+    {
+      "id": "SRC-0268",
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        17,
+        20
+      ],
+      "kind": "rust_struct",
+      "name": "ChannelSink",
+      "signature": "pub struct ChannelSink {",
+      "fingerprint": "sha1:4e70805fda9fd8a5"
+    },
+    {
+      "id": "SRC-0269",
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        21,
+        27
+      ],
+      "kind": "rust_impl",
+      "name": "impl ChannelSink",
+      "signature": "impl ChannelSink {",
+      "fingerprint": "sha1:6e939b16c07125b0"
+    },
+    {
+      "id": "SRC-0270",
+      "path": "crates/fastfiler-gpui/src/sink.rs",
+      "line_range": [
+        28,
+        33
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventSink for ChannelSink",
+      "signature": "impl EventSink for ChannelSink {",
+      "fingerprint": "sha1:e15a5adeb4f49918"
+    },
+    {
+      "id": "SRC-0271",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        44,
+        61
+      ],
+      "kind": "rust_fn",
+      "name": "bind_keys",
+      "signature": "pub fn bind_keys(cx: &mut App) {",
+      "fingerprint": "sha1:eff5e601ddd43c27"
+    },
+    {
+      "id": "SRC-0272",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        62,
+        73
+      ],
+      "kind": "rust_struct",
+      "name": "TextInput",
+      "signature": "pub struct TextInput {",
+      "fingerprint": "sha1:62b6d71e2d530dc3"
+    },
+    {
+      "id": "SRC-0273",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        74,
+        322
+      ],
+      "kind": "rust_impl",
+      "name": "impl TextInput",
+      "signature": "impl TextInput {",
+      "fingerprint": "sha1:1cdf3fb499e547f6"
+    },
+    {
+      "id": "SRC-0274",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        323,
+        449
+      ],
+      "kind": "rust_impl",
+      "name": "impl EntityInputHandler for TextInput",
+      "signature": "impl EntityInputHandler for TextInput {",
+      "fingerprint": "sha1:b35129a443901399"
+    },
+    {
+      "id": "SRC-0275",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        450,
+        453
+      ],
+      "kind": "rust_struct",
+      "name": "TextElement",
+      "signature": "struct TextElement {",
+      "fingerprint": "sha1:40248e282cd7746b"
+    },
+    {
+      "id": "SRC-0276",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        454,
+        459
+      ],
+      "kind": "rust_struct",
+      "name": "PrepaintState",
+      "signature": "struct PrepaintState {",
+      "fingerprint": "sha1:49930f78c8bcb638"
+    },
+    {
+      "id": "SRC-0277",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        460,
+        467
+      ],
+      "kind": "rust_impl",
+      "name": "impl IntoElement for TextElement",
+      "signature": "impl IntoElement for TextElement {",
+      "fingerprint": "sha1:ee54f4be95881898"
+    },
+    {
+      "id": "SRC-0278",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        468,
+        633
+      ],
+      "kind": "rust_impl",
+      "name": "impl Element for TextElement",
+      "signature": "impl Element for TextElement {",
+      "fingerprint": "sha1:6dbdc7ae9bc6d5ae"
+    },
+    {
+      "id": "SRC-0279",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        634,
+        675
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TextInput",
+      "signature": "impl Render for TextInput {",
+      "fingerprint": "sha1:c2245b650a137a92"
+    },
+    {
+      "id": "SRC-0280",
+      "path": "crates/fastfiler-gpui/src/text_input.rs",
+      "line_range": [
+        676,
+        680
+      ],
+      "kind": "rust_impl",
+      "name": "impl Focusable for TextInput",
+      "signature": "impl Focusable for TextInput {",
+      "fingerprint": "sha1:a49da4747894a426"
+    },
+    {
+      "id": "SRC-0281",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        77,
+        119
+      ],
+      "kind": "rust_fn",
+      "name": "dark",
+      "signature": "fn dark() -> Theme {",
+      "fingerprint": "sha1:e64cc3c0dc2204d3"
+    },
+    {
+      "id": "SRC-0282",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        120,
+        162
+      ],
+      "kind": "rust_fn",
+      "name": "light",
+      "signature": "fn light() -> Theme {",
+      "fingerprint": "sha1:7569b1d84d79bc6c"
+    },
+    {
+      "id": "SRC-0283",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        163,
+        205
+      ],
+      "kind": "rust_fn",
+      "name": "midnight",
+      "signature": "fn midnight() -> Theme {",
+      "fingerprint": "sha1:37b4d5d8354628ae"
+    },
+    {
+      "id": "SRC-0284",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        206,
+        207
+      ],
+      "kind": "rust_static",
+      "name": "PRESETS",
+      "signature": "static PRESETS: OnceLock<Vec<Theme>> = OnceLock::new();",
+      "fingerprint": "sha1:313fbdc504464c14"
+    },
+    {
+      "id": "SRC-0285",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        208,
+        216
+      ],
+      "kind": "rust_fn",
+      "name": "presets",
+      "signature": "pub fn presets() -> &'static [Theme] {",
+      "fingerprint": "sha1:988280e4ec28382d"
+    },
+    {
+      "id": "SRC-0286",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        217,
+        219
+      ],
+      "kind": "rust_static",
+      "name": "CURRENT",
+      "signature": "static CURRENT: AtomicPtr<Theme> = AtomicPtr::new(std::ptr::null_mut());",
+      "fingerprint": "sha1:fb4dbaa1919439e6"
+    },
+    {
+      "id": "SRC-0287",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        220,
+        231
+      ],
+      "kind": "rust_fn",
+      "name": "th",
+      "signature": "pub fn th() -> &'static Theme {",
+      "fingerprint": "sha1:a5ac96eae04efa1c"
+    },
+    {
+      "id": "SRC-0288",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        232,
+        253
+      ],
+      "kind": "rust_fn",
+      "name": "set_by_name",
+      "signature": "pub fn set_by_name(name: &str) -> bool {",
+      "fingerprint": "sha1:853f6754dac3128b"
+    },
+    {
+      "id": "SRC-0289",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        254,
+        263
+      ],
+      "kind": "rust_fn",
+      "name": "all_themes",
+      "signature": "pub fn all_themes() -> Vec<&'static Theme> {",
+      "fingerprint": "sha1:51e15214c8f73f49"
+    },
+    {
+      "id": "SRC-0290",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        264,
+        274
+      ],
+      "kind": "rust_struct",
+      "name": "ThemeFile",
+      "signature": "struct ThemeFile {",
+      "fingerprint": "sha1:71a0693f84b55187"
+    },
+    {
+      "id": "SRC-0291",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        275,
+        280
+      ],
+      "kind": "rust_fn",
+      "name": "user_themes",
+      "signature": "fn user_themes() -> &'static RwLock<Vec<&'static Theme>> {",
+      "fingerprint": "sha1:5058f3003d557402"
+    },
+    {
+      "id": "SRC-0292",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        281,
+        288
+      ],
+      "kind": "rust_fn",
+      "name": "themes_dir",
+      "signature": "pub fn themes_dir() -> Option<PathBuf> {",
+      "fingerprint": "sha1:e7103990d293286e"
+    },
+    {
+      "id": "SRC-0293",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        289,
+        361
+      ],
+      "kind": "rust_fn",
+      "name": "load_user_themes",
+      "signature": "pub fn load_user_themes() -> (usize, Vec<String>) {",
+      "fingerprint": "sha1:39a98fedd287d448"
+    },
+    {
+      "id": "SRC-0294",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        362,
+        405
+      ],
+      "kind": "rust_fn",
+      "name": "write_samples",
+      "signature": "fn write_samples(dir: &Path) {",
+      "fingerprint": "sha1:8228fa551a77623c"
+    },
+    {
+      "id": "SRC-0295",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        406,
+        449
+      ],
+      "kind": "rust_fn",
+      "name": "sample_nord",
+      "signature": "fn sample_nord() -> Theme {",
+      "fingerprint": "sha1:f0c85d092224b49c"
+    },
+    {
+      "id": "SRC-0296",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        450,
+        493
+      ],
+      "kind": "rust_fn",
+      "name": "sample_high_contrast",
+      "signature": "fn sample_high_contrast() -> Theme {",
+      "fingerprint": "sha1:7f0b076a800e57a0"
+    },
+    {
+      "id": "SRC-0297",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        494,
+        543
+      ],
+      "kind": "rust_fn",
+      "name": "sample_sepia",
+      "signature": "fn sample_sepia() -> Theme {",
+      "fingerprint": "sha1:b0f85e3277edbc61"
+    },
+    {
+      "id": "SRC-0298",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        544,
+        551
+      ],
+      "kind": "rust_struct",
+      "name": "UiStyle",
+      "signature": "pub struct UiStyle {",
+      "fingerprint": "sha1:c7620385fec7bf99"
+    },
+    {
+      "id": "SRC-0299",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        552,
+        552
+      ],
+      "kind": "rust_static",
+      "name": "STYLE_IX",
+      "signature": "static STYLE_IX: AtomicUsize = AtomicUsize::new(0);",
+      "fingerprint": "sha1:10ec96de4496ce8f"
+    },
+    {
+      "id": "SRC-0300",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        553,
+        554
+      ],
+      "kind": "rust_static",
+      "name": "STYLES",
+      "signature": "static STYLES: OnceLock<Vec<UiStyle>> = OnceLock::new();",
+      "fingerprint": "sha1:92274d31cac90220"
+    },
+    {
+      "id": "SRC-0301",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        555,
+        578
+      ],
+      "kind": "rust_fn",
+      "name": "style_presets",
+      "signature": "pub fn style_presets() -> &'static [UiStyle] {",
+      "fingerprint": "sha1:8acd1dc9be38a71c"
+    },
+    {
+      "id": "SRC-0302",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        579,
+        585
+      ],
+      "kind": "rust_fn",
+      "name": "ui_style",
+      "signature": "pub fn ui_style() -> &'static UiStyle {",
+      "fingerprint": "sha1:db291154b5555655"
+    },
+    {
+      "id": "SRC-0303",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        586,
+        595
+      ],
+      "kind": "rust_fn",
+      "name": "set_style_by_name",
+      "signature": "pub fn set_style_by_name(name: &str) -> bool {",
+      "fingerprint": "sha1:b39828d9d6e68088"
+    },
+    {
+      "id": "SRC-0304",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        596,
+        600
+      ],
+      "kind": "rust_fn",
+      "name": "radius_md",
+      "signature": "pub fn radius_md() -> Pixels {",
+      "fingerprint": "sha1:d0392a34ffc169a3"
+    },
+    {
+      "id": "SRC-0305",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        601,
+        611
+      ],
+      "kind": "rust_fn",
+      "name": "radius_sm",
+      "signature": "pub fn radius_sm() -> Pixels {",
+      "fingerprint": "sha1:380413d7c6f8db24"
+    },
+    {
+      "id": "SRC-0306",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        612,
+        612
+      ],
+      "kind": "rust_const",
+      "name": "FONT_MIN",
+      "signature": "pub const FONT_MIN: f32 = 10.0;",
+      "fingerprint": "sha1:9f0a956b226c7e8b"
+    },
+    {
+      "id": "SRC-0307",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        613,
+        614
+      ],
+      "kind": "rust_const",
+      "name": "FONT_MAX",
+      "signature": "pub const FONT_MAX: f32 = 24.0;",
+      "fingerprint": "sha1:ae7fd30465648a09"
+    },
+    {
+      "id": "SRC-0308",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        615,
+        617
+      ],
+      "kind": "rust_static",
+      "name": "FONT_PX",
+      "signature": "static FONT_PX: AtomicU32 = AtomicU32::new(16.0f32.to_bits());",
+      "fingerprint": "sha1:b7bc74058ca6b144"
+    },
+    {
+      "id": "SRC-0309",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        618,
+        622
+      ],
+      "kind": "rust_fn",
+      "name": "font_px",
+      "signature": "pub fn font_px() -> f32 {",
+      "fingerprint": "sha1:be51417570ff02cd"
+    },
+    {
+      "id": "SRC-0310",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        623,
+        632
+      ],
+      "kind": "rust_fn",
+      "name": "set_font_px",
+      "signature": "pub fn set_font_px(size: f32) {",
+      "fingerprint": "sha1:b1d325c30584201b"
+    },
+    {
+      "id": "SRC-0311",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        633,
+        637
+      ],
+      "kind": "rust_fn",
+      "name": "row_h",
+      "signature": "pub fn row_h() -> Pixels {",
+      "fingerprint": "sha1:a4a7f96f84cbf7b7"
+    },
+    {
+      "id": "SRC-0312",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        638,
+        642
+      ],
+      "kind": "rust_fn",
+      "name": "header_h",
+      "signature": "pub fn header_h() -> Pixels {",
+      "fingerprint": "sha1:9ca8c0cbeb7ad421"
+    },
+    {
+      "id": "SRC-0313",
+      "path": "crates/fastfiler-gpui/src/theme.rs",
+      "line_range": [
+        643,
+        645
+      ],
+      "kind": "rust_fn",
+      "name": "bar_h",
+      "signature": "pub fn bar_h() -> Pixels {",
+      "fingerprint": "sha1:4bca3c05b3f4bdf5"
+    },
+    {
+      "id": "SRC-0314",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        23,
+        29
+      ],
+      "kind": "rust_enum",
+      "name": "TreeEvent",
+      "signature": "pub enum TreeEvent {",
+      "fingerprint": "sha1:eb87fb4f2eaa2430"
+    },
+    {
+      "id": "SRC-0315",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        30,
+        32
+      ],
+      "kind": "rust_impl",
+      "name": "impl EventEmitter<TreeEvent> for TreeView",
+      "signature": "impl EventEmitter<TreeEvent> for TreeView {}",
+      "fingerprint": "sha1:a73e508b75406baf"
+    },
+    {
+      "id": "SRC-0316",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        33,
+        41
+      ],
+      "kind": "rust_struct",
+      "name": "TreeItem",
+      "signature": "struct TreeItem {",
+      "fingerprint": "sha1:1436b255029b6e28"
+    },
+    {
+      "id": "SRC-0317",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        42,
+        56
+      ],
+      "kind": "rust_struct",
+      "name": "TreeView",
+      "signature": "pub struct TreeView {",
+      "fingerprint": "sha1:ec9ccdab98b84714"
+    },
+    {
+      "id": "SRC-0318",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        57,
+        326
+      ],
+      "kind": "rust_impl",
+      "name": "impl TreeView",
+      "signature": "impl TreeView {",
+      "fingerprint": "sha1:55439edbf92b7260"
+    },
+    {
+      "id": "SRC-0319",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        327,
+        376
+      ],
+      "kind": "rust_impl",
+      "name": "impl Render for TreeView",
+      "signature": "impl Render for TreeView {",
+      "fingerprint": "sha1:3b10295860ab43d9"
+    },
+    {
+      "id": "SRC-0320",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        377,
+        388
+      ],
+      "kind": "rust_fn",
+      "name": "split_unc",
+      "signature": "fn split_unc(share: &str) -> Option<(String, String)> {",
+      "fingerprint": "sha1:ff9f648cf6edb608"
+    },
+    {
+      "id": "SRC-0321",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        389,
+        401
+      ],
+      "kind": "rust_fn",
+      "name": "unc_share_of",
+      "signature": "fn unc_share_of(path: &std::path::Path) -> Option<String> {",
+      "fingerprint": "sha1:3303f516571818e1"
+    },
+    {
+      "id": "SRC-0322",
+      "path": "crates/fastfiler-gpui/src/tree.rs",
+      "line_range": [
+        402,
+        417
+      ],
+      "kind": "rust_fn",
+      "name": "load_drives",
+      "signature": "fn load_drives() -> Vec<(String, String)> {",
+      "fingerprint": "sha1:51eb29de2353ab1d"
+    },
+    {
+      "id": "SRC-0323",
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        19,
+        29
+      ],
+      "kind": "rust_const",
+      "name": "MUTEX_NAME",
+      "signature": "const MUTEX_NAME: &str = \"Local\\\\FastFiler-SingleInstance-Mutex-v1\\0\";",
+      "fingerprint": "sha1:88f9d0adb23d19b4"
+    },
+    {
+      "id": "SRC-0324",
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        30,
+        47
+      ],
+      "kind": "rust_fn",
+      "name": "acquire_single_instance",
+      "signature": "pub fn acquire_single_instance() -> bool {",
+      "fingerprint": "sha1:8cf84d127e2759ff"
+    },
+    {
+      "id": "SRC-0325",
+      "path": "crates/fastfiler-gpui/src/win32_single_instance.rs",
+      "line_range": [
+        48,
+        60
+      ],
+      "kind": "rust_fn",
+      "name": "activate_existing_window",
+      "signature": "pub fn activate_existing_window() {",
+      "fingerprint": "sha1:72bded33c3e371ea"
+    },
+    {
+      "id": "SRC-0326",
+      "path": "crates/fastfiler-gpui/build.rs",
+      "line_range": [
+        1,
+        10
+      ],
+      "kind": "rust_fn",
+      "name": "main",
+      "signature": "fn main() {",
+      "fingerprint": "sha1:2a756c1f6aab7038"
+    }
+  ]
+}

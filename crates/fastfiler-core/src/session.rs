@@ -1,8 +1,7 @@
 //! セッション永続化 (F-1001/F-1002)。GPUI 版 session.rs のスキーマ互換。
 //!
-//! - 保存先: `%APPDATA%\FastFiler\iced_session.json` (開発期は GPUI 版と別ファイル —
-//!   凍結中の GPUI 版のセッションを壊さないため。Phase 7 の切替時に統合を判断)
-//! - 初回起動で iced_session.json が無ければ **gpui_session.json から自動移行** (N-05)
+//! - 保存先: `%APPDATA%\FastFiler\session.json`
+//! - 無ければ旧ファイル (iced_/gpui_ 接頭辞) から自動移行 (N-05 — 読むだけ)
 //! - 書き込みは persist のアトミック書き込み + .bak (F-1002)
 
 use serde::{Deserialize, Serialize};
@@ -213,18 +212,21 @@ fn session_dir() -> Option<PathBuf> {
 }
 
 fn session_path() -> Option<PathBuf> {
-    Some(session_dir()?.join("iced_session.json"))
+    Some(session_dir()?.join("session.json"))
 }
 
 pub fn load() -> Option<SessionData> {
     let dir = session_dir()?;
-    let own = dir.join("iced_session.json");
-    if let Some(d) = crate::persist::load_with_backup(&own, |s| serde_json::from_str(s).ok()) {
-        return Some(d);
+    // 正式名 → 開発期の iced_ 名 → GPUI 版、の順に読む (自動移行 N-05。
+    // 書き込みは常に session.json — 旧ファイルには触れない)
+    for name in ["session.json", "iced_session.json", "gpui_session.json"] {
+        if let Some(d) =
+            crate::persist::load_with_backup(&dir.join(name), |s| serde_json::from_str(s).ok())
+        {
+            return Some(d);
+        }
     }
-    // 初回: GPUI 版セッションから自動移行 (読むだけ — 元ファイルには触れない)
-    let gpui = dir.join("gpui_session.json");
-    crate::persist::load_with_backup(&gpui, |s| serde_json::from_str(s).ok())
+    None
 }
 
 pub fn save(data: &SessionData) {

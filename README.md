@@ -1,13 +1,14 @@
 # FastFiler
 
 縦タブ + 任意分割ペイン を備えた **Windows 向け高速ファイラ**。
-GUI は **GPUI** (Zed のフレームワークを `vendor/` に完全移植・自己完結) ベース。
-Windows エクスプローラの遅さに耐えられず AI に作ってもらいました。
+GUI は **iced** (0.14) ベース。Windows エクスプローラの遅さに耐えられず AI に作ってもらいました。
 
 > - 旧 Tauri 2 + Solid.js 実装は 2026-05 のリファクタで削除。
 > - 旧 floem 実装はタブ/ペイン開閉でメモリが増殖する構造問題があり、
->   2026-06 に GPUI へ全面移植した ([ADR 0012](./doc/adr/0012-migrate-floem-to-gpui.md))。
->   floem 版は削除済み (git 履歴 `wip(floem): メモリ増殖調査の計装を保全` 以前を参照)。
+>   2026-06 に GPUI へ全面移植 ([ADR 0012](./doc/adr/0012-migrate-floem-to-gpui.md))。
+> - GPUI 実装は vendor 依存・ライセンス・テスト不能の負債があり、
+>   2026-07 に iced へ全面移植 ([ADR 0013](./doc/adr/0013-migrate-gpui-to-iced.md))。
+>   GPUI 版は削除済み (git 履歴のブランチ iced-rewrite 合流以前を参照)。
 
 ## 中核アイデンティティ
 
@@ -15,7 +16,7 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 まとめてあります。要点だけ:
 
 1. **縦タブ + 任意分割ペイン** (最重要 — 大量フォルダの同時操作)
-2. **速度** (System32 のような数万件フォルダでも瞬時)
+2. **速度** (System32 のような数万件フォルダでも瞬時。10 万行 60fps の仮想リスト)
 3. **Windows との深い統合** (シェル / OLE D&D / 既定ハンドラ)
 4. **拡張性** (ユーザーコマンド + ホットキー + テーマの 3 軸に限定)
 
@@ -37,7 +38,6 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 | [doc/IDEAS.md](./doc/IDEAS.md) | 機能アイデアの採否台帳 |
 | [doc/adr/](./doc/adr/) | アーキテクチャ意思決定記録 (ADR) — 何を捨てたか・なぜか |
 | [doc/plan/](./doc/plan/) | 実装計画 (日付付き、作業ログ含む) |
-| [vendor/README.md](./vendor/README.md) | GPUI vendor の構成・改変点・更新手順 |
 
 ## ディレクトリ構成
 
@@ -45,11 +45,11 @@ FastFiler が何を目指し、何を**捨てている**かは [`CONTEXT.md`](./
 fastfiler/
 ├ Cargo.toml             # workspace
 ├ CONTEXT.md             # 中核アイデンティティ + 用語
-├ rust-toolchain.toml    # 1.95.0 (GPUI 要求)
 ├ crates/
 │  ├ fastfiler-domain/   # OS/ファイル操作ライブラリ (GUI 非依存)
-│  └ fastfiler-gpui/     # GPUI GUI バイナリ
-├ vendor/                # GPUI とその依存 18 クレート (zed から完全移植・自己完結)
+│  ├ fastfiler-core/     # フレームワーク非依存の状態遷移 (Elm 型 update、単体テスト対象)
+│  ├ fastfiler-win/      # Win32 相互運用の薄い皮 (OLE D&D / フォント / 多重起動)
+│  └ fastfiler-iced/     # iced GUI バイナリ (bin 名 fastfiler)
 └ doc/                   # ドキュメント (案内は doc/README.md)
    ├ adr/                # ADR (意思決定記録)
    └ plan/               # 実装計画 (日付付き md)
@@ -58,13 +58,14 @@ fastfiler/
 ## ビルドと起動
 
 ```powershell
-cargo build -p fastfiler-gpui --release
+cargo build -p fastfiler-iced --release
 .\target\release\fastfiler.exe
 ```
 
-開発時は `cargo run -p fastfiler-gpui`。
+開発時は `cargo run -p fastfiler-iced`。
+テストは `cargo test` (core の状態遷移 77 本 + UI 操作シミュレーション 5 本)。
 
-## GPUI 版の主な操作
+## 主な操作
 
 | 操作 | キー / マウス |
 |---|---|
@@ -77,36 +78,26 @@ cargo build -p fastfiler-gpui --release
 | リネーム / 新フォルダ / 新ファイル | F2 / F7 / F8 (IME 対応入力) |
 | コピー / 切り取り / 貼り付け | Ctrl+C / X / V (エクスプローラ相互運用) |
 | 削除 (ごみ箱) | Delete |
-| 右クリック | コンテキストメニュー (行 / 背景) |
+| 右クリック | コンテキストメニュー (行 / 背景 / フッタ。Shift+右 = シェルメニュー) |
 | D&D | ペイン間 / エクスプローラと相互 (右ボタンドラッグのメニュー対応) |
-| 検索 / 元に戻す | Ctrl+F (Everything 連携) / Ctrl+Z (リネーム・ごみ箱送り) |
+| 検索 / 元に戻す | Ctrl+F (Everything 連携) / Ctrl+Z (リネーム・移動・ごみ箱送り) |
 | ワークスペースツリー | 「ツリー」ボタンで表示切替、クリックでフォーカスペインに開く |
+| 設定 | 「設定」ボタン (テーマ / スタイル / フォント / レンダラ / ホットキー) |
 
 タブ / 分割構成 / ウィンドウ位置はセッション保存され、次回起動時に復元されます
-(`%APPDATA%\FastFiler\gpui_session.json`)。
+(`%APPDATA%\FastFiler\session.json`。旧 gpui_/iced_ 接頭辞のファイルからは自動移行)。
 
 ## バージョン
 
-- **GPUI 版**: floem 版 v0.1.0 の中核機能パリティ + メモリ問題の構造的解決
-  (タブ/ペイン開閉で生存ペイン数 `PANES_ALIVE` がベースラインへ戻ることを計装で確認可能。
-  常時表示の `live panes` 表示は 2026-06-09 に撤去)。
-- 旧 floem 版: v0.1.0 で凍結 → 削除済み (git 履歴参照)。
+- **iced 版 (現行)**: GPUI 版の全機能パリティ + 単体テスト 82 本 +
+  メモリ健全性の実測保証 (タブ/ペイン 50 開閉でスレッド・ハンドルが完全復帰) +
+  省メモリレンダラ既定 (WorkingSet ~28MB)。
+- 旧 GPUI 版 / floem 版: 削除済み (git 履歴参照)。
 
-## ライセンスとクレジット
+## ライセンス
 
-FastFiler は **GPL-3.0-or-later** で配布されます ([`LICENSE`](./LICENSE))。
+FastFiler は **MIT OR Apache-2.0** のデュアルライセンスで配布されます
+([`LICENSE-MIT`](./LICENSE-MIT) / [`LICENSE-APACHE`](./LICENSE-APACHE))。
 
-GUI に [Zed](https://github.com/zed-industries/zed) の **GPUI** フレームワークと
-その依存クレート群を `vendor/` に取り込んで利用しているためです。GPL クレートを
-リンクした成果物全体が GPL-3.0 になります。取り込み元・コミット・改変点は
-[`vendor/README.md`](./vendor/README.md) に記録しています。
-
-| 取り込んだもの | 元 | ライセンス | 全文 |
-|---|---|---|---|
-| `gpui`, `gpui_platform`, `collections`, `util`, `sum_tree`, `scheduler`, `http_client`, `refineable` ほか | zed-industries/zed | **Apache-2.0** | [`vendor/LICENSE-APACHE`](./vendor/LICENSE-APACHE) |
-| `zlog`, `ztracing` | zed-industries/zed | **GPL-3.0-or-later** | [`vendor/LICENSE-GPL`](./vendor/LICENSE-GPL) |
-
-> **FastFiler は Zed Industries とは無関係・非公式のプロジェクトです。**
-> 同社の GPUI フレームワークを利用しているだけであり、Zed Industries による
-> 開発・承認・支援を受けたものではありません。"Zed" の名称・ロゴは
-> Zed Industries に帰属します。
+> 旧 GPUI 版は vendor に GPL クレート (zlog/ztracing) を含むため GPL-3.0 でした。
+> iced 移行 (ADR 0013) で GPL 依存が無くなり、デュアルライセンスへ変更しています。

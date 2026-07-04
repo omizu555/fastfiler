@@ -2,13 +2,13 @@
 name = "fastfiler-iced"
 version = "0.1.0"
 edition = "2021"
-license = "GPL-3.0-or-later"
-description = "FastFiler の iced GUI (移行中。Phase 7 で bin 名を fastfiler へ切替予定)"
+license = "MIT OR Apache-2.0"
+description = "FastFiler — 高速な Windows ファイラ (iced GUI)"
 
 # 注: 開発期の bin 名は fastfiler-iced (fastfiler-gpui の bin 名 `fastfiler` と
 # target/ 内で衝突させないため)。Phase 7 の切替時に `fastfiler` へ改名する。
 [[bin]]
-name = "fastfiler-iced"
+name = "fastfiler"
 path = "src/main.rs"
 
 [dependencies]

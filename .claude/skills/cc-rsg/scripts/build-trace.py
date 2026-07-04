@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""
+cc-rsg build-trace.py
+
+Extracts every `[REF: path:Lstart-Lend]` written in drafts/*.md (or
+final/*.md), matches them against the source units in
+`.cc-rsg/source-map.json`, and produces `.cc-rsg/trace.json`.
+
+This produces in one pass:
+- Spec → source citations (the REF the agent wrote, recorded verbatim)
+- Source → spec reverse index (`by_source`)
+- covered / excluded / uncovered aggregation for MECE verification
+
+Usage:
+    python build-trace.py --cc-rsg-dir .cc-rsg [--target-dir-for-required final]
+
+Output schema (.cc-rsg/trace.json):
+    {
+      "schema_version": "0.2.0",
+      "generated_at": "<ISO>",
+      "source_units_total": N,
+      "source_units_covered": C,
+      "source_units_excluded": E,
+      "source_units_uncovered": U,
+      "mece_passed": bool,
+      "by_source": {
+        "SRC-NNNN": {
+          "path": "...",
+          "line_range": [s, e],
+          "covered_by_sections": [{"file": "05-data-model.md", "section": "..."}],
+          "excluded": false,
+          "excluded_reason": null
+        }
+      },
+      "by_section": {
+        "05-data-model.md::5.2 Issue": ["SRC-0142", ...]
+      },
+      "uncovered_units": ["SRC-NNNN", ...]
+    }
+
+Reads `.cc-rsg/exclusions.yaml` to honour explicit exclusions. The YAML
+file is optional.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+# YAML is optional (not in the stdlib; try/except fallback).
+try:
+    import yaml  # type: ignore
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+
+REF_RE = re.compile(r"\[REF:\s*([^:\]]+):(\d+)(?:-(\d+))?\]")
+SECTION_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+
+def load_source_map(path: Path) -> dict:
+    if not path.exists():
+        raise FileNotFoundError(f"source-map.json not found: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_exclusions(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    if HAS_YAML:
+        data = yaml.safe_load(text) or {}
+        return list(data.get("exclusions", []))
+    # Minimal YAML parse: extract pattern + reason per "- " block.
+    items: list[dict] = []
+    current: dict | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            if current:
+                items.append(current)
+            current = {}
+            stripped = stripped[2:].strip()
+            if ":" in stripped:
+                k, v = stripped.split(":", 1)
+                current[k.strip()] = v.strip().strip("\"'")
+        elif ":" in stripped and current is not None:
+            k, v = stripped.split(":", 1)
+            current[k.strip()] = v.strip().strip("\"'")
+    if current:
+        items.append(current)
+    return items
+
+
+def is_excluded(unit: dict, exclusions: list[dict]) -> tuple[bool, str | None]:
+    for ex in exclusions:
+        if "source_id" in ex and ex["source_id"] == unit["id"]:
+            return True, ex.get("reason", "")
+        if "path" in ex and ex["path"] == unit["path"]:
+            return True, ex.get("reason", "")
+        if "path_glob" in ex and fnmatch.fnmatch(unit["path"], ex["path_glob"]):
+            return True, ex.get("reason", "")
+    return False, None
+
+
+def parse_section_at(lines: list[str], line_no_0idx: int) -> str:
+    """Return the nearest `#` heading above the given line as the section name."""
+    for i in range(line_no_0idx, -1, -1):
+        m = SECTION_RE.match(lines[i])
+        if m:
+            return m.group(2).strip()
+    return "(prelude)"
+
+
+def scan_drafts_for_refs(drafts_dir: Path) -> list[dict]:
+    """Extract every [REF: ...] from drafts/*.md (or final/*.md)."""
+    out: list[dict] = []
+    if not drafts_dir.is_dir():
+        return out
+    for md_file in sorted(drafts_dir.glob("*.md")):
+        try:
+            content = md_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+        for line_no_0idx, line in enumerate(lines):
+            for m in REF_RE.finditer(line):
+                ref_path = m.group(1).strip()
+                start = int(m.group(2))
+                end = int(m.group(3)) if m.group(3) else start
+                section = parse_section_at(lines, line_no_0idx)
+                out.append({
+                    "draft_file": md_file.name,
+                    "section": section,
+                    "ref_path": ref_path,
+                    "ref_start": start,
+                    "ref_end": end,
+                })
+    return out
+
+
+def resolve_refs_to_units(refs: list[dict], units: list[dict]) -> dict[str, list[dict]]:
+    """For each SRC unit ID, return the list of REFs that hit the unit."""
+    coverage: dict[str, list[dict]] = {u["id"]: [] for u in units}
+
+    # Index by path for fast lookup.
+    units_by_path: dict[str, list[dict]] = {}
+    for u in units:
+        units_by_path.setdefault(u["path"], []).append(u)
+
+    for ref in refs:
+        # Look for an exact or suffix match on the path.
+        ref_path = ref["ref_path"]
+        candidates: list[dict] = []
+        # Exact match
+        if ref_path in units_by_path:
+            candidates.extend(units_by_path[ref_path])
+        else:
+            # Suffix match (e.g. the agent writes `app/models/issue.rb`
+            # while source-map records `app/models/issue.rb` — the
+            # common shape).
+            for path, ulist in units_by_path.items():
+                if path.endswith("/" + ref_path) or ref_path.endswith("/" + path):
+                    candidates.extend(ulist)
+
+        # Hit units whose line range overlaps the REF range.
+        for unit in candidates:
+            u_start, u_end = unit["line_range"]
+            r_start, r_end = ref["ref_start"], ref["ref_end"]
+            if not (r_end < u_start or r_start > u_end):
+                coverage[unit["id"]].append({
+                    "file": ref["draft_file"],
+                    "section": ref["section"],
+                })
+    return coverage
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="cc-rsg trace builder")
+    parser.add_argument(
+        "--cc-rsg-dir",
+        default=".cc-rsg",
+        help="Path to .cc-rsg/ directory",
+    )
+    parser.add_argument(
+        "--target-dir-for-required",
+        default="final",
+        choices=["drafts", "final"],
+        help="Which directory to scan for [REF:] markers (drafts or final)",
+    )
+    args = parser.parse_args(argv)
+
+    cc_rsg = Path(args.cc_rsg_dir)
+    source_map_path = cc_rsg / "source-map.json"
+    drafts_dir = cc_rsg / args.target_dir_for_required
+    output_path = cc_rsg / "trace.json"
+    exclusions_path = cc_rsg / "exclusions.yaml"
+
+    if not source_map_path.exists():
+        print(
+            f"ERROR: {source_map_path} not found. Run scripts/source-map.py first.",
+            file=sys.stderr,
+        )
+        return 2
+
+    sm = load_source_map(source_map_path)
+    units = sm.get("units", [])
+    exclusions = load_exclusions(exclusions_path)
+
+    refs = scan_drafts_for_refs(drafts_dir)
+    coverage = resolve_refs_to_units(refs, units)
+
+    by_source: dict[str, dict[str, Any]] = {}
+    by_section: dict[str, list[str]] = {}
+    uncovered: list[str] = []
+    covered_count = 0
+    excluded_count = 0
+
+    for u in units:
+        excluded, reason = is_excluded(u, exclusions)
+        sections = coverage.get(u["id"], [])
+        # Collapse duplicates within the same chapter section.
+        uniq_sections: list[dict[str, str]] = []
+        seen = set()
+        for s in sections:
+            key = (s["file"], s["section"])
+            if key not in seen:
+                seen.add(key)
+                uniq_sections.append(s)
+
+        by_source[u["id"]] = {
+            "path": u["path"],
+            "line_range": u["line_range"],
+            "kind": u["kind"],
+            "name": u["name"],
+            "covered_by_sections": uniq_sections,
+            "excluded": excluded,
+            "excluded_reason": reason,
+        }
+        if uniq_sections:
+            covered_count += 1
+            for s in uniq_sections:
+                key = f"{s['file']}::{s['section']}"
+                by_section.setdefault(key, []).append(u["id"])
+        elif excluded:
+            excluded_count += 1
+        else:
+            uncovered.append(u["id"])
+
+    total = len(units)
+    uncovered_count = len(uncovered)
+    mece_passed = uncovered_count == 0
+
+    trace = {
+        "schema_version": "0.2.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_units_total": total,
+        "source_units_covered": covered_count,
+        "source_units_excluded": excluded_count,
+        "source_units_uncovered": uncovered_count,
+        "mece_passed": mece_passed,
+        "by_source": by_source,
+        "by_section": by_section,
+        "uncovered_units": uncovered,
+    }
+    output_path.write_text(
+        json.dumps(trace, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(
+        f"build-trace.py: total={total} covered={covered_count} "
+        f"excluded={excluded_count} uncovered={uncovered_count} "
+        f"mece_passed={mece_passed}"
+    )
+    if uncovered:
+        print(f"  uncovered SRC sample: {uncovered[:5]}", file=sys.stderr)
+    return 0 if mece_passed else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

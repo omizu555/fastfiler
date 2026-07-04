@@ -10,11 +10,10 @@ use fastfiler_iced::app;
 
 pub fn main() -> iced::Result {
     // レンダラ選択 (Issue #9 メモリ調査の結論):
-    // - wgpu 既定の Backends::all() は DX12+Vulkan+GL を全部初期化し Private +64MB。
-    //   DX12 に絞るだけで無償で削れる (Win11 には DX12 常在、失敗時は tiny-skia へ
-    //   自動フォールバック)
-    // - 設定 renderer="lowmem" なら tiny-skia (Private 190MB→7MB、起動 12 倍速。
-    //   ソフトウェア描画のため大画面ではフレーム時間がピクセル数に比例)
+    // - 既定 = 省メモリ (tiny-skia): Private 190MB→7MB・起動 12 倍速。
+    //   10 万行スクロールも p95 9.6ms で 60fps 内 (実測)
+    // - 設定 renderer="gpu" なら wgpu (DX12 のみに絞る — Backends::all() は
+    //   Vulkan/GL の初期化だけで +64MB。失敗時は tiny-skia へ自動フォールバック)
     // ユーザーが env を手動設定している場合は尊重する。
     // SAFETY: main 冒頭 = 単一スレッドでの set_var は安全
     unsafe {
@@ -22,7 +21,7 @@ pub fn main() -> iced::Result {
             std::env::set_var("WGPU_BACKEND", "dx12");
         }
         if std::env::var_os("ICED_BACKEND").is_none()
-            && fastfiler_iced::settings::get().renderer.as_deref() == Some("lowmem")
+            && fastfiler_iced::settings::get().renderer.as_deref() != Some("gpu")
         {
             std::env::set_var("ICED_BACKEND", "tiny-skia");
         }

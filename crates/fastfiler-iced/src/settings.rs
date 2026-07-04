@@ -1,7 +1,7 @@
-//! アプリ設定 (`%APPDATA%\FastFiler\iced_settings.json`)。
+//! アプリ設定 (`%APPDATA%\FastFiler\settings.json`)。
 //!
-//! GPUI 版 settings_store.rs のスキーマ互換。初回起動で iced_settings.json が
-//! 無ければ **gpui_settings.json から自動移行** (N-05 — 読むだけで元は触らない)。
+//! 旧版 (settings_store.rs) のスキーマ互換。無ければ旧ファイル (iced_/gpui_
+//! 接頭辞) から自動移行 (N-05 — 読むだけで元は触らない)。
 //! `get()` は static 経由でどこからでも参照できる (GPUI 版と同じ流儀)。
 
 use std::path::PathBuf;
@@ -32,8 +32,8 @@ pub struct AppSettings {
     /// UI スタイル名 (形状プリセット: モダン/シャープ/ソフト)。None なら既定。
     #[serde(default)]
     pub style: Option<String>,
-    /// レンダラ: "gpu" (wgpu/DX12 — 既定) | "lowmem" (tiny-skia ソフトウェア描画。
-    /// メモリ約 -95%・起動高速だが大画面でのフレーム時間はピクセル数に比例)。
+    /// レンダラ: None/"lowmem" = 省メモリ (tiny-skia — **既定**。メモリ約 1/10・
+    /// 起動高速) | "gpu" = wgpu/DX12 (大画面で描画が重い場合の選択肢)。
     #[serde(default)]
     pub renderer: Option<String>,
 }
@@ -84,7 +84,7 @@ fn config_dir() -> Option<PathBuf> {
 }
 
 fn config_path() -> Option<PathBuf> {
-    Some(config_dir()?.join("iced_settings.json"))
+    Some(config_dir()?.join("settings.json"))
 }
 
 static STORE: OnceLock<RwLock<AppSettings>> = OnceLock::new();
@@ -97,16 +97,15 @@ fn load() -> AppSettings {
     let Some(dir) = config_dir() else {
         return AppSettings::default();
     };
-    let own = dir.join("iced_settings.json");
-    if let Some(s) =
-        fastfiler_core::persist::load_with_backup(&own, |s| serde_json::from_str(s).ok())
-    {
-        return s;
+    // 正式名 → 開発期の iced_ 名 → GPUI 版、の順 (自動移行 N-05)
+    for name in ["settings.json", "iced_settings.json", "gpui_settings.json"] {
+        if let Some(s) = fastfiler_core::persist::load_with_backup(&dir.join(name), |s| {
+            serde_json::from_str(s).ok()
+        }) {
+            return s;
+        }
     }
-    // 初回: GPUI 版設定から自動移行 (読むだけ)
-    let gpui = dir.join("gpui_settings.json");
-    fastfiler_core::persist::load_with_backup(&gpui, |s| serde_json::from_str(s).ok())
-        .unwrap_or_default()
+    AppSettings::default()
 }
 
 /// 現在の設定のコピーを返す。
