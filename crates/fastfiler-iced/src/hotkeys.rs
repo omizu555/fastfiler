@@ -174,7 +174,10 @@ fn load() -> HashMap<Combo, HotAction> {
     let mut map = HashMap::new();
     for (name, action, default) in ACTIONS {
         let combo = raw.get(*name).map(|s| s.as_str()).unwrap_or(default);
-        if let Some(c) = parse_combo(combo) {
+        // 不正な combo (例 "ctrl+shift" — キー部分が無い) は黙って無効化せず
+        // 既定のキーへフォールバックする (旧ファイルの編集ミスの救済)
+        let parsed = parse_combo(combo).or_else(|| parse_combo(default));
+        if let Some(c) = parsed {
             map.insert(c, *action);
         }
     }

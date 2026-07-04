@@ -363,3 +363,67 @@ fn internal_right_drag_across_panes_opens_chooser() {
         "右ドラッグ&ドロップでチューザーメニューが開かない"
     );
 }
+
+/// 検索ショートカットの実証 (実機報告「Ctrl+F で検索ボックスが出ない」の切り分け)。
+/// hotkeys.json のカスタム (search: ctrl+k) が生きている環境では Ctrl+F は
+/// 割り当てが無いのが正しい — 既定とカスタムの両方をヘッドレスで検証する。
+#[test]
+fn search_shortcut_opens_search_bar() {
+    // APPDATA をテスト用に隔離 (実ユーザーの hotkeys.json に依存しない)
+    let base = std::env::temp_dir().join(format!("ff_hk_{}", std::process::id()));
+    std::fs::create_dir_all(base.join("FastFiler")).unwrap();
+    unsafe {
+        std::env::set_var("APPDATA", &base);
+        std::env::set_var("FASTFILER_OPEN", std::env::temp_dir());
+    }
+
+    let press = |app: &mut App, ch: &str| {
+        let key = iced::keyboard::Key::Character(ch.into());
+        let ev = iced::keyboard::Event::KeyPressed {
+            key: key.clone(),
+            modified_key: key.clone(),
+            physical_key: iced::keyboard::key::Physical::Unidentified(
+                iced::keyboard::key::NativeCode::Unidentified,
+            ),
+            location: iced::keyboard::Location::Standard,
+            repeat: false,
+            modifiers: iced::keyboard::Modifiers::CTRL,
+            text: None,
+        };
+        let _ = app::update(app, Msg::Key(ev));
+    };
+    let search_bar_visible = |app: &App| {
+        let mut ui = simulator(app::view(app));
+        ui.find("検索 (Everything / 内蔵)…").is_ok()
+    };
+
+    // 既定 (ファイルなし → 自動生成): Ctrl+F で検索バーが開く
+    fastfiler_iced::hotkeys::reload();
+    let (mut app, _task) = app::boot();
+    assert!(!search_bar_visible(&app), "初期状態で検索バーが出ている");
+    press(&mut app, "f");
+    assert!(
+        search_bar_visible(&app),
+        "既定の Ctrl+F で検索バーが開かない"
+    );
+
+    // カスタム (search: ctrl+k): Ctrl+K で開き、Ctrl+F では開かない
+    std::fs::write(
+        base.join("FastFiler").join("hotkeys.json"),
+        r#"{ "search": "ctrl+k" }"#,
+    )
+    .unwrap();
+    fastfiler_iced::hotkeys::reload();
+    let (mut app2, _task) = app::boot();
+    press(&mut app2, "f");
+    assert!(
+        !search_bar_visible(&app2),
+        "カスタム設定下で Ctrl+F が効いてしまう"
+    );
+    press(&mut app2, "k");
+    assert!(
+        search_bar_visible(&app2),
+        "カスタムの Ctrl+K で検索バーが開かない"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
