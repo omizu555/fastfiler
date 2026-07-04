@@ -174,6 +174,7 @@ pub fn boot() -> (App, Task<Msg>) {
         }
     }
     let cfg = crate::settings::get();
+    crate::theme::set_style_by_name(cfg.style.as_deref());
     let mut app = App {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
         port_input: cfg.everything_port.to_string(),
@@ -985,6 +986,10 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
         }
         SettingsMsg::Close => {
             app.show_settings = false;
+        }
+        SettingsMsg::SetStyle(name) => {
+            app.settings = settings::update(|s| s.style = Some(name.clone()));
+            theme::set_style_by_name(Some(&name));
         }
         SettingsMsg::SetTheme(name) => {
             app.settings = settings::update(|s| s.theme = Some(name.clone()));

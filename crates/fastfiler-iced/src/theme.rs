@@ -322,6 +322,50 @@ impl Theme {
     }
 }
 
+/// UI スタイル (形状プリセット — GPUI 版と同一の 3 種)。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiStyle {
+    pub name: &'static str,
+    /// ボタン / パネル / ダイアログの角丸 (px)。
+    pub radius_md: f32,
+    /// メニュー項目 / 行ハイライトの角丸 (px)。
+    pub radius_sm: f32,
+}
+
+pub const STYLES: [UiStyle; 3] = [
+    UiStyle {
+        name: "モダン",
+        radius_md: 6.0,
+        radius_sm: 4.0,
+    },
+    UiStyle {
+        name: "シャープ",
+        radius_md: 0.0,
+        radius_sm: 0.0,
+    },
+    UiStyle {
+        name: "ソフト",
+        radius_md: 10.0,
+        radius_sm: 6.0,
+    },
+];
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+static STYLE_IX: AtomicUsize = AtomicUsize::new(0);
+
+/// 名前でスタイルを選択 (設定画面 / 起動時復元用)。
+pub fn set_style_by_name(name: Option<&str>) {
+    let ix = name
+        .and_then(|n| STYLES.iter().position(|s| s.name == n))
+        .unwrap_or(0);
+    STYLE_IX.store(ix, Ordering::Relaxed);
+}
+
+/// 現在のスタイル (直描き widget が draw 時に参照する)。
+pub fn ui_style() -> UiStyle {
+    STYLES[STYLE_IX.load(Ordering::Relaxed).min(STYLES.len() - 1)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

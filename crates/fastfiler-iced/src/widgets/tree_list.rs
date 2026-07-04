@@ -213,7 +213,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                             height: TREE_ROW_H,
                         },
                         border: Border {
-                            radius: 3.0.into(),
+                            radius: fastfiler_iced_radius_sm(),
                             ..Border::default()
                         },
                         shadow: Shadow::default(),
@@ -291,4 +291,9 @@ impl<'a, Message: 'a> From<TreeList<'a, Message>> for Element<'a, Message, Theme
     fn from(w: TreeList<'a, Message>) -> Self {
         Element::new(w)
     }
+}
+
+/// スタイル (形状プリセット) 連動の角丸 (F-1102)。
+fn fastfiler_iced_radius_sm() -> iced::border::Radius {
+    crate::theme::ui_style().radius_sm.into()
 }

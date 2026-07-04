@@ -174,7 +174,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                     border: Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: 6.0.into(),
+                        radius: fastfiler_iced_radius_md(),
                     },
                     shadow: Shadow {
                         color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
@@ -198,7 +198,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                         Quad {
                             bounds: row,
                             border: Border {
-                                radius: 4.0.into(),
+                                radius: fastfiler_iced_radius_sm(),
                                 ..Border::default()
                             },
                             shadow: Shadow::default(),
@@ -251,4 +251,12 @@ impl<'a, Message: 'a> From<ContextMenu<'a, Message>>
     fn from(w: ContextMenu<'a, Message>) -> Self {
         Element::new(w)
     }
+}
+
+/// スタイル (形状プリセット) 連動の角丸 (F-1102)。
+fn fastfiler_iced_radius_md() -> iced::border::Radius {
+    crate::theme::ui_style().radius_md.into()
+}
+fn fastfiler_iced_radius_sm() -> iced::border::Radius {
+    crate::theme::ui_style().radius_sm.into()
 }

@@ -17,6 +17,7 @@ pub enum SettingsMsg {
     Open,
     Close,
     SetTheme(String),
+    SetStyle(String),
     ReloadThemes,
     SetFontSize(f32),
     SetFontFamily(String),
@@ -40,8 +41,17 @@ pub fn view<'a>(settings: &'a AppSettings, port_input: &'a str) -> Element<'a, S
 
     let section = |label: &str| text(label.to_string()).size(15);
 
+    let styles: Vec<String> = crate::theme::STYLES
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect();
+    let current_style = settings
+        .style
+        .clone()
+        .unwrap_or_else(|| "モダン".to_string());
     let theme_row = row![
         pick_list(themes, Some(current_theme), SettingsMsg::SetTheme).width(220),
+        pick_list(styles, Some(current_style), SettingsMsg::SetStyle).width(120),
         button(text("テーマを再読込").size(12))
             .padding([4, 10])
             .on_press(SettingsMsg::ReloadThemes),
