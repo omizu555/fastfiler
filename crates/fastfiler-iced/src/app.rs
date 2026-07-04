@@ -1172,15 +1172,26 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         .style(button::text)
         .padding([2, 10])
         .on_press(Msg::Core(AppMsg::Tab(TabMsg::Add)));
-    let tree_btn = button(text("ツリー").size(12))
-        .style(button::text)
-        .padding([2, 8])
-        .on_press(Msg::Core(AppMsg::Tree(TreeMsg::ToggleVisible)));
-    let tab_col =
-        container(column![row![add_btn, tree_btn].spacing(4), Element::new(tab_bar)].spacing(2))
-            .width(Length::Fixed(app.model.tab_width))
-            .height(Length::Fill)
-            .padding(2);
+    // タブバー上部: ＋ / (ツリー) / 設定 (F-1101)
+    let mut top_bar = row![add_btn].spacing(4);
+    if app.settings.show_tree_button {
+        top_bar = top_bar.push(
+            button(text("ツリー").size(12))
+                .style(button::text)
+                .padding([2, 8])
+                .on_press(Msg::Core(AppMsg::Tree(TreeMsg::ToggleVisible))),
+        );
+    }
+    top_bar = top_bar.push(
+        button(text("設定").size(12))
+            .style(button::text)
+            .padding([2, 8])
+            .on_press(Msg::Settings(SettingsMsg::Open)),
+    );
+    let tab_col = container(column![top_bar, Element::new(tab_bar)].spacing(2))
+        .width(Length::Fixed(app.model.tab_width))
+        .height(Length::Fill)
+        .padding(2);
     // タブバー幅リサイズ (100〜600px)
     let cur_w = app.model.tab_width;
     let tab_w_handle = DragHandle::new(true, 1.0, move |d| {
