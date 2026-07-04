@@ -365,6 +365,15 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         }
         Msg::Core(m) => app.apply(m),
         Msg::Domain(event, payload) => {
+            match event.as_str() {
+                "fs-change" => {
+                    DIAG_FSCHANGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                "fs:job:done" => {
+                    DIAG_JOBDONE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                _ => {}
+            }
             // OLE 受信イベントは GUI 専用 (core の DomainEvent には流さない)
             if event == "ole:drop" {
                 return app.handle_ole_drop(&payload);
@@ -680,8 +689,20 @@ impl App {
     /// OLE ヒットテスト表を最新化する (ペイン矩形 [物理px] + 表示フォルダ)。
     fn refresh_ole_snapshot(&self) {
         let scale = self.scale_factor;
+        // アクティブタブの可視ペインのみ (pane_rects は全タブの矩形を蓄積するため、
+        // 非表示タブの古い矩形が同じ画面領域に重なって残る — これを混ぜると
+        // ドロップが別タブのペインへ解決され「違うフォルダに落ちる」)
+        let visible: std::collections::HashSet<PaneId> = self
+            .model
+            .tabs
+            .get(self.model.active)
+            .map(|t| t.root.leaves().into_iter().collect())
+            .unwrap_or_default();
         let mut rows: Vec<(PaneId, iced::Rectangle, PathBuf)> = Vec::new();
         for (id, rect) in &self.pane_rects {
+            if !visible.contains(id) {
+                continue;
+            }
             if let Some(p) = self.model.panes.get(*id) {
                 rows.push((
                     *id,
@@ -843,10 +864,32 @@ impl App {
             ));
             return Task::none();
         };
+        let snap_summary: Vec<String> = self
+            .ole_snapshot
+            .lock()
+            .map(|rows| {
+                rows.iter()
+                    .map(|(_, r, p)| {
+                        format!(
+                            "[{:.0},{:.0} {:.0}x{:.0} {:?}]",
+                            r.x,
+                            r.y,
+                            r.width,
+                            r.height,
+                            p.file_name().unwrap_or_default()
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         ole_diag(&format!(
-            "handle: pane resolved dest={:?} effect={effect} right={}",
+            "handle: client=({cx},{cy}) scale={} panes={} dest={:?} effect={effect} right={} rx_fs={} rx_done={}",
+            self.scale_factor,
+            snap_summary.join(" "),
             self.model.panes.get(pane).map(|p| p.cur_path.clone()),
-            keys & fastfiler_win::drop_target::MK_RBUTTON != 0
+            keys & fastfiler_win::drop_target::MK_RBUTTON != 0,
+            DIAG_FSCHANGE.load(std::sync::atomic::Ordering::Relaxed),
+            DIAG_JOBDONE.load(std::sync::atomic::Ordering::Relaxed),
         ));
         let point = iced::Point::new(cx as f32 / self.scale_factor, cy as f32 / self.scale_factor);
         let right_button = keys & fastfiler_win::drop_target::MK_RBUTTON != 0;
@@ -1215,6 +1258,10 @@ fn key_to_msg(key: &Key, m: keyboard::Modifiers) -> Option<Msg> {
     }
 }
 
+/// Domain イベント受信カウンタ (診断: チャネル/Subscription の生死判定)。
+static DIAG_FSCHANGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static DIAG_JOBDONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 type OleSnapshot = std::sync::Arc<std::sync::Mutex<Vec<(PaneId, iced::Rectangle, PathBuf)>>>;
 
 /// OLE 受信の診断ログ (%APPDATA%\FastFiler\ole_diag.log へ追記)。
@@ -1240,6 +1287,18 @@ fn ole_diag(msg: &str) {
 /// 統合テスト用: フォーカスペインの Id (実 UI には出さない)。
 pub fn focused_pane_for_test(app: &App) -> PaneId {
     app.model.focused_pane()
+}
+
+/// 統合テスト用: OLE ヒットテスト表 (物理px) を物理座標で引いた解決ペイン。
+pub fn ole_hit_for_test(app: &App, x: f32, y: f32) -> Option<PaneId> {
+    app.refresh_ole_snapshot();
+    let p = iced::Point::new(x, y);
+    app.ole_snapshot
+        .lock()
+        .ok()?
+        .iter()
+        .find(|(_, rect, _)| rect.contains(p))
+        .map(|(id, _, _)| *id)
 }
 
 /// iced application のテーマ (main.rs の .theme() から呼ばれる)。

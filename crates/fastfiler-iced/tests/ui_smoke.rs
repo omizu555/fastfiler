@@ -176,3 +176,54 @@ fn external_right_drop_copies_real_file() {
     let _ = std::fs::remove_dir_all(&base);
     assert!(ok, "「ここにコピー」を選んでもファイルがコピーされない");
 }
+
+/// 回帰: 非表示タブの古いペイン矩形が OLE ドロップのヒットテストに残り、
+/// 「別タブのペインへドロップが解決される」バグ (ユーザー実機ログで発見)。
+#[test]
+fn ole_hit_test_ignores_hidden_tabs() {
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", std::env::temp_dir());
+    }
+    let (mut app, _task) = app::boot();
+    let first_pane = app::focused_pane_for_test(&app);
+
+    // タブ 1 のペインが (0,0)-(800,600) を占めていたと通知
+    let _ = app::update(
+        &mut app,
+        Msg::List(
+            first_pane,
+            fastfiler_iced::widgets::file_list::ListEvent::BoundsChanged {
+                x: 0.0,
+                y: 0.0,
+                w: 800.0,
+                h: 600.0,
+            },
+        ),
+    );
+    // タブを追加 (アクティブが変わり、新ペインが同じ領域を占める)
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(fastfiler_core::update_app::TabMsg::Add)),
+    );
+    let second_pane = app::focused_pane_for_test(&app);
+    assert_ne!(first_pane, second_pane);
+    let _ = app::update(
+        &mut app,
+        Msg::List(
+            second_pane,
+            fastfiler_iced::widgets::file_list::ListEvent::BoundsChanged {
+                x: 0.0,
+                y: 0.0,
+                w: 800.0,
+                h: 600.0,
+            },
+        ),
+    );
+    // 同じ座標のヒットは「アクティブタブのペイン」に解決されるべき
+    let hit = app::ole_hit_for_test(&app, 400.0, 300.0);
+    assert_eq!(
+        hit,
+        Some(second_pane),
+        "非表示タブの古い矩形に解決されている (ドロップ先取り違えバグ)"
+    );
+}
