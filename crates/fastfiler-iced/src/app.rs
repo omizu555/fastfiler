@@ -1347,6 +1347,14 @@ pub fn focused_pane_for_test(app: &App) -> PaneId {
     app.model.focused_pane()
 }
 
+/// 統合テスト用: フォーカスペインにドロップメニューが開いているか。
+pub fn drop_menu_open_for_test(app: &App) -> bool {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .is_some_and(|p| matches!(p.overlay, Some(fastfiler_core::Overlay::DropMenu { .. })))
+}
+
 /// 統合テスト用: OLE ヒットテスト表 (物理px) を物理座標で引いた解決ペイン。
 pub fn ole_hit_for_test(app: &App, x: f32, y: f32) -> Option<PaneId> {
     app.refresh_ole_snapshot();

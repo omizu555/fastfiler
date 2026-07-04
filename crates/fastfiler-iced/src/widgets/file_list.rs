@@ -412,19 +412,30 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right))
+                if state.row_pressed.is_some() || self.drag_active =>
+            {
+                // 発生元ペインでの「ドラッグに至らない右クリック」= メニュー。
+                // (drag_active 中は全ペインが Released を受けるため、メニュー判定は
+                //  押下を記録した発生元かつ非ドラッグ時のみ)
                 if let Some((pos, ix, true)) = state.row_pressed.take() {
-                    if !state.row_dragging {
-                        // ドラッグに至らなければ右クリックメニュー
+                    if !state.row_dragging && !self.drag_active {
                         shell.publish((self.on_event)(ListEvent::RowRightClicked {
                             ix,
                             x: pos.x,
                             y: pos.y,
                         }));
                         shell.capture_event();
-                    } else if let Some(now) = cursor.position() {
-                        // 右ボタンドラッグのドロップ (このペイン上なら)
-                        state.row_dragging = false;
+                        return;
+                    }
+                }
+                // 右ボタンドラッグのドロップ: 左と同じく「アプリ全体のドラッグ状態」で
+                // 判定する — 発生元の state だけ見ると分割相手のペインで離したとき
+                // 誰も反応しない (実機報告「分割時の右ドラッグ無反応」の原因)
+                let was_dragging = state.row_dragging;
+                state.row_dragging = false;
+                if self.drag_active || was_dragging {
+                    if let Some(now) = cursor.position() {
                         if cursor.position_over(bounds).is_some() {
                             let row = self.row_at(&list, now);
                             shell.publish((self.on_event)(ListEvent::DragDropped {

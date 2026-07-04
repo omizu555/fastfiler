@@ -230,3 +230,136 @@ fn ole_hit_test_follows_active_tab() {
     assert_eq!(left_hit, Some(second_pane), "分割左ペインの解決が誤り");
     assert_eq!(right_hit, Some(right_pane), "分割右ペインの解決が誤り");
 }
+
+/// 回帰 (ユーザー操作想定): 分割ペイン間の右ボタンドラッグ&ドロップ。
+/// 右ドラッグの Released が「発生元ペインの押下状態」でしか判定されず、
+/// 分割相手のペインで離すと無反応になるバグ (実機報告) の再現と検証。
+#[test]
+fn internal_right_drag_across_panes_opens_chooser() {
+    // 行が必要なので実ファイルを持つフォルダを開く
+    let base = std::env::temp_dir().join(format!("ff_rdrag_{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(base.join("a.txt"), b"x").unwrap();
+    unsafe {
+        std::env::set_var("FASTFILER_OPEN", &base);
+    }
+    let (mut app, _task) = app::boot();
+    // 読み込み完了を待つ代わりに直接 Loaded を作れないため、実読み込みを促す:
+    // boot の LoadDir はタスク実行されないので、エントリを同期投入する
+    let pane = app::focused_pane_for_test(&app);
+    let entries = vec![fastfiler_core::Entry::new(
+        "a.txt".into(),
+        false,
+        1,
+        0,
+        Some("txt".into()),
+        false,
+    )];
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(
+            pane,
+            fastfiler_core::PaneMsg::Loaded {
+                generation: 1,
+                entries,
+            },
+        )),
+    );
+    // 左右分割 → フォーカスは新 (右) ペイン。ドラッグ元は左ペイン
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(
+            fastfiler_core::update_app::TabMsg::SplitFocused(fastfiler_core::bsp::SplitDir::Row),
+        )),
+    );
+
+    // 段階 0: 行 0 の実座標をプローブ (左クリックで RowPressed が出る y を探す —
+    // ヘッダ高はフォント等で変わるため決め打ちしない)
+    let row_y = (40..160)
+        .step_by(6)
+        .find(|&y| {
+            let mut ui = simulator(app::view(&app));
+            let p = iced::Point::new(500.0, y as f32);
+            ui.point_at(p);
+            let _ = ui.simulate(vec![
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: p }),
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )),
+            ]);
+            ui.into_messages().any(|m| {
+                matches!(
+                    m,
+                    Msg::List(
+                        _,
+                        fastfiler_iced::widgets::file_list::ListEvent::RowPressed { .. }
+                    )
+                )
+            })
+        })
+        .expect("行 0 の座標が見つからない (entries が表示されていない?)");
+
+    // 段階 1: 左ペインの行を右ボタンで掴んで 12px 動かす → DragStarted
+    let row_pos = iced::Point::new(500.0, row_y as f32);
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.point_at(row_pos);
+        let _ = ui.simulate(vec![
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: row_pos }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(
+                iced::mouse::Button::Right,
+            )),
+        ]);
+        ui.point_at(iced::Point::new(row_pos.x + 12.0, row_pos.y));
+        let _ = ui.simulate(std::iter::once(iced::Event::Mouse(
+            iced::mouse::Event::CursorMoved {
+                position: iced::Point::new(row_pos.x + 12.0, row_pos.y),
+            },
+        )));
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        let msgs_dbg: Vec<String> = msgs.iter().map(|m| format!("{m:?}")).collect();
+        let started = msgs.iter().any(|m| {
+            matches!(
+                m,
+                Msg::List(
+                    _,
+                    fastfiler_iced::widgets::file_list::ListEvent::DragStarted { .. }
+                )
+            )
+        });
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+        assert!(
+            started,
+            "右ドラッグの DragStarted が発行されない: {msgs_dbg:?}"
+        );
+    }
+
+    // 段階 2: 分割相手 (右ペイン) の上で右ボタンを離す → チューザーが開くべき
+    let drop_pos = iced::Point::new(880.0, 300.0);
+    {
+        let mut ui = simulator(app::view(&app));
+        ui.point_at(drop_pos);
+        let _ = ui.simulate(vec![
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: drop_pos }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Right,
+            )),
+        ]);
+        let msgs: Vec<Msg> = ui.into_messages().collect();
+        assert!(
+            !msgs.is_empty(),
+            "分割相手ペインでの右リリースが無反応 (実機バグの再現)"
+        );
+        for m in msgs {
+            let _ = app::update(&mut app, m);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    assert!(
+        app::drop_menu_open_for_test(&app),
+        "右ドラッグ&ドロップでチューザーメニューが開かない"
+    );
+}
