@@ -101,6 +101,12 @@ pub enum Effect {
     ShowShellMenu {
         paths: Vec<PathBuf>,
     },
+    /// 外部 (OLE) からの移動: Copy ジョブ + 完了後にソースをゴミ箱 (実行側が分解)。
+    /// 受信側の rename はドラッグ直後のソースロックと衝突するため使わない。
+    SpawnExternalMove {
+        pane: PaneId,
+        items: Vec<(PathBuf, PathBuf)>,
+    },
     /// ドロップメニュー確定後の転送 (update_app が衝突検出込みで展開する)。
     DropTransfer {
         pane: PaneId,

@@ -66,6 +66,9 @@ pub struct App {
     search: std::sync::Arc<fastfiler_domain::search::SearchState>,
     /// 検索の所属ペイン (job_id → pane)。
     search_owner: HashMap<u64, PaneId>,
+    /// 外部 MOVE (エクスプローラ発) の後始末: Copy ジョブ完了後にゴミ箱へ送る
+    /// ソースパス (job_id → srcs)。
+    external_move_cleanup: HashMap<u64, Vec<PathBuf>>,
     /// Everything ポート (Phase 6 で設定化。既定 80)。
     everything_port: u16,
     /// Undo 履歴 (全ペイン共通・直近 20 件 — domain の実装を再利用。ADR 0006/0008)。
@@ -203,6 +206,7 @@ pub fn boot() -> (App, Task<Msg>) {
         job_owner: HashMap::new(),
         search: std::sync::Arc::new(fastfiler_domain::search::SearchState::default()),
         search_owner: HashMap::new(),
+        external_move_cleanup: HashMap::new(),
         everything_port: cfg.everything_port,
         undo: UndoManager::new(),
         pending_move_undo: HashMap::new(),
@@ -399,10 +403,28 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                     job_id,
                     ok,
                     canceled,
+                    error,
                     done_files,
                     total_files,
                     ..
                 } => {
+                    ole_diag(&format!(
+                        "job done id={job_id} ok={ok} canceled={canceled} err={error:?} {done_files}/{total_files}"
+                    ));
+                    // 外部 MOVE の後始末: コピー完了後にソースをゴミ箱へ (移動の完成)。
+                    // 受信側が rename すると、ドラッグ直後のエクスプローラが掴んでいる
+                    // ソースと共有違反になるため、Copy + 削除に分解している
+                    if let Some(srcs) = app.external_move_cleanup.remove(job_id) {
+                        if *ok && !*canceled && done_files == total_files {
+                            let fx = vec![fastfiler_core::Effect::DeleteToTrash { paths: srcs }];
+                            let t = app.run_effects(fx);
+                            let route = match app.job_owner.remove(job_id) {
+                                Some(id) => app.apply(AppMsg::Pane(id, PaneMsg::Domain(ev))),
+                                None => Task::none(),
+                            };
+                            return Task::batch([t, route]);
+                        }
+                    }
                     // 移動ジョブの Undo 確定: 全件成功時のみ記録 (ADR 0008)
                     if let Some(items) = app.pending_move_undo.remove(job_id) {
                         if *ok && !*canceled && done_files == total_files {
@@ -723,7 +745,9 @@ impl App {
     /// enter/over はスナップショットから effect を即答し、drop はチャネルで
     /// update() へ運ぶ (コールバックは DoDragDrop のモーダルループ内で走る)。
     fn register_ole_drop_target(&self, hwnd: isize) {
-        use fastfiler_win::drop_target::{self, DropCallbacks, DROPEFFECT_NONE};
+        use fastfiler_win::drop_target::{
+            self, DropCallbacks, DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_NONE,
+        };
         let snap = std::sync::Arc::clone(&self.ole_snapshot);
         let latch = std::sync::Arc::clone(&self.ole_right_latch);
         let effect_at = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
@@ -767,6 +791,14 @@ impl App {
         let latch_drop = std::sync::Arc::clone(&latch);
         let on_drop = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
             let effect = effect_at(paths, pos, keys, allowed);
+            // OLE への戻り値は MOVE でも COPY に丸める: MOVE を返すとソース
+            // (エクスプローラ) が元の削除を試み、こちらのコピーとレースする。
+            // 移動の実務 (コピー + ソース削除) はアプリ側で完結させる
+            let ole_return = if effect == DROPEFFECT_MOVE {
+                DROPEFFECT_COPY
+            } else {
+                effect
+            };
             let right = latch_drop.swap(false, std::sync::atomic::Ordering::Relaxed);
             let keys = if right {
                 keys | fastfiler_win::drop_target::MK_RBUTTON
@@ -795,7 +827,7 @@ impl App {
                     }),
                 );
             }
-            effect
+            ole_return
         };
         let on_enter_logged = move |paths: &[PathBuf], pos: (i32, i32), keys: u32, allowed: u32| {
             let effect = on_enter(paths, pos, keys, allowed);
@@ -1063,6 +1095,23 @@ impl App {
                 }
                 // ジョブ起動: id 採番 → Undo 候補 + 所属ペイン登録 → スレッド起動の順
                 // (起動後の登録だと速いジョブの JobDone に追い越されるレース)
+                Effect::SpawnExternalMove { pane, items } => {
+                    let job_id = self.jobs.next_id();
+                    ole_diag(&format!(
+                        "spawn external-move(copy) job={job_id} items={} first={:?}",
+                        items.len(),
+                        items.first()
+                    ));
+                    self.job_owner.insert(job_id, pane);
+                    self.external_move_cleanup
+                        .insert(job_id, items.iter().map(|(from, _)| from.clone()).collect());
+                    effects::spawn_job(
+                        &self.jobs,
+                        job_id,
+                        fastfiler_core::transfer::TransferOp::Copy,
+                        items,
+                    );
+                }
                 Effect::SpawnJob { pane, op, items } => {
                     let job_id = self.jobs.next_id();
                     ole_diag(&format!(

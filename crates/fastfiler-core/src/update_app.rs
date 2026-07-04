@@ -247,7 +247,7 @@ fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
             } else {
                 TransferOp::Copy
             };
-            start_drop_transfer(m, pane, op, paths, dest)
+            start_drop_transfer_ext(m, pane, op, paths, dest, true)
         }
         DragMsg::ExternalMoveDone { paths } => {
             // 外部への MOVE 完了: PerformedDropEffect==MOVE のときだけ呼ばれる
@@ -313,6 +313,19 @@ pub(crate) fn start_drop_transfer(
     paths: Vec<std::path::PathBuf>,
     dest: std::path::PathBuf,
 ) -> Vec<Effect> {
+    start_drop_transfer_ext(m, pane, op, paths, dest, false)
+}
+
+/// `external_move` = 外部 (OLE) 発の移動: Copy + ソース削除に分解する
+/// (受信側 rename はエクスプローラのソースロックと共有違反になる)。
+pub(crate) fn start_drop_transfer_ext(
+    m: &mut AppModel,
+    pane: PaneId,
+    op: crate::transfer::TransferOp,
+    paths: Vec<std::path::PathBuf>,
+    dest: std::path::PathBuf,
+    external_move: bool,
+) -> Vec<Effect> {
     use crate::transfer::{self, ConflictChoice};
     let Some(p) = m.panes.get_mut(pane) else {
         return vec![];
@@ -336,6 +349,9 @@ pub(crate) fn start_drop_transfer(
     }
     if plan.conflicts.is_empty() {
         let items = transfer::resolve_conflicts(&plan, ConflictChoice::Overwrite, &existing);
+        if external_move && op == transfer::TransferOp::Move {
+            return vec![Effect::SpawnExternalMove { pane, items }];
+        }
         vec![Effect::SpawnJob { pane, op, items }]
     } else {
         p.overlay = Some(crate::model::Overlay::Conflict { plan });

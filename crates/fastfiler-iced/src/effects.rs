@@ -169,6 +169,7 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
         | Effect::OpenTabFor { .. }
         | Effect::StartSearch { .. }
         | Effect::DropTransfer { .. } // update_app 内で展開済み (ここには来ない)
+        | Effect::SpawnExternalMove { .. } // app.rs run_effects 側で処理
         | Effect::ScheduleSessionSave => Task::none(),
         Effect::LoadDrives => Task::future(async {
             let drives = tokio::task::spawn_blocking(dfs::list_drives).await;
