@@ -112,10 +112,7 @@ pub fn view<'a>(
     .spacing(14)
     .align_y(iced::Alignment::Center);
 
-    let renderer_labels = vec![
-        "省メモリ (既定)".to_string(),
-        "GPU (wgpu/DX12)".to_string(),
-    ];
+    let renderer_labels = vec!["省メモリ (既定)".to_string(), "GPU (wgpu/DX12)".to_string()];
     let current_renderer = if settings.renderer.as_deref() == Some("gpu") {
         "GPU (wgpu/DX12)".to_string()
     } else {

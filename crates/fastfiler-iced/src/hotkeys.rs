@@ -152,8 +152,9 @@ fn load() -> HashMap<Combo, HotAction> {
             return serde_json::from_str(&text).ok();
         }
         // 初回: 開発期の iced_ 名 → GPUI 版から自動移行して hotkeys.json を生成
-        let migrated: Option<HashMap<String, String>> =
-            ["iced_hotkeys.json", "gpui_hotkeys.json"].iter().find_map(|n| {
+        let migrated: Option<HashMap<String, String>> = ["iced_hotkeys.json", "gpui_hotkeys.json"]
+            .iter()
+            .find_map(|n| {
                 std::fs::read_to_string(dir.join(n))
                     .ok()
                     .and_then(|t| serde_json::from_str(&t).ok())

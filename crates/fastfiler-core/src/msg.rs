@@ -119,4 +119,9 @@ pub enum PaneMsg {
     ShellMenuRequest {
         row: Option<usize>,
     },
+    /// 右ボタン押下 (メニュー/ドラッグの起点)。エクスプローラ準拠:
+    /// 選択に含まれない行なら押下の瞬間に単一選択へ (含まれるなら複数選択を維持)。
+    RightPressed {
+        ix: usize,
+    },
 }

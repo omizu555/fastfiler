@@ -1,3 +1,8 @@
+// release ビルドではコンソール窓を出さない (GUI アプリ)。
+// debug ビルドは開発用マーカー (WINDOW_OK / BENCH_* / STRESS_RESULT) を
+// stdout で見るためコンソールを維持する。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! FastFiler iced 版のエントリポイント (起動だけ。組み立ては lib の app 参照)。
 //!
 //! 検証用の環境変数:

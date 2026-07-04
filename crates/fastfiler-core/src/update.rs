@@ -456,6 +456,12 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             });
             vec![]
         }
+        PaneMsg::RightPressed { ix } => {
+            if !p.showing_search() && !p.selected.contains(&ix) && ix < p.entries.len() {
+                p.click_row(ix, false, false);
+            }
+            vec![]
+        }
         PaneMsg::ShellMenuRequest { row } => {
             if p.showing_search() {
                 return vec![];

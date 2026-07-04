@@ -51,8 +51,6 @@ pub struct App {
     pub(crate) port_input: String,
     /// インストール済みフォント一覧 (設定画面を開いたとき一度だけ列挙)。
     pub(crate) font_list: Vec<String>,
-    /// フッタ上のカーソル位置 (ペイン毎ローカル座標 — 右クリックメニューの表示位置)。
-    pub(crate) footer_cursor: HashMap<PaneId, (f32, f32)>,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -88,8 +86,6 @@ pub struct App {
     hwnd: Option<isize>,
     /// DPI スケール (OLE ドロップの物理→論理座標変換用)。
     scale_factor: f32,
-    /// 各ペインの一覧矩形 (論理座標。外部 D&D のヒットテスト用)。
-    pane_rects: HashMap<PaneId, iced::Rectangle>,
     /// OLE コールバック (UI スレッドの DoDragDrop モーダルループ内) と共有する
     /// ヒットテスト表: (PaneId, ペイン矩形 [物理px], cur_path)。
     /// enter/over の effect 決定と drop のペイン解決の両方がこの単一の表を引く
@@ -142,8 +138,6 @@ pub enum Msg {
     Settings(SettingsMsg),
     /// フッタ (項目数表示) の右クリック = 背景メニュー (一覧に空白が無いペイン対策)。
     FooterRightClicked(PaneId),
-    /// フッタ上のカーソル移動 (メニュー表示位置の追跡)。
-    FooterCursorMoved(PaneId, f32, f32),
     GotScale(f32),
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
@@ -195,7 +189,6 @@ pub fn boot() -> (App, Task<Msg>) {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
         port_input: cfg.everything_port.to_string(),
         font_list: Vec::new(),
-        footer_cursor: HashMap::new(),
         settings: cfg.clone(),
         show_settings: false,
         model,
@@ -217,7 +210,6 @@ pub fn boot() -> (App, Task<Msg>) {
         window_id: None,
         hwnd: None,
         scale_factor: 1.0,
-        pane_rects: HashMap::new(),
         ole_snapshot: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         ole_right_latch: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         save_seq: 0,
@@ -290,6 +282,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 ListEvent::ColResized { col, width } => PaneMsg::ColResized { col, width },
                 ListEvent::Scrolled(o) => PaneMsg::Scrolled(o),
                 ListEvent::ViewportChanged { height } => PaneMsg::ViewportChanged { height },
+                ListEvent::RowRightPressed { ix } => PaneMsg::RightPressed { ix },
                 ListEvent::RowRightClicked { ix, x, y } => {
                     if app.modifiers.shift() {
                         // Shift+右クリック = Windows シェルメニュー (F-905)
@@ -311,12 +304,6 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                             can_paste,
                         },
                     ));
-                }
-                ListEvent::BoundsChanged { x, y, w, h } => {
-                    app.pane_rects
-                        .insert(pane, iced::Rectangle::new((x, y).into(), Size::new(w, h)));
-                    app.refresh_ole_snapshot();
-                    return Task::none();
                 }
                 ListEvent::DragExitedWindow => {
                     // 外部への OLE 送信 (F-603)。DoDragDrop は UI スレッドで
@@ -541,10 +528,6 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::batch(tasks)
         }
         Msg::Settings(m) => handle_settings(app, m),
-        Msg::FooterCursorMoved(pane, x, y) => {
-            app.footer_cursor.insert(pane, (x, y));
-            Task::none()
-        }
         Msg::FooterRightClicked(pane) => {
             // メニュー位置: 負の sentinel を渡すと ContextMenu が実カーソル位置で
             // 開く (widget は draw/update でカーソルを直接観測できる)
@@ -894,9 +877,8 @@ impl App {
         });
         let Some(pane) = resolved.filter(|id| self.model.panes.contains_key(*id)) else {
             ole_diag(&format!(
-                "handle: NO PANE at client=({cx},{cy}) scale={} rects={}",
-                self.scale_factor,
-                self.pane_rects.len()
+                "handle: NO PANE at client=({cx},{cy}) scale={}",
+                self.scale_factor
             ));
             return Task::none();
         };
@@ -1823,12 +1805,10 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
         let sui = p.search.as_ref().unwrap();
         FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
             .entries_override(&sui.hits, p.load_gen.wrapping_add(1_000_000))
-            .pane_token(fastfiler_core::model::pane_token(id))
             .into()
     } else {
         FileList::new(p, &app.icons, move |ev| Msg::List(id, ev))
             .drag_context(drag_active, drop_highlight)
-            .pane_token(fastfiler_core::model::pane_token(id))
             .into()
     };
 
