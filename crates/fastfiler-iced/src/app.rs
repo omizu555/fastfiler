@@ -51,6 +51,8 @@ pub struct App {
     pub(crate) port_input: String,
     /// インストール済みフォント一覧 (設定画面を開いたとき一度だけ列挙)。
     pub(crate) font_list: Vec<String>,
+    /// フォント候補の絞り込み文字列 (設定画面)。
+    pub(crate) font_filter: String,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -197,6 +199,7 @@ pub fn boot() -> (App, Task<Msg>) {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
         port_input: cfg.everything_port.to_string(),
         font_list: Vec::new(),
+        font_filter: String::new(),
         settings: cfg.clone(),
         show_settings: false,
         model,
@@ -1208,6 +1211,9 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
         SettingsMsg::SetFontFamily(name) => {
             app.settings = settings::update(|s| s.font_family = Some(name));
         }
+        SettingsMsg::SetFontFilter(v) => {
+            app.font_filter = v;
+        }
         SettingsMsg::SetPort(v) => {
             // 編集バッファに保持し、有効な数値のときだけ保存する
             // (空欄や途中入力で保存値を上書きしない)
@@ -1437,8 +1443,13 @@ fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Val
 pub fn view(app: &App) -> Element<'_, Msg> {
     // 設定画面 (独立 view — F-1101)
     if app.show_settings {
-        return settings_view::view(&app.settings, &app.port_input, &app.font_list)
-            .map(Msg::Settings);
+        return settings_view::view(
+            &app.settings,
+            &app.port_input,
+            &app.font_list,
+            &app.font_filter,
+        )
+        .map(Msg::Settings);
     }
     // ---- 縦タブバー (左) ----
     let tabs: Vec<TabItem> = (0..app.model.tabs.len())

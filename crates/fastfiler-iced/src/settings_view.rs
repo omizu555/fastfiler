@@ -21,6 +21,7 @@ pub enum SettingsMsg {
     ReloadThemes,
     SetFontSize(f32),
     SetFontFamily(String),
+    SetFontFilter(String),
     SetPort(String),
     SetTabColumns(u8),
     SetRenderer(String),
@@ -38,6 +39,7 @@ pub fn view<'a>(
     settings: &'a AppSettings,
     port_input: &'a str,
     fonts: &[String],
+    font_filter: &'a str,
 ) -> Element<'a, SettingsMsg> {
     let themes = crate::theme::theme_names();
     let current_theme = settings
@@ -70,21 +72,58 @@ pub fn view<'a>(
         .font_family
         .clone()
         .unwrap_or_else(|| "Yu Gothic UI".to_string());
-    let font_row = row![
-        pick_list(
-            fonts.to_vec(),
-            Some(current_font),
-            SettingsMsg::SetFontFamily
-        )
-        .width(240),
-        text(format!("サイズ {:.0}px", settings.font_size)).size(12),
-        slider(10.0..=28.0, settings.font_size, SettingsMsg::SetFontSize)
-            .step(1.0)
-            .width(160),
-        text("フォントは再起動後に反映").size(11),
+    // フォント選択: コンボボックス (pick_list) はドロップダウンのスクロールが
+    // 省メモリレンダラでクリップされず文字が重なるため、スクロール不要の
+    // 「絞り込み入力 + 候補ボタン」方式にする (数百件から打って絞る方が速い)
+    let filter_lower = font_filter.to_lowercase();
+    let matches: Vec<&String> = fonts
+        .iter()
+        .filter(|f| filter_lower.is_empty() || f.to_lowercase().contains(&filter_lower))
+        .collect();
+    const FONT_CANDIDATES: usize = 8;
+    let mut font_col = column![
+        row![
+            text(format!("現在: {current_font}")).size(13),
+            text(format!("サイズ {:.0}px", settings.font_size)).size(12),
+            slider(10.0..=28.0, settings.font_size, SettingsMsg::SetFontSize)
+                .step(1.0)
+                .width(160),
+            text("フォントは再起動後に反映").size(11),
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center),
+        text_input("フォント名で絞り込み (例: yu, gothic, 明朝)…", font_filter)
+            .on_input(SettingsMsg::SetFontFilter)
+            .width(280)
+            .size(13),
     ]
-    .spacing(10)
-    .align_y(iced::Alignment::Center);
+    .spacing(6);
+    let mut candidates = row![].spacing(6);
+    for f in matches.iter().take(FONT_CANDIDATES) {
+        let name = (*f).clone();
+        let selected = **f == current_font;
+        candidates = candidates.push(
+            button(text((*f).clone()).size(12))
+                .padding([3, 8])
+                .style(if selected {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(SettingsMsg::SetFontFamily(name)),
+        );
+    }
+    font_col = font_col.push(candidates.wrap());
+    if matches.len() > FONT_CANDIDATES {
+        font_col = font_col.push(
+            text(format!(
+                "…ほか {} 件 — 絞り込むと候補が表示されます",
+                matches.len() - FONT_CANDIDATES
+            ))
+            .size(11),
+        );
+    }
+    let font_row = font_col;
 
     let port_row = row![
         text_input("80", port_input)
