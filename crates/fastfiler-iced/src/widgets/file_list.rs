@@ -529,6 +529,8 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         let bounds = layout.bounds();
         let list = self.list_bounds(bounds);
         let palette = theme.extended_palette();
+        // 最下行の部分表示が widget 外 (フッタ) へはみ出さないようレイヤでクリップ
+        renderer.start_layer(bounds);
         let text_color = style.text_color;
         let dim = Color {
             a: 0.65,
@@ -742,6 +744,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 },
             );
         }
+        renderer.end_layer();
     }
 }
 

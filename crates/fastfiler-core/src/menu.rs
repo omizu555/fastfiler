@@ -13,10 +13,14 @@
 pub struct CommandInfo {
     pub id: String,
     pub label: String,
-    /// "file" | "folder" | "selection" | "background" | "drop" | "any"
+    /// "file" | "folder" ("dir" 別名) | "selection" | "background" | "drop" | "any"
     pub when: String,
     /// 空 = 全拡張子。指定時はカーソル行の拡張子が一致するときだけ表示。
     pub extensions: Vec<String>,
+    /// サブメニューに畳む。"/" 区切りで最大 3 階層 (COMMANDS.md §サブメニュー)。
+    pub submenu: Option<String>,
+    /// true でメニューに出さない (一時的な無効化)。
+    pub hidden: bool,
 }
 
 /// テンプレート情報の抜粋。
@@ -124,28 +128,85 @@ fn new_file_submenu(templates: &[TemplateInfo]) -> MenuItem {
     }
 }
 
-/// ユーザーコマンドの表示フィルタ (COMMANDS.md の when 6 種)。
-/// row = Some((is_dir, ext)) は行の上、None は背景。
+/// メニュー階層の上限 (COMMANDS.md: "/" 区切りで最大 3 階層)。
+const MENU_MAX_DEPTH: usize = 3;
+/// 各メニューの項目数上限 (COMMANDS.md: 先頭から最大 50 件)。
+const MENU_MAX_ITEMS: usize = 50;
+
+/// ユーザーコマンドの表示フィルタ (COMMANDS.md の when 6 種) +
+/// submenu によるグルーピング (同じ submenu が 1 つの ▸ にまとまる)。
 fn user_command_items(
     commands: &[CommandInfo],
     row: Option<(bool, Option<&str>)>,
 ) -> Vec<MenuItem> {
-    commands
-        .iter()
-        .filter(|c| match (c.when.as_str(), row) {
-            ("any", _) => true,
-            ("file", Some((false, ext))) => {
-                c.extensions.is_empty()
-                    || ext.is_some_and(|e| c.extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
+    let mut root: Vec<MenuItem> = Vec::new();
+    for c in commands.iter().filter(|c| {
+        !c.hidden
+            && match (c.when.as_str(), row) {
+                ("any", _) => true,
+                ("file", Some((false, ext))) => {
+                    c.extensions.is_empty()
+                        || ext
+                            .is_some_and(|e| c.extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
+                }
+                ("folder" | "dir", Some((true, _))) => true,
+                ("selection", Some(_)) => true,
+                ("background", None) => true,
+                // "drop" は右ボタン D&D メニュー専用
+                _ => false,
             }
-            ("folder", Some((true, _))) => true,
-            ("selection", Some(_)) => true,
-            ("background", None) => true,
-            // "drop" は右ボタン D&D メニュー専用 (5c で使用)
-            _ => false,
+    }) {
+        let path = parse_submenu(c.submenu.as_deref());
+        insert_grouped(
+            &mut root,
+            &path,
+            MenuItem::leaf(&c.label, MenuAction::UserCommand(c.id.clone())),
+        );
+    }
+    root
+}
+
+/// `submenu` の "/" 区切りを階層パスへ (GPUI 版 parse_group と同一規則)。
+fn parse_submenu(submenu: Option<&str>) -> Vec<String> {
+    submenu
+        .map(|s| {
+            s.split('/')
+                .map(|x| x.trim())
+                .filter(|x| !x.is_empty())
+                .take(MENU_MAX_DEPTH)
+                .map(String::from)
+                .collect()
         })
-        .map(|c| MenuItem::leaf(&c.label, MenuAction::UserCommand(c.id.clone())))
-        .collect()
+        .unwrap_or_default()
+}
+
+/// 階層パスに沿ってグループ (▸) を作りながら項目を挿入する。
+/// 記述順を保ち、各メニュー 50 件で打ち切る (COMMANDS.md)。
+fn insert_grouped(items: &mut Vec<MenuItem>, path: &[String], leaf: MenuItem) {
+    let Some((head, rest)) = path.split_first() else {
+        if items.len() < MENU_MAX_ITEMS {
+            items.push(leaf);
+        }
+        return;
+    };
+    if let Some(group) = items
+        .iter_mut()
+        .find(|i| i.action == MenuAction::Submenu && i.label == *head)
+    {
+        insert_grouped(&mut group.children, rest, leaf);
+        return;
+    }
+    if items.len() >= MENU_MAX_ITEMS {
+        return;
+    }
+    let mut group = MenuItem {
+        label: head.clone(),
+        action: MenuAction::Submenu,
+        enabled: true,
+        children: Vec::new(),
+    };
+    insert_grouped(&mut group.children, rest, leaf);
+    items.push(group);
 }
 
 /// 右ボタン D&D のドロップメニュー (F-605。5c で使用)。
@@ -174,7 +235,38 @@ mod tests {
             label: id.into(),
             when: when.into(),
             extensions: exts.iter().map(|s| s.to_string()).collect(),
+            submenu: None,
+            hidden: false,
         }
+    }
+
+    #[test]
+    fn submenu_groups_commands_up_to_three_levels() {
+        let mut a = cmd("vscode-open", "any", &[]);
+        a.submenu = Some("VSCode で開く".into());
+        let mut b = cmd("vscode-diff", "any", &[]);
+        b.submenu = Some("VSCode で開く".into());
+        let mut c = cmd("deep", "any", &[]);
+        c.submenu = Some("ツール/変換/画像/さらに深い".into()); // 4 階層目は切り捨て
+        let mut h = cmd("hidden-one", "any", &[]);
+        h.hidden = true;
+        let top = cmd("top", "any", &[]);
+        let items = user_command_items(&[a, b, c, h, top], None);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["VSCode で開く", "ツール", "top"]); // hidden は出ない
+        let vs = &items[0];
+        assert_eq!(vs.action, MenuAction::Submenu);
+        assert_eq!(vs.children.len(), 2); // 同じ submenu が 1 つにまとまる
+                                          // 3 階層で打ち切り: ツール ▸ 変換 ▸ 画像 (葉は 3 階層目の中)
+        let tool = &items[1];
+        let conv = &tool.children[0];
+        let img = &conv.children[0];
+        assert_eq!(
+            (tool.label.as_str(), conv.label.as_str(), img.label.as_str()),
+            ("ツール", "変換", "画像")
+        );
+        assert_eq!(img.children[0].label, "deep");
+        assert!(img.children[0].children.is_empty());
     }
 
     #[test]

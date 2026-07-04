@@ -8,5 +8,6 @@
 
 #[cfg(windows)]
 pub mod drop_target;
+pub mod fonts;
 pub mod single_instance;
 pub mod window_interop;

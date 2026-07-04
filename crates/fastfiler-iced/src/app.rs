@@ -49,6 +49,8 @@ pub struct App {
     pub(crate) show_settings: bool,
     /// ポート欄の編集バッファ (parse 成功時のみ保存 — 編集途中の強制上書き防止)。
     pub(crate) port_input: String,
+    /// インストール済みフォント一覧 (設定画面を開いたとき一度だけ列挙)。
+    pub(crate) font_list: Vec<String>,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -178,6 +180,7 @@ pub fn boot() -> (App, Task<Msg>) {
     let mut app = App {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
         port_input: cfg.everything_port.to_string(),
+        font_list: Vec::new(),
         settings: cfg.clone(),
         show_settings: false,
         model,
@@ -983,6 +986,9 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
     match msg {
         SettingsMsg::Open => {
             app.show_settings = true;
+            if app.font_list.is_empty() {
+                app.font_list = fastfiler_win::fonts::installed_font_families();
+            }
         }
         SettingsMsg::Close => {
             app.show_settings = false;
@@ -1017,9 +1023,7 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
             return app.bump_save_seq();
         }
         SettingsMsg::SetFontFamily(name) => {
-            let trimmed = name.trim().to_string();
-            app.settings =
-                settings::update(|s| s.font_family = (!trimmed.is_empty()).then_some(trimmed));
+            app.settings = settings::update(|s| s.font_family = Some(name));
         }
         SettingsMsg::SetPort(v) => {
             // 編集バッファに保持し、有効な数値のときだけ保存する
@@ -1151,7 +1155,8 @@ fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Val
 pub fn view(app: &App) -> Element<'_, Msg> {
     // 設定画面 (独立 view — F-1101)
     if app.show_settings {
-        return settings_view::view(&app.settings, &app.port_input).map(Msg::Settings);
+        return settings_view::view(&app.settings, &app.port_input, &app.font_list)
+            .map(Msg::Settings);
     }
     // ---- 縦タブバー (左) ----
     let tabs: Vec<TabItem> = (0..app.model.tabs.len())

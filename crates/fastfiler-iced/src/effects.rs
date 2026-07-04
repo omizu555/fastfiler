@@ -378,6 +378,8 @@ pub fn collect_menu_context() -> (
                     label: c.label,
                     when: c.when,
                     extensions: c.extensions,
+                    submenu: c.submenu,
+                    hidden: c.hidden,
                 })
                 .collect()
         })

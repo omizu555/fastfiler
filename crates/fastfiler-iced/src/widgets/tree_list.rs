@@ -195,6 +195,8 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
         let palette = theme.extended_palette();
+        // 最下行の部分表示が widget 外へはみ出さないようレイヤでクリップ
+        renderer.start_layer(bounds);
         let offset = self.offset.clamp(0.0, self.max_offset(bounds.height));
         let first = (offset / TREE_ROW_H) as usize;
         let visible = (bounds.height / TREE_ROW_H).ceil() as usize + 1;
@@ -284,6 +286,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
                 },
             );
         }
+        renderer.end_layer();
     }
 }
 

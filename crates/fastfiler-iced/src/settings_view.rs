@@ -31,8 +31,13 @@ pub enum SettingsMsg {
 }
 
 /// 設定画面の view。テーマ名一覧は毎回 theme::theme_names() から取る。
-/// `port_input` はポート欄の編集バッファ (App が所有)。
-pub fn view<'a>(settings: &'a AppSettings, port_input: &'a str) -> Element<'a, SettingsMsg> {
+/// `port_input` はポート欄の編集バッファ、`fonts` はインストール済みフォント
+/// ファミリー一覧 (App が設定画面を開くときに一度だけ列挙してキャッシュ)。
+pub fn view<'a>(
+    settings: &'a AppSettings,
+    port_input: &'a str,
+    fonts: &[String],
+) -> Element<'a, SettingsMsg> {
     let themes = crate::theme::theme_names();
     let current_theme = settings
         .theme
@@ -60,18 +65,22 @@ pub fn view<'a>(settings: &'a AppSettings, port_input: &'a str) -> Element<'a, S
     .spacing(10)
     .align_y(iced::Alignment::Center);
 
+    let current_font = settings
+        .font_family
+        .clone()
+        .unwrap_or_else(|| "Yu Gothic UI".to_string());
     let font_row = row![
-        text_input(
-            "フォント名 (例: Yu Gothic UI)",
-            settings.font_family.as_deref().unwrap_or("")
+        pick_list(
+            fonts.to_vec(),
+            Some(current_font),
+            SettingsMsg::SetFontFamily
         )
-        .on_input(SettingsMsg::SetFontFamily)
-        .width(220),
+        .width(240),
         text(format!("サイズ {:.0}px", settings.font_size)).size(12),
         slider(10.0..=28.0, settings.font_size, SettingsMsg::SetFontSize)
             .step(1.0)
             .width(160),
-        text("フォント名は再起動後に反映").size(11),
+        text("フォントは再起動後に反映").size(11),
     ]
     .spacing(10)
     .align_y(iced::Alignment::Center);
