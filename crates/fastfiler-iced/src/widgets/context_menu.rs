@@ -124,6 +124,20 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
+        // メニュー表示中は最上位レイヤがすべてのマウス操作を受ける (常に 1 か所)。
+        // CursorMoved はホバーの再描画要求も兼ねる (差分描画の残像対策)
+        match event {
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                shell.request_redraw();
+                shell.capture_event();
+                return;
+            }
+            Event::Mouse(mouse::Event::WheelScrolled { .. }) => {
+                shell.capture_event();
+                return;
+            }
+            _ => {}
+        }
         if let Event::Mouse(mouse::Event::ButtonPressed(
             mouse::Button::Left | mouse::Button::Right,
         )) = event
@@ -167,6 +181,17 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
         let palette = theme.extended_palette();
+        // 画面全域の薄い覆い: メニュー外を淡くしてモーダル感を出しつつ、
+        // 全域を毎フレーム塗ることで差分描画の残像 (ハイライトの引きずり) を防ぐ
+        renderer.fill_quad(
+            Quad {
+                bounds,
+                border: Border::default(),
+                shadow: Shadow::default(),
+                snap: true,
+            },
+            Color::from_rgba(0.0, 0.0, 0.0, 0.10),
+        );
         for (rect, items, _prefix) in self.panels(&bounds) {
             renderer.fill_quad(
                 Quad {
@@ -177,9 +202,9 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for ContextMenu<'_, Message
                         radius: fastfiler_iced_radius_md(),
                     },
                     shadow: Shadow {
-                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.35),
-                        offset: iced::Vector::new(0.0, 2.0),
-                        blur_radius: 12.0,
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                        offset: iced::Vector::new(0.0, 1.0),
+                        blur_radius: 4.0,
                     },
                     snap: true,
                 },

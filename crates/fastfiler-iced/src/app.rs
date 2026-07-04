@@ -130,6 +130,8 @@ pub enum Msg {
     WindowOpened(window::Id),
     GotHwnd(Option<(isize, f32)>),
     Settings(SettingsMsg),
+    /// フッタ (項目数表示) の右クリック = 背景メニュー (一覧に空白が無いペイン対策)。
+    FooterRightClicked(PaneId),
     GotScale(f32),
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
@@ -497,6 +499,27 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             Task::batch(tasks)
         }
         Msg::Settings(m) => handle_settings(app, m),
+        Msg::FooterRightClicked(pane) => {
+            // メニュー位置: カーソル位置は取れないため、ペイン矩形の下部 (フッタ付近)。
+            // 画面端フリップは ContextMenu 側が処理する
+            let at = app
+                .pane_rects
+                .get(&pane)
+                .map(|r| (r.x + 16.0, r.y + r.height + 4.0))
+                .unwrap_or((100.0, 100.0));
+            let (templates, commands, templates_dir, can_paste) = effects::collect_menu_context();
+            app.apply(AppMsg::Pane(
+                pane,
+                PaneMsg::OpenMenu {
+                    at,
+                    row: None,
+                    templates,
+                    commands,
+                    templates_dir,
+                    can_paste,
+                },
+            ))
+        }
         Msg::GotScale(s) => {
             app.scale_factor = s;
             app.refresh_ole_snapshot();
@@ -1570,7 +1593,10 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
     if let Some(bar) = search_bar {
         body = body.push(container(bar).padding([2, 4]));
     }
-    let body = body.push(list).push(container(footer).padding([2, 6]));
+    // フッタ右クリック = 背景メニュー (ファイルが多く一覧に空白が無いときの導線)
+    let footer_area = iced::widget::mouse_area(container(footer).padding([2, 6]))
+        .on_right_press(Msg::FooterRightClicked(id));
+    let body = body.push(list).push(footer_area);
     // フォーカスペインの青枠 (複数ペイン時のみ強調 — GPUI と同じ視覚言語)
     let border_color = if focused && multi {
         iced::Color::from_rgb(0.25, 0.55, 1.0)
