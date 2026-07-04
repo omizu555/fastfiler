@@ -30,7 +30,8 @@ pub enum SettingsMsg {
 }
 
 /// 設定画面の view。テーマ名一覧は毎回 theme::theme_names() から取る。
-pub fn view(settings: &AppSettings) -> Element<'_, SettingsMsg> {
+/// `port_input` はポート欄の編集バッファ (App が所有)。
+pub fn view<'a>(settings: &'a AppSettings, port_input: &'a str) -> Element<'a, SettingsMsg> {
     let themes = crate::theme::theme_names();
     let current_theme = settings
         .theme
@@ -66,7 +67,7 @@ pub fn view(settings: &AppSettings) -> Element<'_, SettingsMsg> {
     .align_y(iced::Alignment::Center);
 
     let port_row = row![
-        text_input("80", &settings.everything_port.to_string())
+        text_input("80", port_input)
             .on_input(SettingsMsg::SetPort)
             .width(90),
         text("Everything (HTTP) のポート。未起動なら内蔵検索に自動フォールバック").size(11),

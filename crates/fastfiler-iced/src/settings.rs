@@ -111,13 +111,24 @@ pub fn get() -> AppSettings {
 
 /// 設定を変更して即保存する (GPUI 版と同じ)。
 pub fn update(f: impl FnOnce(&mut AppSettings)) -> AppSettings {
+    let cur = update_in_memory(f);
+    save(&cur);
+    cur
+}
+
+/// メモリ上だけ変更する (高頻度変更用 — 保存は `flush()` に委ねる)。
+pub fn update_in_memory(f: impl FnOnce(&mut AppSettings)) -> AppSettings {
     let mut cur = get();
     f(&mut cur);
     if let Ok(mut g) = store().write() {
         *g = cur.clone();
     }
-    save(&cur);
     cur
+}
+
+/// 現在のメモリ上の設定をディスクへ書く (デバウンス保存の合流点)。
+pub fn flush() {
+    save(&get());
 }
 
 fn save(s: &AppSettings) {

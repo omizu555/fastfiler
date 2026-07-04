@@ -47,6 +47,8 @@ pub struct App {
     pub(crate) settings: crate::settings::AppSettings,
     /// 設定画面の表示中フラグ (独立 view — GPUI 版 render_settings の反省で分離)。
     pub(crate) show_settings: bool,
+    /// ポート欄の編集バッファ (parse 成功時のみ保存 — 編集途中の強制上書き防止)。
+    pub(crate) port_input: String,
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
@@ -174,6 +176,7 @@ pub fn boot() -> (App, Task<Msg>) {
     let cfg = crate::settings::get();
     let mut app = App {
         theme: crate::theme::by_name(cfg.theme.as_deref()),
+        port_input: cfg.everything_port.to_string(),
         settings: cfg.clone(),
         show_settings: false,
         model,
@@ -407,6 +410,28 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         }
         Msg::Key(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
             app.modifiers = modifiers;
+            // テキスト編集 UI (設定画面 / オーバーレイ) がアクティブな間は
+            // グローバルホットキーを止める。iced の text_input は F キーや
+            // Ctrl+Z を capture しないため、ここで止めないと「リネーム編集中の
+            // Ctrl+Z が実ファイル操作を Undo する」事故になる。Esc だけ通す
+            if app.show_settings {
+                if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                    app.show_settings = false;
+                }
+                return Task::none();
+            }
+            let overlay_active = app
+                .model
+                .panes
+                .get(app.model.focused_pane())
+                .is_some_and(|p| p.overlay.is_some());
+            if overlay_active {
+                // Enter は各 text_input の on_submit、ボタンはクリックが処理する
+                if matches!(key.as_ref(), Key::Named(Named::Escape)) {
+                    return app.apply(AppMsg::Focused(PaneMsg::ClearSelection));
+                }
+                return Task::none();
+            }
             match key_to_msg(&key, modifiers) {
                 Some(m) => update(app, m),
                 None => Task::none(),
@@ -826,6 +851,7 @@ impl App {
     }
 
     fn save_session(&mut self, maximized: bool) {
+        crate::settings::flush();
         // 最大化中は直前の通常時 bounds を保持 (GPUI 版と同じ)
         let bounds = if maximized {
             self.saved_bounds
@@ -974,13 +1000,16 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
             ));
         }
         SettingsMsg::SetFontSize(px) => {
-            app.settings = settings::update(|s| s.font_size = px);
+            // スライダドラッグの各ステップで書き込まない (メモリ更新 +
+            // 800ms デバウンス保存に相乗り — SessionSaveTick で flush)
+            app.settings = settings::update_in_memory(|s| s.font_size = px);
             // 行高は即時反映 (フォント描画サイズは再起動後)
             let row_h = app.settings.row_h();
             let ids: Vec<_> = app.model.panes.keys().collect();
             for id in ids {
                 app.model.panes[id].row_h = row_h;
             }
+            return app.bump_save_seq();
         }
         SettingsMsg::SetFontFamily(name) => {
             let trimmed = name.trim().to_string();
@@ -988,13 +1017,14 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
                 settings::update(|s| s.font_family = (!trimmed.is_empty()).then_some(trimmed));
         }
         SettingsMsg::SetPort(v) => {
-            // 空欄や編集途中は既定 80 として保持 (確定値のみ保存)
+            // 編集バッファに保持し、有効な数値のときだけ保存する
+            // (空欄や途中入力で保存値を上書きしない)
+            if v.is_empty() || v.chars().all(|c| c.is_ascii_digit()) {
+                app.port_input = v.clone();
+            }
             if let Ok(port) = v.trim().parse::<u16>() {
                 app.settings = settings::update(|s| s.everything_port = port);
                 app.everything_port = port;
-            } else if v.trim().is_empty() {
-                app.settings = settings::update(|s| s.everything_port = 80);
-                app.everything_port = 80;
             }
         }
         SettingsMsg::SetTabColumns(n) => {
@@ -1116,7 +1146,7 @@ fn domain_events() -> impl iced::futures::Stream<Item = (String, serde_json::Val
 pub fn view(app: &App) -> Element<'_, Msg> {
     // 設定画面 (独立 view — F-1101)
     if app.show_settings {
-        return settings_view::view(&app.settings).map(Msg::Settings);
+        return settings_view::view(&app.settings, &app.port_input).map(Msg::Settings);
     }
     // ---- 縦タブバー (左) ----
     let tabs: Vec<TabItem> = (0..app.model.tabs.len())

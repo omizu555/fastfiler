@@ -9,8 +9,19 @@
 use fastfiler_iced::app;
 
 pub fn main() -> iced::Result {
-    // 多重起動防止 (F-1106): 既に起動中なら前面化して静かに終了
-    if !fastfiler_win::single_instance::acquire_single_instance() {
+    // 多重起動防止 (F-1106): 既に起動中なら前面化して静かに終了。
+    // 自動検証フロー (AUTOCLOSE/STRESS/BENCH/SYNTH/OPEN) では抑止しない —
+    // 機械可読マーカ (WINDOW_OK 等) が出ずハーネスが待ちぼうけになるため
+    let dev_run = [
+        "FASTFILER_AUTOCLOSE_MS",
+        "FASTFILER_STRESS",
+        "FASTFILER_BENCH",
+        "FASTFILER_SYNTH",
+        "FASTFILER_OPEN",
+    ]
+    .iter()
+    .any(|k| std::env::var_os(k).is_some());
+    if !dev_run && !fastfiler_win::single_instance::acquire_single_instance() {
         fastfiler_win::single_instance::activate_existing_window();
         return Ok(());
     }
