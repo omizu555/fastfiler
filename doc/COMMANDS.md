@@ -161,3 +161,20 @@ FastFiler の拡張はこの仕組みに一本化されている ([ADR 0003](./a
 
 - 操作全般: [USAGE.md](./USAGE.md) / キー割り当て: [HOTKEYS.md](./HOTKEYS.md)
 - 拡張方針の背景: [ADR 0003](./adr/0003-remove-plugin-system.md) / [ADR 0007](./adr/0007-shell-context-menu-shift-only.md)
+
+## トラブルシューティング: コマンドプロンプトが一瞬見える
+
+GUI アプリを開くコマンドなのに黒いコンソール窓が一瞬出る場合、その実行
+ファイルは「コンソールアプリとして作られた CLI ランチャー」(例: Zed の
+`bin\Zed.exe`) です。**`"shell": true` を付けると不可視モードで実行され、
+窓は出なくなります**:
+
+```json
+{ "id": "zed-here", "label": "zedでファイルを開く", "exec": "zed",
+  "args": ["{path}"], "when": "selection", "submenu": "エディタで開く",
+  "shell": true }
+```
+
+なお `code` (VSCode) はバッチファイル (.cmd) のため自動で不可視モードに
+なります。逆に PowerShell やターミナルのように**コンソールを見せたい**
+コマンドには `shell` を付けないでください。
