@@ -295,6 +295,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 ListEvent::Scrolled(o) => PaneMsg::Scrolled(o),
                 ListEvent::ViewportChanged { height } => PaneMsg::ViewportChanged { height },
                 ListEvent::RowRightPressed { ix } => PaneMsg::RightPressed { ix },
+                ListEvent::BandSelect { a, b } => PaneMsg::BandSelect { a, b },
                 ListEvent::RowRightClicked { ix, x, y } => {
                     if app.modifiers.shift() {
                         // Shift+右クリック = Windows シェルメニュー (F-905)

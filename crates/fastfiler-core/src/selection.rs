@@ -102,6 +102,17 @@ impl PaneState {
         self.anchor = None;
     }
 
+    /// ラバーバンド (空白からの左ドラッグ) による範囲選択。
+    /// ドラッグ中に何度も呼ばれる — 置換選択で anchor=a / cursor=b。
+    pub fn band_select(&mut self, a: usize, b: usize) {
+        if self.visible_len() == 0 {
+            return;
+        }
+        self.select_range(a, b);
+        self.anchor = Some(a.min(self.visible_len() - 1));
+        self.cursor = Some(b.min(self.visible_len() - 1));
+    }
+
     fn select_range(&mut self, a: usize, b: usize) {
         let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
         self.selected = (lo..=hi.min(self.visible_len().saturating_sub(1))).collect();
@@ -278,5 +289,23 @@ mod tests {
             .collect();
         assert_eq!(sel, ["f01.txt"]);
         assert_eq!(p.cursor, None);
+    }
+
+    #[test]
+    fn band_select_replaces_range() {
+        let mut p = pane(10);
+        p.band_select(2, 5);
+        assert!(p.selected.iter().eq(&[2, 3, 4, 5]));
+        assert_eq!((p.anchor, p.cursor), (Some(2), Some(5)));
+        // ドラッグ縮小で範囲が置換される
+        p.band_select(2, 3);
+        assert!(p.selected.iter().eq(&[2, 3]));
+        // 逆方向 (下から上へ) も同じ
+        p.band_select(7, 4);
+        assert!(p.selected.iter().eq(&[4, 5, 6, 7]));
+        // 範囲は末尾で clamp
+        p.band_select(8, 99);
+        assert!(p.selected.iter().eq(&[8, 9]));
+        assert_eq!(p.cursor, Some(9));
     }
 }

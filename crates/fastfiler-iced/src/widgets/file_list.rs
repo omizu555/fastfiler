@@ -94,6 +94,11 @@ pub enum ListEvent {
     },
     /// 行ドラッグ中にカーソルがウィンドウ外へ出た (外部への OLE 送信起点 — F-603)。
     DragExitedWindow,
+    /// ラバーバンド (空白からの左ドラッグ) の範囲選択 (a..=b、エクスプローラ準拠)。
+    BandSelect {
+        a: usize,
+        b: usize,
+    },
 }
 
 /// ウィジェット内部状態 (フレーム間で保持したい非・アプリ状態のみ)。
@@ -106,6 +111,10 @@ struct State {
     dragging: Option<Column>,
     /// 行の押下 (D&D 開始判定)。(開始位置, 行, 右ボタンか)。
     row_pressed: Option<(Point, usize, bool)>,
+    /// ラバーバンド選択 (空白からの左ドラッグ): (開始, 現在) 位置。
+    band: Option<(Point, Point)>,
+    /// 直近で通知したバンド範囲 (変化時のみ publish)。
+    last_band: Option<(usize, usize)>,
     /// このペイン発の行ドラッグが進行中か (DragStarted 発行済み)。
     row_dragging: bool,
 
@@ -347,6 +356,9 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                         }
                     }
                     None => {
+                        // 空白: 選択解除 + ラバーバンド選択の開始 (エクスプローラ準拠)
+                        state.band = Some((pos, pos));
+                        state.last_band = None;
                         shell.publish((self.on_event)(ListEvent::BlankPressed));
                     }
                 }
@@ -432,6 +444,37 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                         shell.publish((self.on_event)(ListEvent::DragHover { row }));
                     }
                 }
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) if state.band.is_some() => {
+                if let (Some((start, _)), Some(now)) = (state.band, cursor.position()) {
+                    state.band = Some((start, now));
+                    // バンドの y 範囲に交差する行を選択 (詳細リストなので x は全幅扱い)
+                    let (y0, y1) = (start.y.min(now.y), start.y.max(now.y));
+                    let len = self.entries.len();
+                    if len > 0 && y1 >= list.y {
+                        let row_of = |y: f32| ((y - list.y + self.offset) / self.row_h).floor();
+                        let a = row_of(y0).max(0.0) as usize;
+                        let b_raw = row_of(y1);
+                        if (a as f32) < len as f32 && b_raw >= 0.0 {
+                            let b = (b_raw as usize).min(len - 1);
+                            let a = a.min(len - 1);
+                            if state.last_band != Some((a, b)) {
+                                state.last_band = Some((a, b));
+                                shell.publish((self.on_event)(ListEvent::BandSelect { a, b }));
+                            }
+                        }
+                    }
+                    shell.request_redraw();
+                    shell.capture_event();
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if state.band.is_some() =>
+            {
+                state.band = None;
+                state.last_band = None;
+                shell.request_redraw();
+                shell.capture_event();
             }
             Event::Mouse(mouse::Event::CursorLeft) if state.row_pressed.is_some() => {
                 // 閾値未満のままウィンドウ外へ出た場合も押下状態を破棄する
@@ -747,6 +790,35 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 fg_dim,
                 clip(type_x, right - type_x, y, self.row_h),
             );
+        }
+
+        // ---- ラバーバンド矩形 (空白からの左ドラッグ中) ----
+        if let Some((a, b)) = _tree.state.downcast_ref::<State>().band {
+            let rect = Rectangle {
+                x: a.x.min(b.x),
+                y: a.y.min(b.y).max(list.y),
+                width: (a.x - b.x).abs(),
+                height: 0.0f32
+                    .max(a.y.max(b.y).min(list.y + list.height) - a.y.min(b.y).max(list.y)),
+            };
+            if let Some(visible) = rect.intersection(&bounds) {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: visible,
+                        border: Border {
+                            color: palette.primary.base.color,
+                            width: 1.0,
+                            radius: 0.0.into(),
+                        },
+                        shadow: Shadow::default(),
+                        snap: true,
+                    },
+                    Color {
+                        a: 0.15,
+                        ..palette.primary.base.color
+                    },
+                );
+            }
         }
 
         // ---- スクロールバー ----

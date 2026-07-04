@@ -124,4 +124,9 @@ pub enum PaneMsg {
     RightPressed {
         ix: usize,
     },
+    /// ラバーバンド選択 (空白からの左ドラッグ — エクスプローラ準拠)。
+    BandSelect {
+        a: usize,
+        b: usize,
+    },
 }

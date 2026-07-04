@@ -456,6 +456,10 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             });
             vec![]
         }
+        PaneMsg::BandSelect { a, b } => {
+            p.band_select(a, b);
+            vec![]
+        }
         PaneMsg::RightPressed { ix } => {
             if !p.showing_search() && !p.selected.contains(&ix) && ix < p.entries.len() {
                 p.click_row(ix, false, false);
