@@ -710,31 +710,32 @@ impl App {
 
     /// OLE ヒットテスト表を最新化する (ペイン矩形 [物理px] + 表示フォルダ)。
     fn refresh_ole_snapshot(&self) {
+        // ペイン矩形を view と同じレイアウト式から直接計算する。
+        // widget からの通知 (BoundsChanged) に依存すると「起動直後・タブ切替直後に
+        // マウスを動かすまで表が空 = 全ドロップ拒否」になる (OLE ドラッグ中は
+        // 通常のマウスイベントが届かず、表が埋まる機会がない — 実機で確認)。
         let scale = self.scale_factor;
-        // アクティブタブの可視ペインのみ (pane_rects は全タブの矩形を蓄積するため、
-        // 非表示タブの古い矩形が同じ画面領域に重なって残る — これを混ぜると
-        // ドロップが別タブのペインへ解決され「違うフォルダに落ちる」)
-        let visible: std::collections::HashSet<PaneId> = self
-            .model
-            .tabs
-            .get(self.model.active)
-            .map(|t| t.root.leaves().into_iter().collect())
-            .unwrap_or_default();
         let mut rows: Vec<(PaneId, iced::Rectangle, PathBuf)> = Vec::new();
-        for (id, rect) in &self.pane_rects {
-            if !visible.contains(id) {
-                continue;
-            }
-            if let Some(p) = self.model.panes.get(*id) {
-                rows.push((
-                    *id,
-                    iced::Rectangle::new(
-                        (rect.x * scale, rect.y * scale).into(),
-                        Size::new(rect.width * scale, rect.height * scale),
-                    ),
-                    p.cur_path.clone(),
-                ));
-            }
+        let tree_w = if self.model.tree.visible {
+            self.model.tree.width + 6.0
+        } else {
+            0.0
+        };
+        let x0 = self.model.tab_width + 6.0 + tree_w;
+        let area = iced::Rectangle {
+            x: x0,
+            y: 0.0,
+            width: (self.window_size.width - x0).max(0.0),
+            height: self.window_size.height,
+        };
+        if let Some(tab) = self.model.tabs.get(self.model.active) {
+            collect_pane_rects(&tab.root, area, &mut rows, &self.model);
+        }
+        for (_, rect, _) in &mut rows {
+            *rect = iced::Rectangle::new(
+                (rect.x * scale, rect.y * scale).into(),
+                Size::new(rect.width * scale, rect.height * scale),
+            );
         }
         if let Ok(mut snap) = self.ole_snapshot.lock() {
             *snap = rows;
@@ -1583,6 +1584,62 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             stack![root, card].into()
         }
         _ => root.into(),
+    }
+}
+
+/// BSP からペイン矩形を計算する (render_node の分配式のレイアウト版 —
+/// 外部 D&D のヒットテスト用。ヘッダ/フッタ込みのペイン全域 = ADR 0009)。
+fn collect_pane_rects(
+    node: &PaneNode,
+    rect: iced::Rectangle,
+    out: &mut Vec<(PaneId, iced::Rectangle, PathBuf)>,
+    model: &AppModel,
+) {
+    match node {
+        PaneNode::Leaf(id) => {
+            if let Some(p) = model.panes.get(*id) {
+                out.push((*id, rect, p.cur_path.clone()));
+            }
+        }
+        PaneNode::Split {
+            dir,
+            ratios,
+            children,
+            ..
+        } => {
+            let vertical = *dir == SplitDir::Row; // Row = 左右に並ぶ
+            let n = children.len().max(1);
+            let handles = 6.0 * (n as f32 - 1.0);
+            let total: f32 = ratios.iter().sum::<f32>().max(f32::EPSILON);
+            let avail = if vertical {
+                rect.width - handles
+            } else {
+                rect.height - handles
+            }
+            .max(0.0);
+            let mut pos = if vertical { rect.x } else { rect.y };
+            for (i, child) in children.iter().enumerate() {
+                let r = ratios.get(i).copied().unwrap_or(1.0 / n as f32) / total;
+                let sz = avail * r;
+                let child_rect = if vertical {
+                    iced::Rectangle {
+                        x: pos,
+                        y: rect.y,
+                        width: sz,
+                        height: rect.height,
+                    }
+                } else {
+                    iced::Rectangle {
+                        x: rect.x,
+                        y: pos,
+                        width: rect.width,
+                        height: sz,
+                    }
+                };
+                collect_pane_rects(child, child_rect, out, model);
+                pos += sz + 6.0;
+            }
+        }
     }
 }
 

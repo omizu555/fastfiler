@@ -189,28 +189,16 @@ fn ole_hit_test_follows_active_tab() {
     let (mut app, _task) = app::boot();
     let first_pane = app::focused_pane_for_test(&app);
 
-    // ユーザー操作 1: ウィンドウ上でマウスを動かす (widget が矩形を自然通知する)
-    let stir = |app: &mut App| {
-        let mut ui = simulator(app::view(app));
-        ui.point_at(iced::Point::new(600.0, 300.0));
-        let _ = ui.simulate(std::iter::once(iced::Event::Mouse(
-            iced::mouse::Event::CursorMoved {
-                position: iced::Point::new(601.0, 300.0),
-            },
-        )));
-        let msgs: Vec<Msg> = ui.into_messages().collect();
-        for m in msgs {
-            let _ = app::update(app, m);
-        }
-    };
-    stir(&mut app);
+    // 起動直後、マウスを一度も動かさずに即ドロップされても解決できること
+    // (OLE ドラッグ中は通常のマウスイベントが届かないため、widget 通知に
+    //  依存すると表が空になる — 実機で「再起動直後の D&D が全拒否」を確認)
     assert_eq!(
         app::ole_hit_for_test(&app, 600.0, 300.0),
         Some(first_pane),
-        "初期ペインがヒットテスト表に載っていない"
+        "起動直後 (マウス操作なし) のドロップが拒否される"
     );
 
-    // ユーザー操作 2: ＋ボタンでタブ追加 → マウスを動かす → ドロップ相当のヒット
+    // タブ追加ボタンをクリック → 直後 (マウス移動なし) のドロップは新タブのペインへ
     {
         let mut ui = simulator(app::view(&app));
         ui.click("＋").expect("タブ追加");
@@ -221,13 +209,24 @@ fn ole_hit_test_follows_active_tab() {
     }
     let second_pane = app::focused_pane_for_test(&app);
     assert_ne!(first_pane, second_pane);
-    stir(&mut app);
     assert_eq!(
         app::ole_hit_for_test(&app, 600.0, 300.0),
         Some(second_pane),
-        "タブ切替後のドロップが古いタブのペインへ解決される (実機バグの再現)"
+        "タブ切替直後のドロップが古いタブのペインへ解決される"
     );
 
-    // ユーザー操作 3: 元のタブへ戻る (Ctrl+Tab 相当は widget なので view クリックで検証済み。
-    // ここでは同じ操作列で first に戻ることまで確認)
+    // ペイン分割直後: 分割した両ペインがそれぞれの領域に解決されること
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(
+            fastfiler_core::update_app::TabMsg::SplitFocused(fastfiler_core::bsp::SplitDir::Row),
+        )),
+    );
+    let right_pane = app::focused_pane_for_test(&app);
+    assert_ne!(second_pane, right_pane);
+    // 左半分 → 元ペイン / 右半分 → 新ペイン (960 幅、ペイン領域はタブ+ツリーの右)
+    let left_hit = app::ole_hit_for_test(&app, 500.0, 300.0);
+    let right_hit = app::ole_hit_for_test(&app, 900.0, 300.0);
+    assert_eq!(left_hit, Some(second_pane), "分割左ペインの解決が誤り");
+    assert_eq!(right_hit, Some(right_pane), "分割右ペインの解決が誤り");
 }
