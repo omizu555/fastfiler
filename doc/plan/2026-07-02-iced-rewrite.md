@@ -660,3 +660,20 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   [patch.crates-io] async-task を撤去。
 - ライセンスを GPL-3.0 → **MIT OR Apache-2.0** へ (GPL 強制源の vendor 撤去による)。
 - README / ARCHITECTURE / BUILD / USAGE / doc README を iced 版に更新。ADR 0013 完了。
+
+### 2026-07-04 — 切替後の仕上げ第 2 弾: 省メモリレンダラの描画品質 (実機フィードバック)
+- **実描画のはみ出し**: tiny-skia は fill_text/draw_image の clip 引数を完全な
+  マスクとして使わない (カリングのみ)。対策: 全 widget のテキストは
+  「概算幅で切り詰め + …」(ellipsize 共通ヘルパ)、部分行は文字/アイコンを
+  描かない。幅制限だけだと折り返しが発生して行が重なる点に注意。
+- **差分描画の残像**: (1) 操作 Msg 後の背景揺らし → (2) バッファ age で 1 拍
+  漏れる → 素数周期 (17) カウンタ化 → (3) Msg なしの内部スクロールで漏れる →
+  入力イベント (Wheel/CursorMoved) を Msg 化して theme 再評価を駆動。
+  ※ window::frames() 方式は Msg→再描画→frames の自走ループになり
+  アイドルで 1 コア消費 (実測 4s/4s) — 使用禁止。
+- **pick_list はドロップダウンのスクロールクリップが tiny-skia で効かない**
+  (iced 0.14.0 標準部品側) → フォント選択を「絞り込み入力 + 候補ボタン (max 8)」
+  方式へ置換して回避。
+- ほか: 検索「不動作」はユーザーの hotkeys.json カスタム (search: ctrl+k) が
+  正しく移行された結果と実証 (ヘッドレステスト)。不正 combo は既定へ
+  フォールバックする救済を追加。UI テスト 6 本。
