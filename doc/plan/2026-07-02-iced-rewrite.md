@@ -677,3 +677,71 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - ほか: 検索「不動作」はユーザーの hotkeys.json カスタム (search: ctrl+k) が
   正しく移行された結果と実証 (ヘッドレステスト)。不正 combo は既定へ
   フォールバックする救済を追加。UI テスト 6 本。
+
+### 2026-07-05 — 切替後の仕上げ第 3 弾: 実機フィードバック 3 件
+- **複数選択の左ドラッグ移動が不能** (押下の瞬間に単一選択へ潰れる):
+  RowPressed で「修飾なし + 選択済み行」なら選択を維持し (`pending_click`)、
+  ドラッグに至らなかった場合のみ新設 RowReleased で単一選択へ確定する
+  (エクスプローラ準拠。右ドラッグの RightPressed と同じ発想を左に展開)。
+- **パス直接入力で存在しないパスを確定すると偽パス状態が残る**
+  (一覧は旧フォルダのまま cur_path だけ偽 → ダブルクリックで偽パスが伸びる):
+  PaneState に `loaded_path` (表示中一覧の実パス) を追加し、LoadFailed 時に
+  cur_path をそこへ復帰 + 直前のナビゲーションが積んだ履歴を掃除。
+  その場 reload の失敗は従来どおり load_error 表示のみ。
+- **アプリフッター (U-14) を廃止**: ⚙ 設定は上部メニューへ移設済みで、
+  静的な "FastFiler" ラベルだけが縦 24px を消費していた。ペイン領域を全高へ。
+  (外部 D&D ヒットテストは元々全高基準だったため、むしろ整合)。
+- core テスト 84 本 (新規 6: 押下保留 3 + LoadFailed 復帰 3)。
+- (2026-07-06 追記) レビュー提案を反映: LoadFailed 復帰の clone を 1 回削減 /
+  file_list.rs の左 Released 3 分岐 (バンド/列仕切り/行) を 1 arm へ統合。
+  挙動不変 (core 84 本 + UI シミュレーション 8 本で確認)。
+
+### 2026-07-06 — 実機報告: パスの二重区切り (D:\AI\comfy\output)
+- 原因: domain `list_drives` の letter は "D:\" (末尾 \ 付き) だが、core tree の
+  rows() は "C:" 前提で "\" を付け足し "D:\\" を生成 — **ツリーのドライブ行起点**の
+  ナビゲーションだけで二重区切りが発生し、join で子孫パス全体へ伝播していた。
+- Path の Eq/Ord/Hash は components ベースで区切り重複を吸収するため動作は
+  ほぼ正常 (階層も下がれる) — 表示と文字列比較 (watcher 一致判定) だけが狂う
+  ので発見が遅れた。
+- 修正: (1) 発生源 = tree DrivesLoaded で letter 末尾の \ を除去。
+  (2) チョークポイント = normalize_path (components().collect()) を
+  PaneState::new と set_path_and_load に敷き、ツリー / 手入力 (連続・末尾区切り、
+  スラッシュ) / 保存済みセッション由来の表記ゆれを一括正規化 —
+  汚染済みセッションも次回起動で自動浄化される。domain は無改造 (互換凍結)。
+- core テスト 87 本 (新規 3: normalize 変種 / DrivesLoaded 正規化 / navigate 正規化)。
+- (2026-07-07 追記) レビュー提案を反映: ツリーのドライブ行 (表示名 + ルートパス) を
+  DrivesLoaded 時に前計算し rows() の組み立てを一本化 / ツリー行クリック →
+  cur_path 正規化の UI 統合テストを追加 (座標はレイアウト式フック
+  tree_row0_center_for_test で決定 — 2D 総当たりプローブは 69s かかった上に
+  行 0 を外した。UI テスト 9 本)。
+
+### 2026-07-08 — 実機報告: 起動時に「cmd っぽい窓」が一瞬見える
+- 切り分け (EnumWindows 10ms ポーリング + 連写スクショ):
+  (1) debug exe はコンソールサブシステムのため Windows Terminal
+  (CASCADIA_HOSTING_WINDOW_CLASS、画面中央 1249x635) がホストされる — 仕様どおり。
+  (2) release exe はコンソール類ゼロだが、**未描画のメインウィンドウが既定サイズ
+  976x679・画面中央で可視化 → 数百 ms 後にセッション位置へジャンプ**していた
+  (ダークテーマでは黒い矩形 = cmd 窓に見える)。iced/winit は既定で可視生成のため。
+- 修正: main.rs `window::Settings { visible: false }` で非表示生成し、
+  WindowOpened で move_to / resize / maximize を適用した最後に
+  `window::set_mode(id, Mode::Windowed)` で表示 (0.14 は set_mode が可視切替を兼ねる。
+  SetMode は set_visible + set_fullscreen(None) のみで maximize は保持 — ソース確認済み)。
+- 実機検証 (release): コンソール類の出現ゼロ / メインウィンドウは 52ms で
+  **最初から保存位置 (-7,1420 1665x699) に出現**、既定位置経由のジャンプ消滅。
+  WINDOW_OK / BENCH マーカーは可視性非依存のため検証ハーネスへの影響なし。
+- 教訓 (LESSONS 反映): Win11 のコンソールホストは conhost でなく Windows Terminal /
+  `cargo build | tail` はリンク失敗 (実行中 exe のロック) を隠す — PIPESTATUS で見る。
+
+### 2026-07-08 — 実機報告 2 件: フッタ右クリックの無反応 / サブメニューの重なり
+- **フッタ右クリックの反応が悪い**: overlay はフォーカスペインのものしか描画されない
+  のに、右クリック系 (OpenMenu / RightPressed / ShellMenuRequest) がフォーカス移動の
+  対象外だった — 非フォーカスペインでは「メニューは開いているが描画されない」。
+  update_app のフォーカス移動 matches! に 3 つを追加 (右ドラッグ DropMenu は
+  Dropped 側で focused を移す先例あり)。行/背景の右クリックも同時に直る。
+- **右端でサブメニューが親に重なる**: panels() の右端フリップが `x - PANEL_W` で、
+  サブメニューでは親の位置 -4px (真上) になる計算ミス。place_panel_x (純関数) に
+  切り出し、ルート=カーソルの左 / サブ=親の左隣 (x - 2*PANEL_W + 8)、
+  一度左に折り返したら以降の階層も左へ展開し続ける方式に修正 (エクスプローラ準拠。
+  完全に右へ出すとウィンドウ内描画のため右端で切れる — 右優先は維持し、
+  収まらないときだけ左隣へ)。
+- テスト: place_panel_x 3 本 (iced lib) + OpenMenu フォーカス移動 1 本 (core 88 本目)。
