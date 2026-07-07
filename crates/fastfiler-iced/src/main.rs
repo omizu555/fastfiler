@@ -78,6 +78,11 @@ pub fn main() -> iced::Result {
                 drag_and_drop: false,
                 ..Default::default()
             },
+            // 非表示で生成し、セッションの位置・サイズを適用してから表示する
+            // (WindowOpened 側の set_mode(Windowed) と対)。可視で生成すると
+            // 未描画の黒いウィンドウが既定サイズ・画面中央に一瞬見えてから
+            // 保存位置へジャンプする (実機報告「起動時に cmd っぽい窓が見える」)
+            visible: false,
             ..Default::default()
         })
         .window_size((960.0, 640.0))

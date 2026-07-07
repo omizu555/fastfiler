@@ -4,7 +4,7 @@
 //! Phase 3 で `AppModel` (タブ + BSP) がこの上に乗る。
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use slotmap::new_key_type;
 
@@ -224,6 +224,12 @@ pub struct PaneState {
     pub anchor: Option<usize>,
     /// 次回 Loaded 時にこの名前へカーソルを合わせる (親へ戻ったとき等)。
     pub pending_cursor_name: Option<String>,
+    /// 修飾なしで選択済み行を押下したとき、単一選択への確定を Release まで
+    /// 保留している行 (エクスプローラ準拠 — 複数選択のままドラッグを始めるため)。
+    pub pending_click: Option<usize>,
+    /// 現在 `entries` に表示している一覧のパス (Loaded 時に確定)。
+    /// 移動先の読み込みに失敗したとき、ここへ cur_path を戻す。
+    pub loaded_path: Option<PathBuf>,
     // ---- ビュー幾何 (スクロールは core が所有し、単体テスト可能にする) ----
     /// 列幅 [更新日時, サイズ, 種類] px (F-402。名前列が残りを吸収)。
     pub col_widths: [f32; 3],
@@ -241,10 +247,20 @@ pub const DEFAULT_ROW_H: f32 = 24.0;
 pub const COL_W_MIN: f32 = 40.0;
 pub const COL_W_MAX: f32 = 400.0;
 
+/// パス区切りの正規化 (連続 `\` を 1 つに / `/` を `\` に / 末尾区切り・`.` を除去)。
+///
+/// ドライブ列挙 (`"D:\"`) 由来の組み立てミスやユーザー入力の表記ゆれで
+/// `D:\\AI` のようなパスが cur_path に入ると、Path 同士の比較 (components
+/// ベース) は通るのに文字列比較 (watcher の一致判定・表示) だけが狂う。
+/// cur_path に入るパスは必ずここを通す (PaneState::new / set_path_and_load)。
+pub fn normalize_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
 impl PaneState {
     pub fn new(cur_path: PathBuf) -> Self {
         Self {
-            cur_path,
+            cur_path: normalize_path(&cur_path),
             entries: Vec::new(),
             loading: false,
             load_gen: 0,
@@ -261,6 +277,8 @@ impl PaneState {
             selected: BTreeSet::new(),
             anchor: None,
             pending_cursor_name: None,
+            pending_click: None,
+            loaded_path: None,
             col_widths: DEFAULT_COL_WIDTHS,
             scroll_offset: 0.0,
             viewport_h: 0.0,
@@ -310,6 +328,22 @@ mod tests {
             .then(|| name.rsplit_once('.').map(|(_, e)| e.to_string()))
             .flatten();
         Entry::new(name.to_string(), is_dir, 10, 1_700_000_000, ext, false)
+    }
+
+    #[test]
+    fn normalize_path_fixes_separator_variants() {
+        // 実機報告: ドライブ列挙由来の "D:\\AI" (二重区切り) が cur_path に入り、
+        // パスバー表示と文字列比較が狂う。文字列レベルで正すことを確認する
+        let s = |p: &str| normalize_path(Path::new(p)).to_string_lossy().to_string();
+        assert_eq!(s("D:\\\\AI\\comfy\\output"), "D:\\AI\\comfy\\output");
+        assert_eq!(s("D:/AI/comfy"), "D:\\AI\\comfy"); // スラッシュ入力
+        assert_eq!(s("D:\\AI\\"), "D:\\AI"); // 末尾区切り
+        assert_eq!(s("C:\\"), "C:\\"); // ドライブルートは不変
+        assert_eq!(s("\\\\nas\\share\\a"), "\\\\nas\\share\\a"); // UNC は不変
+
+        // PaneState::new も同じ正規化を通す
+        let p = PaneState::new(PathBuf::from("D:\\\\AI"));
+        assert_eq!(p.cur_path.to_string_lossy(), "D:\\AI");
     }
 
     #[test]

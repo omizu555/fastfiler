@@ -364,6 +364,175 @@ fn internal_right_drag_across_panes_opens_chooser() {
     );
 }
 
+/// 3 行 (a/b/c.txt) を同期投入して全選択した状態のアプリを作る。
+/// 行 0 の実座標もプローブして返す (ヘッダ高は決め打ちしない)。
+fn boot_with_selected_rows() -> (App, iced::Point) {
+    let mut app = boot_app();
+    let pane = app::focused_pane_for_test(&app);
+    let entries: Vec<_> = ["a.txt", "b.txt", "c.txt"]
+        .iter()
+        .map(|n| fastfiler_core::Entry::new((*n).into(), false, 1, 0, Some("txt".into()), false))
+        .collect();
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(
+            pane,
+            fastfiler_core::PaneMsg::Loaded {
+                generation: 1,
+                entries,
+            },
+        )),
+    );
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(pane, fastfiler_core::PaneMsg::SelectAll)),
+    );
+    assert_eq!(app::selection_for_test(&app), vec![0, 1, 2]);
+    // プローブは view の複製に対して行い、メッセージは捨てる (状態は変えない)
+    let row_y = (40..160)
+        .step_by(6)
+        .find(|&y| {
+            let mut ui = simulator(app::view(&app));
+            let p = iced::Point::new(500.0, y as f32);
+            ui.point_at(p);
+            let _ = ui.simulate(vec![
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: p }),
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )),
+            ]);
+            ui.into_messages().any(|m| {
+                matches!(
+                    m,
+                    Msg::List(
+                        _,
+                        fastfiler_iced::widgets::file_list::ListEvent::RowPressed { ix: 0, .. }
+                    )
+                )
+            })
+        })
+        .expect("行 0 の座標が見つからない (entries が表示されていない?)");
+    (app, iced::Point::new(500.0, row_y as f32))
+}
+
+/// 実機報告「複数選択後の左ドラッグ移動ができない (押下で 1 個の選択に潰れる)」。
+/// 選択済み行の修飾なし押下は選択を維持し、ドラッグは選択全体を運ぶ。
+#[test]
+fn left_drag_carries_whole_selection() {
+    let (mut app, row_pos) = boot_with_selected_rows();
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(row_pos);
+    let _ = ui.simulate(vec![
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: row_pos }),
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+    ]);
+    let moved = iced::Point::new(row_pos.x + 12.0, row_pos.y);
+    ui.point_at(moved);
+    let _ = ui.simulate(std::iter::once(iced::Event::Mouse(
+        iced::mouse::Event::CursorMoved { position: moved },
+    )));
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    let started = msgs.iter().any(|m| {
+        matches!(
+            m,
+            Msg::List(
+                _,
+                fastfiler_iced::widgets::file_list::ListEvent::DragStarted { .. }
+            )
+        )
+    });
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+    assert!(started, "左ドラッグの DragStarted が発行されない");
+    assert_eq!(
+        app::selection_for_test(&app),
+        vec![0, 1, 2],
+        "押下の瞬間に選択が潰れている (実機バグの再現)"
+    );
+    assert_eq!(
+        app::drag_paths_for_test(&app),
+        Some(3),
+        "ドラッグが選択全体を運んでいない"
+    );
+}
+
+/// 上と対: ドラッグに至らない単純クリックは、離した時点で単一選択へ確定する。
+#[test]
+fn plain_click_on_selection_collapses_on_release() {
+    let (mut app, row_pos) = boot_with_selected_rows();
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(row_pos);
+    let _ = ui.simulate(vec![
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: row_pos }),
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+            iced::mouse::Button::Left,
+        )),
+    ]);
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    let released = msgs.iter().any(|m| {
+        matches!(
+            m,
+            Msg::List(
+                _,
+                fastfiler_iced::widgets::file_list::ListEvent::RowReleased { ix: 0 }
+            )
+        )
+    });
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+    assert!(released, "非ドラッグの左リリースで RowReleased が出ない");
+    assert_eq!(
+        app::selection_for_test(&app),
+        vec![0],
+        "クリック確定で単一選択にならない"
+    );
+    assert_eq!(app::drag_paths_for_test(&app), None);
+}
+
+/// ツリーのドライブ行クリック → フォーカスペインのパスが「二重区切りなし」で
+/// 遷移する統合テスト (実機報告 `D:\\AI\…` の回帰防止)。
+/// ドライブは domain の生形式 ("Q:\" — 末尾 \ 付き) のまま注入する。
+#[test]
+fn tree_drive_click_navigates_with_clean_path() {
+    let mut app = boot_app();
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tree(fastfiler_core::tree::TreeMsg::DrivesLoaded(
+            vec![("Q:\\".into(), String::new())],
+        ))),
+    );
+    // ドライブ行 = ツリー先頭行。中心座標はレイアウト式のフックから得る
+    // (矢印域より右なので Open が出る)
+    let (x, y) = app::tree_row0_center_for_test(&app);
+    let pos = iced::Point::new(x, y);
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(pos);
+    let _ = ui.simulate(vec![
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: pos }),
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+            iced::mouse::Button::Left,
+        )),
+    ]);
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    let navigated = msgs.iter().any(|m| {
+        matches!(
+            m,
+            Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::NavigateTo(_)))
+        )
+    });
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+    assert!(navigated, "ドライブ行クリックで NavigateTo が出ない");
+    // "Q:\\" (二重) や "Q:" (ルート欠落) ではなく "Q:\" ちょうど
+    assert_eq!(app::cur_path_for_test(&app), "Q:\\");
+}
+
 /// 検索ショートカットの実証 (実機報告「Ctrl+F で検索ボックスが出ない」の切り分け)。
 /// hotkeys.json のカスタム (search: ctrl+k) が生きている環境では Ctrl+F は
 /// 割り当てが無いのが正しい — 既定とカスタムの両方をヘッドレスで検証する。

@@ -38,6 +38,9 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             sort_entries(&mut p.entries, p.sort);
             p.loading = false;
             p.load_error = None;
+            p.loaded_path = Some(p.cur_path.clone());
+            // 行番号が変わるので保留クリックは破棄
+            p.pending_click = None;
             // watcher/reload でも選択は名前で維持 (USAGE.md §2)
             p.restore_selection(&names, cursor_name.as_deref());
             p.ensure_cursor_visible();
@@ -47,12 +50,50 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         PaneMsg::LoadFailed { generation, error } => {
             if generation == self_gen(p) {
                 p.loading = false;
-                p.load_error = Some(error);
+                // 移動先の読み込み失敗: 偽パスに留まらず、表示中の一覧のパスへ
+                // cur_path を戻す (エクスプローラ準拠)。戻さないと一覧は旧フォルダの
+                // まま cur_path だけが偽になり、ダブルクリックで偽パスが伸び続ける。
+                let revert = p
+                    .loaded_path
+                    .as_ref()
+                    .filter(|prev| **prev != p.cur_path)
+                    .cloned();
+                match revert {
+                    Some(prev) => {
+                        p.cur_path = prev;
+                        // 直前のナビゲーションが積んだ履歴エントリを掃除する。
+                        // GoBack 失敗は fwd 側、navigate/GoForward 失敗は back 側に
+                        // 復帰先が積まれている (fwd を先に見るのは GoBack 失敗時に
+                        // back 側の正規エントリを誤って消さないため)。
+                        if p.history_fwd.last() == Some(&p.cur_path) {
+                            p.history_fwd.pop();
+                        } else if p.history_back.last() == Some(&p.cur_path) {
+                            p.history_back.pop();
+                        }
+                        p.status_msg = Some(format!("エラー: {error}"));
+                    }
+                    // 復帰先が無い (初回読み込み) / その場の reload 失敗
+                    None => p.load_error = Some(error),
+                }
             }
             vec![]
         }
         PaneMsg::RowPressed { ix, ctrl, shift } => {
-            p.click_row(ix, ctrl, shift);
+            // 修飾なしで選択済み行を押下: 選択を崩さない (複数選択のまま
+            // 左ドラッグを始められるように)。ドラッグに至らなければ
+            // RowReleased で単一選択へ確定する (エクスプローラ準拠)。
+            if !ctrl && !shift && p.selected.contains(&ix) {
+                p.pending_click = Some(ix);
+            } else {
+                p.pending_click = None;
+                p.click_row(ix, ctrl, shift);
+            }
+            vec![]
+        }
+        PaneMsg::RowReleased { ix } => {
+            if p.pending_click.take() == Some(ix) {
+                p.click_row(ix, false, false);
+            }
             vec![]
         }
         PaneMsg::RowDoubleClicked { ix } => activate(p, id, locked, ix),
@@ -851,11 +892,14 @@ pub fn navigate(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<
 
 /// 履歴操作用: 履歴を触らずにパスを差し替えて読み込む。
 fn set_path_and_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<Effect> {
+    // ツリー/入力/セッション由来の表記ゆれ (連続 \ ・末尾 \ ・/) をここで正す
+    let path = crate::model::normalize_path(&path);
     p.cur_path = path.clone();
     p.cursor = None;
     p.anchor = None;
     p.selected.clear();
     p.pending_cursor_name = None;
+    p.pending_click = None;
     p.scroll_offset = 0.0;
     start_load(p, id, path)
 }
@@ -994,6 +1038,224 @@ mod tests {
             .map(|&i| p.entries[i].name.as_str())
             .collect();
         assert_eq!(sel, ["b.txt"]); // 名前で維持
+    }
+
+    #[test]
+    fn press_on_selected_row_defers_collapse_until_release() {
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false), ("c.txt", false)]);
+        p.click_row(0, false, false);
+        p.click_row(2, true, false); // {0, 2}
+
+        // 選択済み行の修飾なし押下では選択を崩さない (左ドラッグで選択全体を運ぶため)
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowPressed {
+                ix: 2,
+                ctrl: false,
+                shift: false,
+            },
+        );
+        assert!(p.selected.iter().eq(&[0, 2]));
+        assert_eq!(p.pending_click, Some(2));
+        // ドラッグに至らず離した → 単一選択へ確定
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowReleased { ix: 2 },
+        );
+        assert!(p.selected.iter().eq(&[2]));
+        assert_eq!(p.cursor, Some(2));
+        assert_eq!(p.pending_click, None);
+    }
+
+    #[test]
+    fn press_on_unselected_row_collapses_immediately() {
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false), ("c.txt", false)]);
+        p.click_row(0, false, false);
+        p.click_row(2, true, false); // {0, 2}
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowPressed {
+                ix: 1,
+                ctrl: false,
+                shift: false,
+            },
+        );
+        assert!(p.selected.iter().eq(&[1]));
+        // 対応する押下保留が無い Release は何もしない
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowReleased { ix: 0 },
+        );
+        assert!(p.selected.iter().eq(&[1]));
+    }
+
+    #[test]
+    fn pending_click_is_dropped_on_reload() {
+        // ドラッグ開始時は RowReleased が来ない — 選択は維持されたまま。
+        // その後の Loaded で保留は破棄され、遅れて届いた Release で誤発火しない
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
+        p.click_row(0, false, false);
+        p.click_row(1, true, false); // {0, 1}
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowPressed {
+                ix: 0,
+                ctrl: false,
+                shift: false,
+            },
+        );
+        assert!(p.selected.iter().eq(&[0, 1])); // ドラッグはこの選択全体を運べる
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Loaded {
+                generation,
+                entries: vec![entry("a.txt", false), entry("b.txt", false)],
+            },
+        );
+        assert_eq!(p.pending_click, None);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowReleased { ix: 0 },
+        );
+        assert_eq!(p.selected.len(), 2); // 破棄済みなので選択は崩れない
+    }
+
+    #[test]
+    fn navigate_normalizes_double_separators() {
+        // ツリーのドライブ行由来の "D:\\AI" (二重区切り) も、移動時に正規化される
+        let mut p = pane_with(&[]);
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::NavigateTo(PathBuf::from("D:\\\\AI\\comfy")),
+        );
+        assert_eq!(p.cur_path.to_string_lossy(), "D:\\AI\\comfy");
+        // 読み込み効果へ渡るパスも正規化済み
+        assert!(
+            matches!(&fx[0], Effect::LoadDir { path, .. } if path.to_string_lossy() == "D:\\AI\\comfy")
+        );
+    }
+
+    #[test]
+    fn load_failed_after_navigate_reverts_to_shown_folder() {
+        let mut p = pane_with(&[("sub", true)]);
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Loaded {
+                generation,
+                entries: vec![entry("sub", true)],
+            },
+        );
+        // 存在しないパスへ移動を試みる → 失敗
+        navigate(&mut p, PaneId::default(), PathBuf::from("C:\\nope"));
+        assert_eq!(p.history_back.last(), Some(&PathBuf::from("C:\\root")));
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::LoadFailed {
+                generation,
+                error: "not found: C:\\nope".into(),
+            },
+        );
+        // cur_path は表示中の一覧のパスへ戻り、積んだ履歴も掃除される
+        assert_eq!(p.cur_path, PathBuf::from("C:\\root"));
+        assert!(p.history_back.is_empty());
+        assert!(p.status_msg.as_deref().unwrap().contains("not found"));
+        assert_eq!(p.load_error, None);
+        // 一覧は旧フォルダのまま → ダブルクリックは正しいパスへ解決する
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
+        assert!(
+            matches!(&fx[0], Effect::LoadDir { path, .. } if path == &PathBuf::from("C:\\root\\sub"))
+        );
+    }
+
+    #[test]
+    fn load_failed_on_reload_keeps_current_path() {
+        let mut p = pane_with(&[("a.txt", false)]);
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Loaded {
+                generation,
+                entries: vec![entry("a.txt", false)],
+            },
+        );
+        reload(&mut p, PaneId::default());
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::LoadFailed {
+                generation,
+                error: "denied".into(),
+            },
+        );
+        // その場の reload 失敗は移動を伴わない → 従来どおり load_error 表示
+        assert_eq!(p.cur_path, PathBuf::from("C:\\root"));
+        assert_eq!(p.load_error.as_deref(), Some("denied"));
+    }
+
+    #[test]
+    fn load_failed_go_back_reverts_and_prunes_forward() {
+        // C:\a → C:\b と移動後、C:\a が消えた状態で戻る → C:\b に留まる
+        let mut p = pane_with(&[]);
+        for dir in ["C:\\a", "C:\\b"] {
+            navigate(&mut p, PaneId::default(), PathBuf::from(dir));
+            let generation = p.load_gen;
+            update_pane(
+                &mut p,
+                PaneId::default(),
+                false,
+                PaneMsg::Loaded {
+                    generation,
+                    entries: vec![],
+                },
+            );
+        }
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::GoBack);
+        assert_eq!(p.cur_path, PathBuf::from("C:\\a"));
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::LoadFailed {
+                generation,
+                error: "not found".into(),
+            },
+        );
+        assert_eq!(p.cur_path, PathBuf::from("C:\\b"));
+        assert!(p.history_fwd.is_empty()); // GoBack が積んだ fwd を掃除
+        assert_eq!(p.history_back.last(), Some(&PathBuf::from("C:\\root"))); // back は保持
     }
 
     #[test]

@@ -26,8 +26,9 @@ pub struct TreeState {
     pub expanded: BTreeSet<PathBuf>,
     /// ロード済みの子 (フォルダのみ)。key = 親パス。
     pub children: HashMap<PathBuf, Vec<TreeChild>>,
-    /// ドライブ (letter 例 "C:", label)。
-    pub drives: Vec<(String, String)>,
+    /// ドライブ行 (表示名 例 "OS (C:)" / "D:", ルートパス 例 "C:\")。
+    /// DrivesLoaded 時に前計算する (rows() は描画のたびに呼ばれるため)。
+    pub drives: Vec<(String, PathBuf)>,
     /// 登録済み UNC share (`\\server\share`)。セッション永続化対象。
     pub unc_shares: Vec<String>,
     /// 現在地 (フォーカスペインのフォルダ — ハイライト対象)。
@@ -115,7 +116,22 @@ impl TreeState {
                 }
             }
             TreeMsg::DrivesLoaded(drives) => {
-                self.drives = drives;
+                // domain の list_drives は letter を "C:\" (末尾 \ 付き) で返す。
+                // "C:" 前提で "\" を付け足すと "C:\\" 起点の二重区切りが
+                // 子孫パス全体へ伝播するため、ここで剥がしてから表示名と
+                // ルートパスを前計算する
+                self.drives = drives
+                    .into_iter()
+                    .map(|(letter, label)| {
+                        let letter = letter.trim_end_matches('\\');
+                        let display = if label.is_empty() {
+                            letter.to_string()
+                        } else {
+                            format!("{label} ({letter})")
+                        };
+                        (display, PathBuf::from(format!("{letter}\\")))
+                    })
+                    .collect();
                 vec![]
             }
             TreeMsg::ChildrenLoaded { path, dirs } => {
@@ -209,14 +225,8 @@ impl TreeState {
     /// フラット化した表示行。ドライブ群 → サーバ/share 群 の順 (CONTEXT.md)。
     pub fn rows(&self) -> Vec<TreeRow> {
         let mut out = Vec::new();
-        for (letter, label) in &self.drives {
-            let path = PathBuf::from(format!("{letter}\\"));
-            let display = if label.is_empty() {
-                letter.clone()
-            } else {
-                format!("{label} ({letter})")
-            };
-            self.push_dir_row(&mut out, 0, display, path);
+        for (display, path) in &self.drives {
+            self.push_dir_row(&mut out, 0, display.clone(), path.clone());
         }
         // UNC: サーバ毎にグルーピング (サーバノードは開けないコンテナ)
         let mut servers: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -323,6 +333,24 @@ mod tests {
         assert_eq!(t.rows().len(), 2);
         // ロード済みの再展開もロードなし
         assert!(t.update(TreeMsg::Toggle(c)).is_empty());
+    }
+
+    #[test]
+    fn drives_loaded_strips_trailing_separator() {
+        // domain の list_drives は "D:\" 形式 — そのまま受けると rows() が
+        // "D:\\" を作り、二重区切りが子孫へ伝播する (実機報告)
+        let mut t = TreeState::default();
+        t.update(TreeMsg::DrivesLoaded(vec![
+            ("D:\\".into(), String::new()),
+            ("C:\\".into(), "OS".into()),
+        ]));
+        let rows = t.rows();
+        assert_eq!(rows[0].label, "D:");
+        assert_eq!(
+            rows[0].path.as_ref().unwrap().to_string_lossy(),
+            "D:\\" // ルートは "D:\" ちょうど (二重にならない)
+        );
+        assert_eq!(rows[1].label, "OS (C:)");
     }
 
     #[test]

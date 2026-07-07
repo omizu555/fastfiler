@@ -49,6 +49,11 @@ pub enum ListEvent {
         ctrl: bool,
         shift: bool,
     },
+    /// 左ボタンをドラッグに至らず行の上で離した (押下時に保留した
+    /// 単一選択への確定用 — core の pending_click を参照)。
+    RowReleased {
+        ix: usize,
+    },
     RowDoubleClicked {
         ix: usize,
     },
@@ -468,14 +473,6 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if state.band.is_some() =>
-            {
-                state.band = None;
-                state.last_band = None;
-                shell.request_redraw();
-                shell.capture_event();
-            }
             Event::Mouse(mouse::Event::CursorLeft) if state.row_pressed.is_some() => {
                 // 閾値未満のままウィンドウ外へ出た場合も押下状態を破棄する
                 // (外での Released は届かないため、残すと幽霊ドラッグが始まる)
@@ -494,29 +491,36 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if state.dragging.is_some() =>
-            {
-                state.dragging = None;
-                shell.capture_event();
-            }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if state.row_pressed.is_some() || self.drag_active =>
-            {
-                state.row_pressed = None;
-                let was_dragging = state.row_dragging;
-                state.row_dragging = false;
-                if self.drag_active || was_dragging {
-                    if let Some(pos) = cursor.position() {
-                        if cursor.position_over(bounds).is_some() {
-                            let row = self.row_at(&list, pos);
-                            shell.publish((self.on_event)(ListEvent::DragDropped {
-                                row,
-                                x: pos.x,
-                                y: pos.y,
-                            }));
-                            shell.capture_event();
+            // 左ボタンの Released は 1 か所で処理する。押下の起点は
+            // ラバーバンド (空白) / 列仕切り / 行 の 3 種で相互排他
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if state.band.take().is_some() {
+                    state.last_band = None;
+                    shell.request_redraw();
+                    shell.capture_event();
+                } else if state.dragging.take().is_some() {
+                    shell.capture_event();
+                } else if state.row_pressed.is_some() || self.drag_active {
+                    let pressed = state.row_pressed.take();
+                    let was_dragging = state.row_dragging;
+                    state.row_dragging = false;
+                    if self.drag_active || was_dragging {
+                        if let Some(pos) = cursor.position() {
+                            if cursor.position_over(bounds).is_some() {
+                                let row = self.row_at(&list, pos);
+                                shell.publish((self.on_event)(ListEvent::DragDropped {
+                                    row,
+                                    x: pos.x,
+                                    y: pos.y,
+                                }));
+                                shell.capture_event();
+                            }
                         }
+                    } else if let Some((_, ix, false)) = pressed {
+                        // ドラッグに至らなかった左クリック: 押下時に保留した選択の
+                        // 確定を core へ通知する
+                        shell.publish((self.on_event)(ListEvent::RowReleased { ix }));
+                        shell.capture_event();
                     }
                 }
             }

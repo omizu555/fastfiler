@@ -288,6 +288,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                     ctrl: app.modifiers.control(),
                     shift: app.modifiers.shift(),
                 },
+                ListEvent::RowReleased { ix } => PaneMsg::RowReleased { ix },
                 ListEvent::RowDoubleClicked { ix } => PaneMsg::RowDoubleClicked { ix },
                 ListEvent::BlankPressed => PaneMsg::BlankPressed,
                 ListEvent::HeaderClicked(col) => PaneMsg::HeaderClicked(col),
@@ -537,6 +538,9 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             if app.restore_maximized {
                 tasks.push(window::maximize::<Msg>(id, true));
             }
+            // 非表示で生成したウィンドウを、位置・サイズ適用後に表示する
+            // (main.rs の visible: false と対。未描画の黒窓と位置ジャンプを見せない)
+            tasks.push(window::set_mode::<Msg>(id, window::Mode::Windowed));
             tasks.push(hwnd_task);
             Task::batch(tasks)
         }
@@ -1359,6 +1363,37 @@ pub fn drop_menu_open_for_test(app: &App) -> bool {
         .is_some_and(|p| matches!(p.overlay, Some(fastfiler_core::Overlay::DropMenu { .. })))
 }
 
+/// 統合テスト用: フォーカスペインの選択行 (昇順)。
+pub fn selection_for_test(app: &App) -> Vec<usize> {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .map(|p| p.selected.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+/// 統合テスト用: ツリー先頭行の中心座標 (論理px)。view のレイアウト式
+/// (タブ列幅 + ハンドル 6px + ツリー列、コンテナ padding 2) と対で保守する。
+pub fn tree_row0_center_for_test(app: &App) -> (f32, f32) {
+    let x = app.model.tab_width + 6.0 + app.model.tree.width / 2.0;
+    let y = 2.0 + fastfiler_core::tree::TREE_ROW_H / 2.0;
+    (x, y)
+}
+
+/// 統合テスト用: フォーカスペインの cur_path (文字列 — 区切り正規化の検証用)。
+pub fn cur_path_for_test(app: &App) -> String {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .map(|p| p.cur_path.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// 統合テスト用: 進行中ドラッグが運んでいるパス数 (None = ドラッグ無し)。
+pub fn drag_paths_for_test(app: &App) -> Option<usize> {
+    app.model.drag.as_ref().map(|d| d.paths.len())
+}
+
 /// 統合テスト用: OLE ヒットテスト表 (物理px) を物理座標で引いた解決ペイン。
 pub fn ole_hit_for_test(app: &App, x: f32, y: f32) -> Option<PaneId> {
     app.refresh_ole_snapshot();
@@ -1510,7 +1545,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         0.0
     };
     let pane_area_w = (app.window_size.width - app.model.tab_width - 6.0 - tree_w).max(100.0);
-    let pane_area_h = (app.window_size.height - 24.0).max(100.0);
+    let pane_area_h = app.window_size.height.max(100.0);
     let pane_area = render_node(
         app,
         &tab.root,
@@ -1541,7 +1576,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
     } else {
         row![tab_col, tab_w_handle, pane_area].into()
     };
-    let root = column![main, container(text("FastFiler").size(11)).padding([2, 8]),];
+    let root = main;
 
     // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
     let focused = app.model.focused_pane();
@@ -1638,7 +1673,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             );
             stack![root, card].into()
         }
-        _ => root.into(),
+        _ => root,
     }
 }
 

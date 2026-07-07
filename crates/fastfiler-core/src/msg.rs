@@ -23,6 +23,11 @@ pub enum PaneMsg {
         ctrl: bool,
         shift: bool,
     },
+    /// 左ボタンをドラッグに至らず離した (発生元の行)。エクスプローラ準拠:
+    /// 選択済み行の修飾なし押下は選択を維持し、この時点で単一選択へ確定する。
+    RowReleased {
+        ix: usize,
+    },
     RowDoubleClicked {
         ix: usize,
     },
