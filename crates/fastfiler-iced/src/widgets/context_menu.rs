@@ -93,14 +93,13 @@ impl<'a, Message> ContextMenu<'a, Message> {
         let mut items: &[MenuItem] = &self.items;
         let mut prefix: Vec<usize> = Vec::new();
         let (mut x, mut y) = at;
+        // 右端で折り返したら以降のサブも左へ展開し続ける (右往左往させない)
+        let mut open_left = false;
         loop {
             let h = items.len() as f32 * ITEM_H + 8.0;
-            // 画面端でフリップ (右端 → 左へ、下端 → 上へ)
-            let px = if x + PANEL_W > viewport.width {
-                (x - PANEL_W).max(0.0)
-            } else {
-                x
-            };
+            let px;
+            (px, open_left) = place_panel_x(x, viewport.width, !prefix.is_empty(), open_left);
+            // 下端は上へずらす (フリップではなく clamp)
             let py = if y + h > viewport.height {
                 (viewport.height - h).max(0.0)
             } else {
@@ -122,12 +121,40 @@ impl<'a, Message> ContextMenu<'a, Message> {
             if item.children.is_empty() {
                 break;
             }
-            x = rect.x + PANEL_W - 4.0;
+            x = if open_left {
+                rect.x - PANEL_W + 4.0
+            } else {
+                rect.x + PANEL_W - 4.0
+            };
             y = rect.y + 4.0 + ix as f32 * ITEM_H;
             prefix.push(ix);
             items = &item.children;
         }
         out
+    }
+}
+
+/// パネル x 座標の決定 (純関数)。基本は右へ展開し、右端に収まらないときだけ
+/// 左へ折り返す (エクスプローラ準拠):
+/// - ルート: カーソルの左側へ
+/// - サブ: 親パネルの左隣へ (以前は `x - PANEL_W` で親の真上に重なっていた —
+///   実機報告「右端でサブメニューが重なる」の原因)
+///
+/// 戻り値: (確定 x, 以降のサブを左展開するか)。
+fn place_panel_x(x: f32, viewport_w: f32, is_sub: bool, open_left: bool) -> (f32, bool) {
+    if open_left {
+        return (x.max(0.0), true);
+    }
+    if x + PANEL_W > viewport_w {
+        let flipped = if is_sub {
+            // x = 親の右端 - 4 なので、親の左隣 = x - 2*PANEL_W + 8
+            x - 2.0 * PANEL_W + 8.0
+        } else {
+            x - PANEL_W
+        };
+        (flipped.max(0.0), true)
+    } else {
+        (x, false)
     }
 }
 
@@ -323,4 +350,45 @@ fn fastfiler_iced_radius_md() -> iced::border::Radius {
 }
 fn fastfiler_iced_radius_sm() -> iced::border::Radius {
     crate::theme::ui_style().radius_sm.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_opens_right_when_space() {
+        assert_eq!(place_panel_x(100.0, 1600.0, false, false), (100.0, false));
+        // サブも右に収まるならそのまま
+        assert_eq!(
+            place_panel_x(100.0 + PANEL_W - 4.0, 1600.0, true, false),
+            (100.0 + PANEL_W - 4.0, false)
+        );
+    }
+
+    #[test]
+    fn root_flips_left_of_cursor_at_right_edge() {
+        let (x, left) = place_panel_x(1500.0, 1600.0, false, false);
+        assert_eq!(x, 1500.0 - PANEL_W);
+        assert!(left);
+    }
+
+    #[test]
+    fn submenu_flips_beside_parent_not_over_it() {
+        let vw = 1600.0;
+        // 親は x=1300 に収まる
+        let (parent_x, left) = place_panel_x(1300.0, vw, false, false);
+        assert_eq!((parent_x, left), (1300.0, false));
+        // サブの希望位置 (親の右端 - 4) は右端に収まらない → 親の左隣へ
+        // (修正前は x - PANEL_W = 親とほぼ同座標に重なっていた — 実機報告)
+        let want = parent_x + PANEL_W - 4.0;
+        let (sub_x, left) = place_panel_x(want, vw, true, false);
+        assert_eq!(sub_x, parent_x - PANEL_W + 4.0);
+        assert!(left);
+        // 一度左へ折り返したら 3 階層目も左へ展開し続ける
+        let want2 = sub_x - PANEL_W + 4.0;
+        let (sub2_x, left2) = place_panel_x(want2, vw, true, left);
+        assert_eq!(sub2_x, want2);
+        assert!(left2);
+    }
 }

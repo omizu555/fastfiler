@@ -106,7 +106,11 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             if !m.panes.contains_key(id) {
                 return vec![];
             }
-            // クリック系はそのペインへフォーカスを移す (F-204)
+            // クリック系はそのペインへフォーカスを移す (F-204)。
+            // 右クリック系 (メニュー) も移す — overlay はフォーカスペインのものしか
+            // 描画されないため、移さないと非フォーカスペインのフッタ/行/背景の
+            // 右クリックメニューが「開いたのに見えない」= 無反応になる (実機報告。
+            // 右ドラッグの DropMenu は Dropped 側で focused を移す先例あり)
             if matches!(
                 pmsg,
                 PaneMsg::RowPressed { .. }
@@ -114,6 +118,9 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
                     | PaneMsg::BlankPressed
                     | PaneMsg::HeaderClicked(_)
                     | PaneMsg::OpenPathEdit
+                    | PaneMsg::RightPressed { .. }
+                    | PaneMsg::OpenMenu { .. }
+                    | PaneMsg::ShellMenuRequest { .. }
             ) {
                 if let Some(tix) = tab_of(m, id) {
                     m.active = tix;
@@ -556,6 +563,36 @@ mod tests {
         // F6 巡回
         update_app(&mut m, AppMsg::Tab(TabMsg::CycleFocus));
         assert_eq!(m.focused_pane(), second);
+    }
+
+    #[test]
+    fn open_menu_on_unfocused_pane_moves_focus() {
+        // overlay はフォーカスペインのものしか描画されない — 右クリックメニューを
+        // 開くときにフォーカスが移らないと「開いたのに見えない」(実機報告:
+        // フッタ右クリックの反応が悪い)
+        let mut m = model();
+        let first = m.focused_pane();
+        update_app(&mut m, AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)));
+        assert_ne!(m.focused_pane(), first);
+        update_app(
+            &mut m,
+            AppMsg::Pane(
+                first,
+                PaneMsg::OpenMenu {
+                    at: (10.0, 10.0),
+                    row: None,
+                    templates: vec![],
+                    commands: vec![],
+                    templates_dir: String::new(),
+                    can_paste: false,
+                },
+            ),
+        );
+        assert_eq!(m.focused_pane(), first);
+        assert!(matches!(
+            m.panes[first].overlay,
+            Some(crate::model::Overlay::ContextMenu { .. })
+        ));
     }
 
     #[test]
