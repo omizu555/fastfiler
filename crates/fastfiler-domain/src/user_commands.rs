@@ -156,8 +156,8 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
                 .join(" "),
         )
     };
-    let cwd = (!working_dir.is_empty() && Path::new(&working_dir).is_dir())
-        .then(|| working_dir.clone());
+    let cwd =
+        (!working_dir.is_empty() && Path::new(&working_dir).is_dir()).then(|| working_dir.clone());
     match crate::shell::launch_with_shell(exec.clone(), params, cwd) {
         Ok(()) => Ok(()),
         // "code" (実体は code.cmd) などで見つからない場合は cmd /c 経由で再試行する。
