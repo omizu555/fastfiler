@@ -30,17 +30,17 @@ pub fn show_shell_context_menu(hwnd: isize, paths: Vec<String>) -> AppResult<()>
 
 #[cfg(windows)]
 unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResult<()> {
+    use windows::core::{PCSTR, PCWSTR};
     use windows::Win32::Foundation::{HWND, POINT};
     use windows::Win32::UI::Shell::Common::ITEMIDLIST;
     use windows::Win32::UI::Shell::{
-        CMF_NORMAL, CMINVOKECOMMANDINFO, IContextMenu, ILFindLastID, ILFree, IShellFolder,
-        SHBindToParent, SHParseDisplayName,
+        IContextMenu, ILFindLastID, ILFree, IShellFolder, SHBindToParent, SHParseDisplayName,
+        CMF_NORMAL, CMINVOKECOMMANDINFO,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreatePopupMenu, DestroyMenu, GetCursorPos, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-        TrackPopupMenuEx,
+        CreatePopupMenu, DestroyMenu, GetCursorPos, TrackPopupMenuEx, SW_SHOWNORMAL, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON,
     };
-    use windows::core::{PCSTR, PCWSTR};
 
     if paths.is_empty() {
         return Err(AppError::Other("対象がありません".into()));
@@ -61,9 +61,7 @@ unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResul
     for p in paths {
         let wide = to_wide(p);
         let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-        if let Err(e) =
-            SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None)
-        {
+        if let Err(e) = SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None) {
             free_all(&abs_pidls);
             return Err(AppError::Win32(format!("SHParseDisplayName({p}): {e}")));
         }
@@ -93,8 +91,14 @@ unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResul
 
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
-            let cmd =
-                TrackPopupMenuEx(menu, (TPM_RETURNCMD | TPM_RIGHTBUTTON).0, pt.x, pt.y, hwnd, None);
+            let cmd = TrackPopupMenuEx(
+                menu,
+                (TPM_RETURNCMD | TPM_RIGHTBUTTON).0,
+                pt.x,
+                pt.y,
+                hwnd,
+                None,
+            );
 
             let id = cmd.0;
             if id > 0 {
@@ -118,32 +122,70 @@ unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResul
     result
 }
 
+/// `.lnk` の解決 (ターゲット / 引数 / 作業フォルダ) を GUI 層からも使えるよう
+/// 再エクスポートする (フォルダショートカットの「新規タブで開く」判定用)。
+#[cfg(windows)]
+pub use win::{resolve_shortcut, ResolvedLink};
+
+/// 拡張子ごとの ShellExecuteW verb (エクスプローラのダブルクリック互換)。
+/// - ディスクイメージ: "mount" (Win8 以降のエクスプローラと同じマウント挙動)
+/// - Office テンプレート: None = レジストリ上の既定 verb (通常 "new" =
+///   テンプレートから新規作成)。"open" を明示するとテンプレート自体が
+///   編集モードで開いてしまう
+/// - それ以外: "open"
+#[cfg(windows)]
+fn shell_verb_for(ext: &str) -> Option<&'static str> {
+    match ext {
+        "iso" | "img" | "vhd" | "vhdx" => Some("mount"),
+        "xltx" | "xltm" | "xlt" | "dotx" | "dotm" | "dot" | "potx" | "potm" | "pot" => None,
+        _ => Some("open"),
+    }
+}
+
+/// 小文字化した拡張子 (なければ空文字)。
+#[cfg(windows)]
+fn ext_lower(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
 pub fn open_with_shell(path: String) -> AppResult<()> {
     #[cfg(windows)]
     {
-        // ディスクイメージ (iso/img/vhd/vhdx) は "mount" verb を使用し
-        // Windows エクスプローラと同じ「マウント」挙動にする (Win8 以降)。
-        // Office テンプレート (xltx/xltm/dotx/dotm/potx/potm 等) は verb を
-        // None にしてレジストリ上の既定 verb (通常 "new" = テンプレートから新規作成)
-        // を使用する。"open" を明示するとテンプレート自体が編集モードで開いてしまう。
-        // それ以外は従来通り "open" verb を使用。
-        let ext = std::path::Path::new(&path)
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_ascii_lowercase())
-            .unwrap_or_default();
-        let verb: Option<&str> = match ext.as_str() {
-            "iso" | "img" | "vhd" | "vhdx" => Some("mount"),
-            "xltx" | "xltm" | "xlt" | "dotx" | "dotm" | "dot" | "potx" | "potm" | "pot" => None,
-            _ => Some("open"),
-        };
+        let ext = ext_lower(&path);
+        // .lnk はターゲットを自前で解決し、「ターゲットの拡張子」で verb を
+        // 選び直す (エクスプローラと同じ挙動)。.lnk に明示 verb "open" を渡すと
+        // リンク解決後のターゲットにも "open" が伝播し、Office テンプレートへの
+        // ショートカットが「テンプレートから新規」でなくテンプレート自体の
+        // 編集で開いてしまう (実機報告)。引数・作業フォルダはリンクから引き継ぐ。
+        if ext == "lnk" {
+            if let Some(link) = win::resolve_shortcut(&path) {
+                let tgt = std::path::Path::new(&link.target);
+                let verb = shell_verb_for(&ext_lower(&link.target));
+                // 作業フォルダ: リンクの指定 > ターゲットの親 (フォルダは不要)
+                let cwd = link.workdir.clone().or_else(|| {
+                    if tgt.is_dir() {
+                        None
+                    } else {
+                        tgt.parent().and_then(|p| p.to_str()).map(str::to_owned)
+                    }
+                });
+                return win::shell_exec(verb, &link.target, link.args.as_deref(), cwd.as_deref());
+            }
+            // 解決できないリンク (MSI 広告ショートカット・仮想オブジェクト等) は
+            // 従来どおり .lnk 自体を shell へ渡す
+        }
+        let verb = shell_verb_for(&ext);
         // 作業ディレクトリはファイルの親フォルダを指定する。
         // 指定しないと FastFiler の cwd が継承され、.bat 等で相対パスが
         // 想定外の場所基準になる (エクスプローラのダブルクリック動作と揃える)。
         //
         // 例外:
-        // - .lnk / .url: ショートカット自身が「作業フォルダ」を持つので
-        //   ここで上書きせず shell に解決を任せる。
+        // - .lnk (解決不能時) / .url: ショートカット自身が「作業フォルダ」を
+        //   持つのでここで上書きせず shell に解決を任せる。
         // - ディレクトリ: explorer 起動で cwd は無意味なので None にする
         //   (親フォルダを渡してしまうと意味的に紛らわしい)。
         let pth = std::path::Path::new(&path);
@@ -200,7 +242,9 @@ pub fn launch_with_shell(
     #[cfg(not(windows))]
     {
         let _ = (exec, params, cwd);
-        Err(AppError::NotSupported("shell launch is windows-only".into()))
+        Err(AppError::NotSupported(
+            "shell launch is windows-only".into(),
+        ))
     }
 }
 
@@ -302,6 +346,65 @@ mod win {
         Ok(())
     }
 
+    /// 解決済みショートカット (.lnk) の中身。
+    pub struct ResolvedLink {
+        pub target: String,
+        pub args: Option<String>,
+        pub workdir: Option<String>,
+    }
+
+    /// `.lnk` のターゲット・引数・作業フォルダを IShellLinkW で解決する。
+    /// COM 未初期化、またはファイルシステムパスを持たないリンク
+    /// (MSI 広告ショートカット・仮想オブジェクト等) は None を返す
+    /// (呼び出し側は従来どおり .lnk 自体を shell へ渡す)。
+    pub fn resolve_shortcut(path: &str) -> Option<ResolvedLink> {
+        use windows::core::Interface;
+        use windows::Win32::Storage::FileSystem::WIN32_FIND_DATAW;
+        use windows::Win32::System::Com::{
+            CoCreateInstance, IPersistFile, CLSCTX_INPROC_SERVER, STGM_READ,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink, SLR_NO_UI};
+
+        fn read_buf(buf: &[u16]) -> String {
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            String::from_utf16_lossy(&buf[..len])
+        }
+
+        unsafe {
+            let link: IShellLinkW =
+                CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+            let pf: IPersistFile = link.cast().ok()?;
+            let path_w = wide(path);
+            pf.Load(PCWSTR(path_w.as_ptr()), STGM_READ).ok()?;
+            // リンク切れ追跡は UI なしで試みる。失敗しても保存済みパスで続行
+            let _ = link.Resolve(HWND::default(), SLR_NO_UI.0 as u32);
+            let mut buf = [0u16; 1024];
+            let mut fd = WIN32_FIND_DATAW::default();
+            link.GetPath(&mut buf, &mut fd, 0).ok()?;
+            let target = read_buf(&buf);
+            if target.is_empty() {
+                return None;
+            }
+            let mut abuf = [0u16; 1024];
+            let args = link
+                .GetArguments(&mut abuf)
+                .ok()
+                .map(|_| read_buf(&abuf))
+                .filter(|s| !s.is_empty());
+            let mut wbuf = [0u16; 1024];
+            let workdir = link
+                .GetWorkingDirectory(&mut wbuf)
+                .ok()
+                .map(|_| read_buf(&wbuf))
+                .filter(|s| !s.is_empty());
+            Some(ResolvedLink {
+                target,
+                args,
+                workdir,
+            })
+        }
+    }
+
     /// 任意の実行ファイルを ShellExecuteW で起動する専用 STA スレッドを立てる。
     pub fn launch_sta_thread(
         exec: String,
@@ -357,5 +460,73 @@ mod win {
         show_properties_thread(path.to_owned())
             .join()
             .map_err(|_| AppError::Win32("properties thread panicked".into()))?
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verb_selection_matches_explorer() {
+        // Office テンプレートは既定 verb (通常 "new" = テンプレートから新規)
+        assert_eq!(shell_verb_for("xltx"), None);
+        assert_eq!(shell_verb_for("dotm"), None);
+        assert_eq!(shell_verb_for("pot"), None);
+        assert_eq!(shell_verb_for("iso"), Some("mount"));
+        assert_eq!(shell_verb_for("txt"), Some("open"));
+        assert_eq!(shell_verb_for(""), Some("open"));
+    }
+
+    /// 実 .lnk を作って解決するラウンドトリップ。テンプレートへのショートカットが
+    /// 「ターゲットの拡張子 → 既定 verb (new)」に解決されることまで確認する
+    /// (実機報告: ショートカット経由だとテンプレート自体が開いてしまう)。
+    #[test]
+    fn resolve_shortcut_roundtrip_picks_template_verb() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::{Interface, PCWSTR};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+        let dir = std::env::temp_dir().join(format!("ff_lnk_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("template.xltx");
+        std::fs::write(&target, b"x").unwrap();
+        let lnk = dir.join("template.xltx.lnk");
+        let wide = |s: &str| -> Vec<u16> {
+            std::ffi::OsStr::new(s)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        };
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            {
+                let link: IShellLinkW =
+                    CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+                let tw = wide(target.to_str().unwrap());
+                link.SetPath(PCWSTR(tw.as_ptr())).unwrap();
+                let ww = wide(dir.to_str().unwrap());
+                link.SetWorkingDirectory(PCWSTR(ww.as_ptr())).unwrap();
+                let pf: IPersistFile = link.cast().unwrap();
+                let lw = wide(lnk.to_str().unwrap());
+                pf.Save(PCWSTR(lw.as_ptr()), true).unwrap();
+            }
+            let r = win::resolve_shortcut(lnk.to_str().unwrap()).expect("resolve");
+            assert!(r.target.eq_ignore_ascii_case(target.to_str().unwrap()));
+            assert_eq!(r.args, None);
+            assert!(r
+                .workdir
+                .as_deref()
+                .unwrap()
+                .eq_ignore_ascii_case(dir.to_str().unwrap()));
+            // 解決後の verb がテンプレート分岐 (None = 既定 verb) になる
+            assert_eq!(shell_verb_for(&ext_lower(&r.target)), None);
+            CoUninitialize();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
