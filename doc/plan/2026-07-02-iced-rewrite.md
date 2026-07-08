@@ -745,3 +745,21 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   完全に右へ出すとウィンドウ内描画のため右端で切れる — 右優先は維持し、
   収まらないときだけ左隣へ)。
 - テスト: place_panel_x 3 本 (iced lib) + OpenMenu フォーカス移動 1 本 (core 88 本目)。
+
+### 2026-07-08 — 実機報告: テンプレートのショートカット (.lnk) がテンプレート自体を開く
+- 原因: open_with_shell は Office テンプレート拡張子のとき verb=None (既定 verb
+  "new" = テンプレートから新規) にするが、.lnk は `_ =>` で verb="open" 明示に
+  落ちる。ShellExecuteW は .lnk に明示 verb を渡すとリンク解決後のターゲットにも
+  verb が伝播するため、ショートカット経由では "open" (テンプレート自体の編集) に
+  なっていた。
+- 修正: .lnk は IShellLinkW で自前解決 (win::resolve_shortcut — ターゲット/引数/
+  作業フォルダ) し、「ターゲットの拡張子」で verb を選び直して実行 (エクスプローラ
+  と同じ流儀)。解決できないリンク (MSI 広告等) は従来どおり .lnk を直接 shell へ。
+  verb 選択は shell_verb_for に切り出し。
+- テスト: verb 選択表 + 実 .lnk 生成→解決→テンプレート verb 確定のラウンドトリップ
+  (domain 20 本)。domain の凍結解除後初の fmt/clippy 適用 (既存 lint 2 件も解消)。
+- (同日追記) フォルダを指す .lnk のダブルクリックは Explorer 起動でなく
+  **FastFiler の新規タブ**で開くように (実機要望)。effects 層で resolve_shortcut →
+  is_dir なら新設 TabMsg::OpenFor(path) を発行 (ロックタブの OpenTabFor と同じ
+  open_new_tab 展開)。resolve は UI スレッド (COM 初期化済み) で同期実行。
+  core テスト 89 本目 (OpenFor が新規タブ + LoadDir を発行)。USAGE §2 更新。
