@@ -91,6 +91,9 @@ pub enum TabMsg {
     },
     /// タブバー幅リサイズ (F-106)。
     SetTabWidth(f32),
+    /// 指定フォルダを新規タブで開く (フォルダを指す .lnk のダブルクリック —
+    /// GUI 層がショートカット解決後に発行する。ロックタブの OpenTabFor と同じ展開)。
+    OpenFor(PathBuf),
 }
 
 /// アプリ全体の入力を処理する。ペイン宛はロック状態を添えて `update_pane` へ委譲し、
@@ -441,6 +444,7 @@ fn update_tab(m: &mut AppModel, msg: TabMsg) -> Vec<Effect> {
             m.tab_width = w.clamp(TAB_W_MIN, TAB_W_MAX);
             vec![]
         }
+        TabMsg::OpenFor(path) => open_new_tab(m, path),
     }
 }
 
@@ -593,6 +597,21 @@ mod tests {
             m.panes[first].overlay,
             Some(crate::model::Overlay::ContextMenu { .. })
         ));
+    }
+
+    #[test]
+    fn tab_open_for_opens_new_tab_at_path() {
+        // フォルダを指す .lnk のダブルクリック: GUI 層がショートカットを解決し
+        // TabMsg::OpenFor を発行 → 新規タブ + 読み込み
+        let mut m = model();
+        let tabs_before = m.tabs.len();
+        let fx = update_app(
+            &mut m,
+            AppMsg::Tab(TabMsg::OpenFor(PathBuf::from("C:\\sub"))),
+        );
+        assert_eq!(m.tabs.len(), tabs_before + 1);
+        assert_eq!(m.panes[m.focused_pane()].cur_path, PathBuf::from("C:\\sub"));
+        assert!(fx.iter().any(|e| matches!(e, Effect::LoadDir { .. })));
     }
 
     #[test]

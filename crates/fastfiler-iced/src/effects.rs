@@ -206,6 +206,23 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
             ))
         }),
         Effect::OpenFile { path } => {
+            // フォルダを指すショートカットはエクスプローラでなく新規タブで開く
+            // (実機要望)。resolve_shortcut は COM 必須だが、ここは update と同じ
+            // UI スレッド (main 冒頭で OLE/COM 初期化済み) なので同期解決してよい。
+            // 解決できなければ従来どおり shell へ (エクスプローラ起動等)
+            if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
+            {
+                if let Some(link) = shell::resolve_shortcut(&path.to_string_lossy()) {
+                    let target = PathBuf::from(&link.target);
+                    if target.is_dir() {
+                        return Task::done(Msg::Core(AppMsg::Tab(
+                            fastfiler_core::update_app::TabMsg::OpenFor(target),
+                        )));
+                    }
+                }
+            }
             // domain 側が専用スレッドで ShellExecuteW する (UI 再入なし)
             shell::open_with_shell_async(path.to_string_lossy().to_string());
             Task::none()
