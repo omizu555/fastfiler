@@ -1,7 +1,7 @@
 // Phase 2B-4: ディレクトリ監視 (notify, ReadDirectoryChangesW) の純粋部分。
 //
 // Tauri 非依存。EventSink 経由で fs-change イベントを発火する。
-// AppHandle/State を持つ薄いラッパーは src-tauri 側に存在する。
+// 呼び出し元は fastfiler-iced の PaneWatcher (effects.rs)。
 
 use crate::error::{AppError, AppResult};
 use crate::events::{self, EventSink};

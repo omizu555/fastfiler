@@ -27,22 +27,21 @@ use std::sync::{Arc, Mutex};
 
 use windows::core::implement;
 use windows::Win32::Foundation::{
-    BOOL, DV_E_FORMATETC, DV_E_TYMED, E_NOTIMPL, HANDLE, HWND, OLE_E_ADVISENOTSUPPORTED, POINTL,
-    S_OK,
+    BOOL, DV_E_FORMATETC, DV_E_TYMED, E_NOTIMPL, HWND, OLE_E_ADVISENOTSUPPORTED, POINTL, S_OK,
 };
 use windows::Win32::System::Com::{
     IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA, DATADIR_GET,
     DVASPECT_CONTENT, FORMATETC, STGMEDIUM, STGMEDIUM_0, TYMED_HGLOBAL,
 };
 use windows::Win32::System::DataExchange::RegisterClipboardFormatA;
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
+use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows::Win32::System::Ole::{
     DoDragDrop, IDropSource, IDropSource_Impl, IDropTarget, IDropTarget_Impl, OleInitialize,
     OleUninitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
     DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_NONE,
 };
 use windows::Win32::System::SystemServices::{MK_LBUTTON, MK_RBUTTON, MODIFIERKEYS_FLAGS};
-use windows::Win32::UI::Shell::{SHCreateStdEnumFmtEtc, DROPFILES};
+use windows::Win32::UI::Shell::SHCreateStdEnumFmtEtc;
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 /// 推奨ドロップ効果 (起動側のヒント)。
@@ -88,57 +87,11 @@ pub struct DragRequest {
 // ================================================================
 
 fn build_hdrop_bytes(paths: &[PathBuf]) -> Vec<u8> {
-    let mut wide: Vec<u16> = Vec::new();
-    for p in paths {
-        let s = p.to_string_lossy();
-        let normalized: String = s.chars().map(|c| if c == '/' { '\\' } else { c }).collect();
-        for u in normalized.encode_utf16() {
-            wide.push(u);
-        }
-        wide.push(0);
-    }
-    wide.push(0); // ダブル NUL 終端
-
-    let dropfiles_size = std::mem::size_of::<DROPFILES>();
-    let payload_bytes = wide.len() * 2;
-    let total = dropfiles_size + payload_bytes;
-    let mut buf = vec![0u8; total];
-
-    unsafe {
-        let df = buf.as_mut_ptr() as *mut DROPFILES;
-        (*df).pFiles = dropfiles_size as u32;
-        (*df).pt = std::mem::zeroed();
-        (*df).fNC = BOOL(0);
-        (*df).fWide = BOOL(1);
-        let dst = buf.as_mut_ptr().add(dropfiles_size) as *mut u16;
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
-    }
-    buf
+    // 実装は hdrop.rs に集約 (win_clipboard と同一仕様を共有)
+    crate::hdrop::build_hdrop_bytes(paths.iter().map(|p| p.to_string_lossy()))
 }
 
-// ================================================================
-// HGLOBAL alloc helper (毎回新規 alloc。use-after-free 回避)
-// ================================================================
-
-unsafe fn alloc_hglobal_from_bytes(bytes: &[u8]) -> AppResult<HANDLE> {
-    let h =
-        GlobalAlloc(GHND, bytes.len()).map_err(|e| AppError::Win32(format!("GlobalAlloc: {e}")))?;
-    if h.is_invalid() {
-        return Err(AppError::Win32("GlobalAlloc invalid".into()));
-    }
-    let p = GlobalLock(h) as *mut u8;
-    if p.is_null() {
-        return Err(AppError::Win32("GlobalLock failed".into()));
-    }
-    std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
-    let _ = GlobalUnlock(h);
-    Ok(HANDLE(h.0))
-}
-
-#[allow(dead_code)]
-unsafe fn alloc_hglobal_dword(v: u32) -> AppResult<HANDLE> {
-    alloc_hglobal_from_bytes(&v.to_le_bytes())
-}
+use crate::hdrop::alloc_hglobal_from_bytes;
 
 unsafe fn read_hglobal_dword(stgm: &STGMEDIUM) -> Option<u32> {
     if stgm.tymed != TYMED_HGLOBAL.0 as u32 {
@@ -199,71 +152,37 @@ pub fn extract_hdrop_paths(data: &IDataObject) -> AppResult<Vec<PathBuf>> {
                 stgm.tymed
             )));
         }
-        let h = windows::Win32::Foundation::HGLOBAL(stgm.u.hGlobal.0);
-        let p = GlobalLock(h) as *const u8;
-        if p.is_null() {
-            return Err(AppError::Win32("GlobalLock failed".into()));
+        // DragQueryFileW ベース (win_clipboard の読取と同一流儀)。
+        // 旧実装の手書きポインタ走査は GlobalSize と照合しない範囲外読み取りの
+        // 余地があった (任意の外部 IDataObject が入力になる攻撃面)。
+        // ANSI 形式 (fWide=0) も DragQueryFileW が OS 側で処理する
+        use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+        let hdrop = HDROP(stgm.u.hGlobal.0);
+        let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+        let mut paths: Vec<PathBuf> = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let needed = DragQueryFileW(hdrop, i, None);
+            if needed == 0 {
+                continue;
+            }
+            let mut buf: Vec<u16> = vec![0u16; (needed + 1) as usize];
+            let written = DragQueryFileW(hdrop, i, Some(&mut buf));
+            if written == 0 {
+                continue;
+            }
+            paths.push(PathBuf::from(String::from_utf16_lossy(
+                &buf[..written as usize],
+            )));
         }
-        let df = p as *const DROPFILES;
-        let offset = (*df).pFiles as usize;
-        let is_wide = (*df).fWide.as_bool();
-        let result = if is_wide {
-            parse_paths_w(p.add(offset) as *const u16)
-        } else {
-            parse_paths_a(p.add(offset))
-        };
-        let _ = GlobalUnlock(h);
-        Ok(result)
+        Ok(paths)
     }
-}
-
-/// double NUL 終端の UTF-16 文字列群をパース。
-unsafe fn parse_paths_w(start: *const u16) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut i: isize = 0;
-    loop {
-        if *start.offset(i) == 0 {
-            break;
-        }
-        let mut end = i;
-        while *start.offset(end) != 0 {
-            end += 1;
-        }
-        let len = (end - i) as usize;
-        let slice = std::slice::from_raw_parts(start.offset(i), len);
-        let s = String::from_utf16_lossy(slice);
-        paths.push(PathBuf::from(s));
-        i = end + 1;
-    }
-    paths
-}
-
-/// double NUL 終端の ANSI 文字列群をパース (古い実装向け fallback)。
-unsafe fn parse_paths_a(start: *const u8) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut i: isize = 0;
-    loop {
-        if *start.offset(i) == 0 {
-            break;
-        }
-        let mut end = i;
-        while *start.offset(end) != 0 {
-            end += 1;
-        }
-        let len = (end - i) as usize;
-        let slice = std::slice::from_raw_parts(start.offset(i), len);
-        let s = String::from_utf8_lossy(slice).into_owned();
-        paths.push(PathBuf::from(s));
-        i = end + 1;
-    }
-    paths
 }
 
 // ================================================================
 // Clipboard format IDs (lazy)
 // ================================================================
 
-fn cf_preferred_drop_effect() -> u16 {
+pub(crate) fn cf_preferred_drop_effect() -> u16 {
     unsafe { RegisterClipboardFormatA(windows::core::s!("Preferred DropEffect")) as u16 }
 }
 
@@ -337,17 +256,20 @@ impl IDataObject_Impl for CDataObject_Impl {
         if fe.dwAspect != DVASPECT_CONTENT.0 || (fe.tymed & TYMED_HGLOBAL.0 as u32) == 0 {
             return Err(DV_E_FORMATETC.into());
         }
+        // 中間 Vec へ clone せず、ロック保持のまま直接 HGLOBAL へコピーする
+        // (1 万件ドラッグの CF_HDROP ~1.6MB で GetData ごとの二重コピーだった。
+        //  alloc_hglobal_from_bytes はロックを取らないためデッドロックしない)
         let state = self.inner.lock().unwrap();
-        let bytes: Vec<u8> = if fe.cfFormat == CF_HDROP.0 {
-            state.hdrop_bytes.clone()
-        } else if fe.cfFormat == self.cf_pref {
-            state.preferred.to_le_bytes().to_vec()
-        } else {
-            return Err(DV_E_FORMATETC.into());
-        };
-        drop(state);
         unsafe {
-            let h = alloc_hglobal_from_bytes(&bytes).map_err(|e| {
+            let alloc_result = if fe.cfFormat == CF_HDROP.0 {
+                alloc_hglobal_from_bytes(&state.hdrop_bytes)
+            } else if fe.cfFormat == self.cf_pref {
+                alloc_hglobal_from_bytes(&state.preferred.to_le_bytes())
+            } else {
+                return Err(DV_E_FORMATETC.into());
+            };
+            drop(state);
+            let h = alloc_result.map_err(|e| {
                 windows::core::Error::new(windows::Win32::Foundation::E_OUTOFMEMORY, e.to_string())
             })?;
             let mut medium: STGMEDIUM = std::mem::zeroed();
@@ -397,7 +319,7 @@ impl IDataObject_Impl for CDataObject_Impl {
         &self,
         pformatetc: *const FORMATETC,
         pmedium: *const STGMEDIUM,
-        _frelease: BOOL,
+        frelease: BOOL,
     ) -> windows::core::Result<()> {
         let fe = unsafe { &*pformatetc };
         let medium = unsafe { &*pmedium };
@@ -413,8 +335,11 @@ impl IDataObject_Impl for CDataObject_Impl {
                 state.logical_performed = Some(v);
             }
         }
-        // STGMEDIUM の解放は fRelease=TRUE のとき呼出元が期待するが
-        // ここではコピーで済んでいるので明示解放はスキップ (OS が処理する)。
+        // COM 契約: fRelease=TRUE なら所有権はこちらへ移り、解放責務を負う。
+        // 値はコピー済みなので即解放する (放置すると HGLOBAL が呼び出しごとにリーク)
+        if frelease.as_bool() {
+            unsafe { ReleaseStgMedium(pmedium as *mut STGMEDIUM) };
+        }
         Ok(())
     }
 
@@ -657,7 +582,9 @@ pub struct DropTargetCallbacks {
 #[implement(IDropTarget)]
 struct CDropTarget {
     callbacks: Arc<DropTargetCallbacks>,
-    cached_paths: Mutex<Vec<PathBuf>>,
+    // Arc 共有 — DragOver はマウス移動毎に呼ばれるため、Vec の deep clone だと
+    // 1,000 ファイルのドラッグで毎イベント ~1,000 alloc になる
+    cached_paths: Mutex<Arc<Vec<PathBuf>>>,
     registered_thread: u32,
 }
 
@@ -666,7 +593,7 @@ impl CDropTarget {
         let tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
         Self {
             callbacks,
-            cached_paths: Mutex::new(Vec::new()),
+            cached_paths: Mutex::new(Arc::new(Vec::new())),
             registered_thread: tid,
         }
     }
@@ -707,9 +634,10 @@ impl IDropTarget_Impl for CDropTarget_Impl {
                 return Ok(());
             }
         };
+        let paths = Arc::new(paths);
         {
             let mut cache = self.cached_paths.lock().unwrap();
-            *cache = paths.clone();
+            *cache = Arc::clone(&paths);
         }
         let callbacks = Arc::clone(&self.callbacks);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -730,7 +658,7 @@ impl IDropTarget_Impl for CDropTarget_Impl {
         let allowed = unsafe { (*pdweffect).0 };
         let pt = *pt;
         let key = grfkeystate.0;
-        let paths = { self.cached_paths.lock().unwrap().clone() };
+        let paths = { Arc::clone(&self.cached_paths.lock().unwrap()) };
         if paths.is_empty() {
             unsafe { *pdweffect = DROPEFFECT_NONE };
             return Ok(());
@@ -747,7 +675,7 @@ impl IDropTarget_Impl for CDropTarget_Impl {
     fn DragLeave(&self) -> windows::core::Result<()> {
         self.assert_thread();
         {
-            self.cached_paths.lock().unwrap().clear();
+            *self.cached_paths.lock().unwrap() = Arc::new(Vec::new());
         }
         let callbacks = Arc::clone(&self.callbacks);
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (callbacks.on_leave)()));
@@ -768,18 +696,18 @@ impl IDropTarget_Impl for CDropTarget_Impl {
         // Drop 時は cached_paths が空でも IDataObject から再抽出する
         // (一部の Source は Drop で初めて確定したパスを送る場合がある)
         let paths = {
-            let cached = self.cached_paths.lock().unwrap().clone();
+            let cached = Arc::clone(&self.cached_paths.lock().unwrap());
             if !cached.is_empty() {
                 cached
             } else if let Some(d) = pdataobj {
-                extract_hdrop_paths(d).unwrap_or_default()
+                Arc::new(extract_hdrop_paths(d).unwrap_or_default())
             } else {
-                Vec::new()
+                Arc::new(Vec::new())
             }
         };
         if paths.is_empty() {
             unsafe { *pdweffect = DROPEFFECT_NONE };
-            self.cached_paths.lock().unwrap().clear();
+            *self.cached_paths.lock().unwrap() = Arc::new(Vec::new());
             return Ok(());
         }
         let callbacks = Arc::clone(&self.callbacks);
@@ -788,7 +716,7 @@ impl IDropTarget_Impl for CDropTarget_Impl {
         }));
         let desired = result.unwrap_or(DROPEFFECT_NONE.0);
         unsafe { *pdweffect = DROPEFFECT(desired & allowed) };
-        self.cached_paths.lock().unwrap().clear();
+        *self.cached_paths.lock().unwrap() = Arc::new(Vec::new());
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 //! 任意のイベントを emit するための抽象 (Tauri 非依存)。
 //!
-//! Tauri アダプタ (`tauri_sink`) は src-tauri 側に存在する。
+//! 受信端は fastfiler-iced の `ChannelSink` (effects.rs) — 単一チャネルへ橋渡しする。
 
 use serde::Serialize;
 

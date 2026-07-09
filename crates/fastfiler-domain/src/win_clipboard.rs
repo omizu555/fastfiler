@@ -29,99 +29,40 @@ pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {
 
 #[cfg(windows)]
 unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{HANDLE, HWND};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
     use windows::Win32::System::Ole::CF_HDROP;
-    use windows::Win32::UI::Shell::DROPFILES;
 
-    // 1. CF_HDROP 用バイト列を準備
-    //    DROPFILES + (path1\0 path2\0 ... \0)
-    let mut wide_paths: Vec<u16> = Vec::new();
-    for p in paths {
-        // バックスラッシュへ正規化
-        let normalized: String = p.chars().map(|c| if c == '/' { '\\' } else { c }).collect();
-        for u in normalized.encode_utf16() {
-            wide_paths.push(u);
-        }
-        wide_paths.push(0);
-    }
-    wide_paths.push(0); // ダブル NUL 終端
+    // CF_HDROP バイト列 (DROPFILES + ダブル NUL ワイド列) — 構築は hdrop.rs に
+    // 集約 (ole_dnd の D&D 送信と同一仕様)。ガードは SetClipboardData 成功まで
+    // の HGLOBAL リークを防ぐ (従来はエラーパスで全量漏れていた)
+    let bytes = crate::hdrop::build_hdrop_bytes(paths);
+    let mut h_drop = crate::hdrop::HGlobalGuard::from_bytes(&bytes)?;
+    // Preferred DropEffect: 1=COPY, 2=MOVE
+    let effect: u32 = if op == "cut" || op == "move" { 2 } else { 1 };
+    let mut h_eff = crate::hdrop::HGlobalGuard::from_dword(effect)?;
 
-    let dropfiles_size = std::mem::size_of::<DROPFILES>();
-    let payload_bytes = wide_paths.len() * 2;
-    let total = dropfiles_size + payload_bytes;
-
-    // 2. グローバルメモリ確保 (CF_HDROP 本体)
-    let h_drop = GlobalAlloc(GHND, total)
-        .map_err(|e| AppError::Win32(format!("GlobalAlloc(HDROP): {e}")))?;
-    if h_drop.is_invalid() {
-        return Err(AppError::Win32(
-            "GlobalAlloc(HDROP) returned invalid".into(),
-        ));
-    }
-    {
-        let p = GlobalLock(h_drop) as *mut u8;
-        if p.is_null() {
-            // 失敗時の解放は省略 (極めて稀。SetClipboardData 成功までの一時的な漏れは許容)
-            return Err(AppError::Win32("GlobalLock(HDROP) failed".into()));
-        }
-        // DROPFILES を書き込む
-        let df = p as *mut DROPFILES;
-        (*df).pFiles = dropfiles_size as u32;
-        (*df).pt = std::mem::zeroed();
-        (*df).fNC = false.into();
-        (*df).fWide = true.into();
-        // ワイド文字配列をコピー
-        let dst = p.add(dropfiles_size) as *mut u16;
-        std::ptr::copy_nonoverlapping(wide_paths.as_ptr(), dst, wide_paths.len());
-        let _ = GlobalUnlock(h_drop);
-    }
-
-    // 3. Preferred DropEffect 用 DWORD を別途確保
-    let h_eff = GlobalAlloc(GHND, std::mem::size_of::<u32>())
-        .map_err(|e| AppError::Win32(format!("GlobalAlloc(Effect): {e}")))?;
-    if h_eff.is_invalid() {
-        return Err(AppError::Win32(
-            "GlobalAlloc(Effect) returned invalid".into(),
-        ));
-    }
-    {
-        let p = GlobalLock(h_eff) as *mut u32;
-        if p.is_null() {
-            return Err(AppError::Win32("GlobalLock(Effect) failed".into()));
-        }
-        // 1=COPY, 2=MOVE
-        *p = if op == "cut" || op == "move" { 2 } else { 1 };
-        let _ = GlobalUnlock(h_eff);
-    }
-
-    // 4. クリップボードへセット
     if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
         return Err(AppError::Win32("OpenClipboard 失敗".into()));
     }
-
     let res = (|| -> AppResult<()> {
         EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
 
-        // CF_HDROP
-        SetClipboardData(CF_HDROP.0 as u32, HANDLE(h_drop.0))
+        SetClipboardData(CF_HDROP.0 as u32, h_drop.handle())
             .map_err(|e| AppError::Win32(format!("SetClipboardData(HDROP): {e}")))?;
+        h_drop.disarm(); // 所有権はクリップボードへ移った
 
-        // CFSTR_PREFERREDDROPEFFECT
-        let fmt_name: Vec<u16> = "Preferred DropEffect\0".encode_utf16().collect();
-        let cf_pref = RegisterClipboardFormatW(PCWSTR(fmt_name.as_ptr()));
+        let cf_pref = crate::ole_dnd::cf_preferred_drop_effect() as u32;
         if cf_pref == 0 {
-            return Err(AppError::Win32("RegisterClipboardFormatW 失敗".into()));
+            return Err(AppError::Win32("RegisterClipboardFormat 失敗".into()));
         }
-        SetClipboardData(cf_pref, HANDLE(h_eff.0))
+        SetClipboardData(cf_pref, h_eff.handle())
             .map_err(|e| AppError::Win32(format!("SetClipboardData(Pref): {e}")))?;
+        h_eff.disarm();
         Ok(())
     })();
-
     let _ = CloseClipboard();
     res
 }
@@ -150,11 +91,9 @@ pub fn clipboard_read_paths() -> AppResult<Option<ClipboardPaths>> {
 
 #[cfg(windows)]
 unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HGLOBAL, HWND};
     use windows::Win32::System::DataExchange::{
         CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-        RegisterClipboardFormatW,
     };
     use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
     use windows::Win32::System::Ole::CF_HDROP;
@@ -190,9 +129,8 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
             paths.push(s);
         }
 
-        // Preferred DropEffect を読む (1=COPY, 2=MOVE)
-        let fmt_name: Vec<u16> = "Preferred DropEffect\0".encode_utf16().collect();
-        let cf_pref = RegisterClipboardFormatW(PCWSTR(fmt_name.as_ptr()));
+        // Preferred DropEffect を読む (1=COPY, 2=MOVE)。形式 ID は ole_dnd と共用
+        let cf_pref = crate::ole_dnd::cf_preferred_drop_effect() as u32;
         let mut op = "copy".to_string();
         if cf_pref != 0 && IsClipboardFormatAvailable(cf_pref).is_ok() {
             if let Ok(h_eff) = GetClipboardData(cf_pref) {
@@ -237,40 +175,28 @@ pub fn clipboard_write_text(text: &str) -> AppResult<()> {
 
 #[cfg(windows)]
 unsafe fn write_text_win(text: &str) -> AppResult<()> {
-    use windows::Win32::Foundation::{HANDLE, HWND};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GHND};
     use windows::Win32::System::Ole::CF_UNICODETEXT;
 
     // 改行を CRLF に正規化
     let normalized = text.replace("\r\n", "\n").replace('\n', "\r\n");
-    let mut wide: Vec<u16> = normalized.encode_utf16().collect();
-    wide.push(0); // NUL 終端
+    let wide = crate::wstr::to_wide_z(&normalized);
 
-    let total = wide.len() * 2;
-    let h =
-        GlobalAlloc(GHND, total).map_err(|e| AppError::Win32(format!("GlobalAlloc(text): {e}")))?;
-    if h.is_invalid() {
-        return Err(AppError::Win32("GlobalAlloc(text) returned invalid".into()));
-    }
-    {
-        let p = GlobalLock(h) as *mut u16;
-        if p.is_null() {
-            return Err(AppError::Win32("GlobalLock(text) failed".into()));
-        }
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
-        let _ = GlobalUnlock(h);
-    }
+    // u16 列 → バイト列 (リトルエンディアン)
+    let bytes: Vec<u8> = wide.iter().flat_map(|u| u.to_le_bytes()).collect();
+    let mut h = crate::hdrop::HGlobalGuard::from_bytes(&bytes)?;
 
     if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
         return Err(AppError::Win32("OpenClipboard 失敗".into()));
     }
     let res = (|| -> AppResult<()> {
         EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
-        SetClipboardData(CF_UNICODETEXT.0 as u32, HANDLE(h.0))
+        SetClipboardData(CF_UNICODETEXT.0 as u32, h.handle())
             .map_err(|e| AppError::Win32(format!("SetClipboardData(TEXT): {e}")))?;
+        h.disarm();
         Ok(())
     })();
     let _ = CloseClipboard();

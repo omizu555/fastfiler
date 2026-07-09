@@ -1,19 +1,18 @@
 [package]
 name = "fastfiler-domain"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.77"
-description = "FastFiler の Tauri 非依存ドメインロジック (Phase 2B 段階移行中)"
-# GPL クレート (vendor/crates/{zlog,ztracing}) をリンクするため成果物全体が GPL-3.0。
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "FastFiler のドメインロジック (Win32 統合・ファイル操作・検索)"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 thiserror = "1"
 once_cell = "1"
 parking_lot = "0.12"
-lru = "0.12"
+lru = "0.16"
 image = { version = "0.25", default-features = false, features = ["png"] }
 notify = "6"
 ignore = "0.4"
@@ -26,7 +25,7 @@ tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-windows = { version = "0.58", features = [
+windows = { workspace = true, features = [
     "implement",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
@@ -46,4 +45,4 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
 ] }
-windows-core = "0.58"
+windows-core.workspace = true

@@ -204,17 +204,8 @@ mod trash_impl {
 
     pub fn delete_to_trash(paths: Vec<String>) -> AppResult<()> {
         // SHFileOperationW は呼び出しスレッドの COM 状態に依存しない安定 API。
-        // 文字列はダブル NUL 終端の wide リストにする。
-        let mut wide: Vec<u16> = Vec::new();
-        for p in &paths {
-            // 念のため正規化 (バックスラッシュに揃える)
-            let normalized: String = p.chars().map(|c| if c == '/' { '\\' } else { c }).collect();
-            for u in normalized.encode_utf16() {
-                wide.push(u);
-            }
-            wide.push(0);
-        }
-        wide.push(0); // 二重 NUL 終端
+        // 文字列はダブル NUL 終端の wide リスト ('/' 正規化込み — wstr に集約)。
+        let wide = crate::wstr::wide_path_list_double_nul(&paths);
 
         // catch_unwind で Rust panic は受ける (FFI 由来 SEH は別途ガード対象だが
         // SHFileOperationW は HRESULT/int を返すため通常は SEH を起こさない)。
@@ -271,7 +262,11 @@ mod trash_impl {
 
         // catch_unwind は不要 (HRESULT で返るため)。CoInitialize は本スレッド限定で in-out。
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            // フラグは他の STA 初期化 (win_com) と同じ (OLE1 DDE 無効化は推奨設定)
+            let _ = CoInitializeEx(
+                None,
+                COINIT_APARTMENTTHREADED | windows::Win32::System::Com::COINIT_DISABLE_OLE1DDE,
+            );
         }
         // CoUninitialize は restore 終了後に呼ぶ (Drop ガード)
         struct ComGuard;
@@ -284,11 +279,7 @@ mod trash_impl {
 
         let res = (|| -> AppResult<()> {
             // 復元先親フォルダの IShellItem
-            let parent_wide: Vec<u16> = parent
-                .as_os_str()
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
+            let parent_wide: Vec<u16> = crate::wstr::to_wide_z(&parent);
             let dest_folder: IShellItem = unsafe {
                 SHCreateItemFromParsingName(PCWSTR(parent_wide.as_ptr()), None)
                     .map_err(|e| AppError::Win32(format!("dest IShellItem: {e}")))?
@@ -411,11 +402,7 @@ mod trash_impl {
                 .map_err(|e| AppError::Win32(format!("SetOperationFlags: {e}")))?;
 
                 // file_name は元のまま戻したい → NewName に元のファイル名を指定
-                let name_wide: Vec<u16> = item
-                    .file_name
-                    .encode_wide()
-                    .chain(std::iter::once(0))
-                    .collect();
+                let name_wide: Vec<u16> = crate::wstr::to_wide_z(&item.file_name);
                 op.MoveItem(chosen, &dest_folder, PCWSTR(name_wide.as_ptr()), None)
                     .map_err(|e| AppError::Win32(format!("MoveItem: {e}")))?;
                 op.PerformOperations()
@@ -433,13 +420,13 @@ mod trash_impl {
         };
         unsafe {
             let mut pv = store.GetValue(key).ok()?;
-            // PropVariantToString は呼び出し側 buffer を要求する。260 文字あれば NTFS パスの大半をカバー。
+            // PropVariantToString は呼び出し側 buffer を要求する。
+            // 1024 文字 (長いパス \\?\ 形式も概ねカバー)
             let mut buf = [0u16; 1024];
             let res = PropVariantToString(&pv, &mut buf);
             let _ = PropVariantClear(&mut pv);
             res.ok()?;
-            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            Some(String::from_utf16_lossy(&buf[..len]))
+            Some(crate::wstr::from_wide_z(&buf))
         }
     }
 
@@ -504,6 +491,4 @@ mod trash_impl {
         CoTaskMemFree(Some(p.0 as *const _));
         s
     }
-
-    use std::os::windows::ffi::OsStrExt;
 }

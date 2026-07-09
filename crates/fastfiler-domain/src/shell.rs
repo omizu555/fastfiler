@@ -47,10 +47,6 @@ unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResul
     }
     let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
 
-    fn to_wide(s: &str) -> Vec<u16> {
-        s.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-
     // 各パス → 絶対 PIDL (失敗したらそこまでに確保した分を解放して返す)。
     let mut abs_pidls: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
     let free_all = |pidls: &[*mut ITEMIDLIST]| {
@@ -59,7 +55,7 @@ unsafe fn shell_context_menu_impl(hwnd_raw: isize, paths: &[String]) -> AppResul
         }
     };
     for p in paths {
-        let wide = to_wide(p);
+        let wide = crate::wstr::to_wide_z(p);
         let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
         if let Err(e) = SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None) {
             free_all(&abs_pidls);
@@ -291,23 +287,13 @@ pub fn show_properties_async(path: String) -> std::thread::JoinHandle<AppResult<
 #[cfg(windows)]
 mod win {
     use super::*;
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
     use std::thread;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::Com::{
-        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
-    };
     use windows::Win32::UI::Shell::{SHObjectProperties, ShellExecuteW, SHOP_FILEPATH};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    fn wide(s: &str) -> Vec<u16> {
-        OsStr::new(s)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    }
+    use crate::wstr::to_wide_z as wide;
 
     pub fn shell_exec(
         op: Option<&str>,
@@ -365,10 +351,7 @@ mod win {
         };
         use windows::Win32::UI::Shell::{IShellLinkW, ShellLink, SLR_NO_UI};
 
-        fn read_buf(buf: &[u16]) -> String {
-            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            String::from_utf16_lossy(&buf[..len])
-        }
+        use crate::wstr::from_wide_z as read_buf;
 
         unsafe {
             let link: IShellLinkW =
@@ -411,34 +394,21 @@ mod win {
         params: Option<String>,
         cwd: Option<String>,
     ) -> thread::JoinHandle<AppResult<()>> {
-        thread::spawn(move || {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-            }
-            let r = shell_exec(None, &exec, params.as_deref(), cwd.as_deref());
-            unsafe { CoUninitialize() };
-            r
+        crate::win_com::spawn_sta(move || {
+            shell_exec(None, &exec, params.as_deref(), cwd.as_deref())
         })
     }
 
     /// `open_with_shell` を専用 STA スレッドで実行する (UI スレッド再入対策)。
+    /// (ShellExecuteW はシェル拡張へ委譲するため STA を要求する)
     pub fn open_with_shell_sta_thread(path: String) -> thread::JoinHandle<AppResult<()>> {
-        thread::spawn(move || {
-            // ShellExecuteW はシェル拡張へ委譲するため STA を要求する。
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-            }
-            let r = super::open_with_shell(path);
-            unsafe { CoUninitialize() };
-            r
-        })
+        crate::win_com::spawn_sta(move || super::open_with_shell(path))
     }
 
     /// プロパティ表示を行う STA スレッドを生成して返す (join は呼び出し側に委ねる)。
     pub fn show_properties_thread(path: String) -> thread::JoinHandle<AppResult<()>> {
-        thread::spawn(move || -> AppResult<()> {
+        crate::win_com::spawn_sta(move || -> AppResult<()> {
             unsafe {
-                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
                 let path_w = wide(&path);
                 let res = SHObjectProperties(
                     HWND::default(),
@@ -446,7 +416,6 @@ mod win {
                     PCWSTR(path_w.as_ptr()),
                     PCWSTR::null(),
                 );
-                CoUninitialize();
                 if res.as_bool() {
                     Ok(())
                 } else {

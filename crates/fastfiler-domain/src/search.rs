@@ -4,7 +4,7 @@
 //
 // Phase 2A: Tauri 依存を局所化。
 //  - 純粋ロジックは `SearchCore::start_with_sink` に集約 (EventSink 経由)
-//  - `#[tauri::command]` 版は AppHandle を sink に変換して薄くラップ
+//  - GUI からは effects.rs の start_search → start_with_sink 経由で呼ばれる
 
 use crate::error::{AppError, AppResult};
 use crate::events::{self, EventSink};
@@ -96,7 +96,9 @@ fn run_job(
     pattern: String,
     opts: SearchOptions,
 ) {
-    if opts.backend == "everything" {
+    // 分岐では (total, backend, fallback, error) の 4 値だけを決め、
+    // SearchDone の構築・emit は末尾 1 箇所に畳む (フィールド追加時の修正漏れ防止)
+    let (total, backend, fallback, error) = if opts.backend == "everything" {
         let scope = if opts.everything_scope {
             Some(root.as_str())
         } else {
@@ -125,43 +127,19 @@ fn run_job(
                     events::emit(sink.as_ref(), "search-hit", &hit);
                     total += 1;
                 }
-                let canceled = cancel.load(Ordering::Relaxed) == 1;
-                events::emit(
-                    sink.as_ref(),
-                    "search-done",
-                    &SearchDone {
-                        job_id,
-                        total,
-                        canceled,
-                        backend: "everything".into(),
-                        fallback: false,
-                        error: None,
-                    },
-                );
-                return;
+                (total, "everything", false, None)
             }
             Err(e) => {
+                // Everything 不達 → 内蔵検索へフォールバック
                 let err_msg = format!("{}", e);
                 let total = run_builtin(&sink, job_id, &cancel, &root, &pattern, &opts);
-                let canceled = cancel.load(Ordering::Relaxed) == 1;
-                events::emit(
-                    sink.as_ref(),
-                    "search-done",
-                    &SearchDone {
-                        job_id,
-                        total,
-                        canceled,
-                        backend: "builtin".into(),
-                        fallback: true,
-                        error: Some(err_msg),
-                    },
-                );
-                return;
+                (total, "builtin", true, Some(err_msg))
             }
         }
-    }
-    // builtin
-    let total = run_builtin(&sink, job_id, &cancel, &root, &pattern, &opts);
+    } else {
+        let total = run_builtin(&sink, job_id, &cancel, &root, &pattern, &opts);
+        (total, "builtin", false, None)
+    };
     let canceled = cancel.load(Ordering::Relaxed) == 1;
     events::emit(
         sink.as_ref(),
@@ -170,13 +148,12 @@ fn run_job(
             job_id,
             total,
             canceled,
-            backend: "builtin".into(),
-            fallback: false,
-            error: None,
+            backend: backend.into(),
+            fallback,
+            error,
         },
     );
 }
-
 fn run_builtin(
     sink: &Arc<dyn EventSink>,
     job_id: u64,

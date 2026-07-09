@@ -20,8 +20,9 @@ pub struct TemplateInfo {
 }
 
 fn templates_dir_inner() -> AppResult<PathBuf> {
-    let appdata = std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
-    let dir = PathBuf::from(appdata).join("fastfiler").join("templates");
+    let dir = crate::path_util::appdata_dir()
+        .ok_or(AppError::EnvMissing("APPDATA"))?
+        .join("templates");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
@@ -60,7 +61,7 @@ pub fn list_templates() -> AppResult<Vec<TemplateInfo>> {
             ext,
         });
     }
-    items.sort_by_key(|a| a.name.to_lowercase());
+    items.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(items)
 }
 

@@ -21,11 +21,7 @@ unsafe extern "system" fn enum_proc(
     let set = &mut *(lparam.0 as *mut BTreeSet<String>);
     let elf = &*(lf as *const ENUMLOGFONTEXW);
     let name_u16 = &elf.elfLogFont.lfFaceName;
-    let len = name_u16
-        .iter()
-        .position(|&c| c == 0)
-        .unwrap_or(name_u16.len());
-    let name = String::from_utf16_lossy(&name_u16[..len]);
+    let name = fastfiler_domain::wstr::from_wide_z(name_u16);
     if !name.is_empty() && !name.starts_with('@') {
         set.insert(name);
     }

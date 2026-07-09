@@ -18,12 +18,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
 };
 
-const MUTEX_NAME: &str = "Local\\FastFiler-Iced-SingleInstance-Mutex-v1\0";
-const SHM_NAME: &str = "Local\\FastFiler-Iced-MainWindow-Hwnd-v1\0";
+const MUTEX_NAME: &str = "Local\\FastFiler-Iced-SingleInstance-Mutex-v1";
+const SHM_NAME: &str = "Local\\FastFiler-Iced-MainWindow-Hwnd-v1";
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().collect()
-}
+// NUL 終端は wstr 側が付ける (定数への \0 埋め込み頼みをやめる)
+use fastfiler_domain::wstr::to_wide_z as wide;
 
 /// Named Mutex を取得して多重起動の有無を判定する。
 /// `true` = 最初のインスタンス (続行可)。`false` = 既に起動中 (終了すべき)。

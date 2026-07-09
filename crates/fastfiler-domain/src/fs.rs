@@ -1,7 +1,6 @@
 //! ファイルシステム列挙・stat・ドライブ列挙 (純粋ロジック)。
 //!
-//! `#[tauri::command]` シムは `src-tauri/src/fs_service.rs` 側にあり、
-//! 本モジュールの関数を呼ぶだけ。
+//! 呼び出し元は fastfiler-iced の effects.rs (LoadDir / LoadDrives / LoadTreeChildren)。
 
 use crate::error::{AppError, AppResult};
 use serde::Serialize;
@@ -64,13 +63,27 @@ pub fn list_dir(path: String) -> AppResult<Vec<FileEntry>> {
     for ent in read.flatten() {
         let Ok(meta) = ent.metadata() else { continue };
         let name = ent.file_name().to_string_lossy().to_string();
-        let kind = if meta.is_dir() {
+        let mut kind = if meta.is_dir() {
             "dir"
         } else if meta.file_type().is_symlink() {
             "symlink"
         } else {
             "file"
         };
+        let mut size = if meta.is_file() { meta.len() } else { 0 };
+        // junction / シンボリックリンクはリンク先を辿って dir/file を判定する
+        // (エクスプローラ準拠 — 辿らないと mklink /J のフォルダに入れない)。
+        // 追加 stat はリパースポイントのみで、リンク切れは従来どおり symlink のまま
+        if kind == "symlink" {
+            if let Ok(target) = fs::metadata(ent.path()) {
+                if target.is_dir() {
+                    kind = "dir";
+                } else {
+                    kind = "file";
+                    size = target.len();
+                }
+            }
+        }
         let modified = meta.modified().map(to_unix_secs).unwrap_or(0);
         let ext = if kind == "file" {
             Path::new(&name)
@@ -83,7 +96,7 @@ pub fn list_dir(path: String) -> AppResult<Vec<FileEntry>> {
         out.push(FileEntry {
             name,
             kind,
-            size: if meta.is_file() { meta.len() } else { 0 },
+            size,
             modified,
             ext,
             hidden: is_hidden(&meta),
@@ -143,7 +156,7 @@ pub fn list_dirs(path: String, include_hidden: Option<bool>) -> AppResult<Vec<Fi
             readonly: meta.permissions().readonly(),
         });
     }
-    out.sort_by_key(|a| a.name.to_lowercase());
+    out.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(out)
 }
 
@@ -170,13 +183,7 @@ pub fn list_drives() -> AppResult<Vec<DriveInfo>> {
         const DRIVE_CDROM: u32 = 5;
         const DRIVE_RAMDISK: u32 = 6;
 
-        fn to_wide_z(s: &str) -> Vec<u16> {
-            s.encode_utf16().chain(std::iter::once(0)).collect()
-        }
-        fn from_wide(buf: &[u16]) -> String {
-            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            String::from_utf16_lossy(&buf[..len])
-        }
+        use crate::wstr::{from_wide_z as from_wide, to_wide_z};
 
         let mask = unsafe { GetLogicalDrives() };
         let mut drives = Vec::new();
@@ -274,7 +281,7 @@ pub fn disk_free(path: String) -> AppResult<DiskInfo> {
     #[cfg(windows)]
     {
         use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-        let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = crate::wstr::to_wide_z(path);
         let mut available: u64 = 0;
         let mut total: u64 = 0;
         let mut free: u64 = 0;

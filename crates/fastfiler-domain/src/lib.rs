@@ -21,6 +21,8 @@ pub mod everything;
 pub mod file_jobs;
 pub mod file_ops;
 pub mod fs;
+#[cfg(windows)]
+pub mod hdrop;
 pub mod icons;
 pub mod ole_dnd;
 pub mod path_util;
@@ -32,3 +34,7 @@ pub mod undo;
 pub mod user_commands;
 pub mod watcher;
 pub mod win_clipboard;
+#[cfg(windows)]
+pub mod win_com;
+#[cfg(windows)]
+pub mod wstr;

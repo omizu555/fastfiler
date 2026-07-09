@@ -47,8 +47,9 @@ fn default_when() -> String {
 }
 
 fn commands_dir_inner() -> AppResult<PathBuf> {
-    let appdata = std::env::var("APPDATA").map_err(|_| AppError::EnvMissing("APPDATA"))?;
-    let dir = PathBuf::from(appdata).join("fastfiler").join("commands");
+    let dir = crate::path_util::appdata_dir()
+        .ok_or(AppError::EnvMissing("APPDATA"))?
+        .join("commands");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
         let sample = dir.join("commands.json.sample");
@@ -89,7 +90,7 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
         .find(|c| c.id == id)
         .ok_or_else(|| AppError::NotFound(format!("user command not found: {}", id)))?;
 
-    let exec = expand_placeholders(&cmd.exec, &ctx, false);
+    let exec = expand_placeholders(&cmd.exec, &ctx);
     let mut args: Vec<String> = Vec::new();
     for a in &cmd.args {
         // "{paths}" 単独の引数は 1 パス = 1 引数として展開する。空白区切りの
@@ -99,7 +100,7 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
             args.extend(ctx.paths.iter().cloned());
             continue;
         }
-        let e = expand_placeholders(a, &ctx, false);
+        let e = expand_placeholders(a, &ctx);
         // プレースホルダ展開で空になった引数 (例: 背景メニューでの {path}) は
         // 除外する。空文字をそのまま渡すと `code ""` のような壊れた起動になる。
         if e.is_empty() && !a.is_empty() {
@@ -108,7 +109,7 @@ pub fn run_user_command(id: String, ctx: RunCtx) -> AppResult<()> {
         args.push(e);
     }
     let working_dir = match &cmd.cwd {
-        Some(s) => expand_placeholders(s, &ctx, false),
+        Some(s) => expand_placeholders(s, &ctx),
         None => ctx.cwd.clone(),
     };
 
@@ -270,7 +271,7 @@ fn cmd_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-fn expand_placeholders(input: &str, ctx: &RunCtx, _quote_paths: bool) -> String {
+fn expand_placeholders(input: &str, ctx: &RunCtx) -> String {
     let first = ctx.paths.first().cloned().unwrap_or_default();
     let p = Path::new(&first);
     let name = p
@@ -289,12 +290,16 @@ fn expand_placeholders(input: &str, ctx: &RunCtx, _quote_paths: bool) -> String 
         .parent()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let paths_joined: String = ctx
-        .paths
-        .iter()
-        .map(|s| quote_if_needed(s))
-        .collect::<Vec<_>>()
-        .join(" ");
+    // {paths} は 1 万件選択で数 MB になり得るため、使うときだけ構築する
+    let paths_joined: String = if input.contains("{paths}") {
+        ctx.paths
+            .iter()
+            .map(|s| quote_if_needed(s))
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        String::new()
+    };
     let count = ctx.paths.len().to_string();
 
     input

@@ -104,7 +104,7 @@ pub fn shell_assoc_status() -> Result<bool, String> {
 }
 
 #[cfg(not(windows))]
-pub fn shell_assoc_enable() -> Result<(), String> {
+pub fn shell_assoc_disable() -> Result<(), String> {
     Err("Windows only".into())
 }
 

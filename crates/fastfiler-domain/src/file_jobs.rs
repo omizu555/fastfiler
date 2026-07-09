@@ -5,7 +5,7 @@
 // cancel(job_id) を呼ぶと AtomicBool が立ち、ループが中断されエラー (Cancelled) を返す。
 //
 // AppHandle/State は持たず、純粋に EventSink へ emit する。
-// src-tauri 側で薄い `#[tauri::command]` shim から呼ばれる。
+// 呼び出し元は fastfiler-iced の effects.rs (spawn_job)。
 
 use crate::error::{AppError, AppResult};
 use crate::events::{self, EventSink};
@@ -47,7 +47,8 @@ impl JobRegistry {
         items: Vec<JobItem>,
     ) -> AppResult<()> {
         let scan_paths: Vec<PathBuf> = items.iter().map(|i| PathBuf::from(&i.from)).collect();
-        run_job(self, sink, job_id, "copy", scan_paths, |cancel, sink, c| {
+        let totals = scan_totals(&scan_paths);
+        run_job(self, sink, job_id, "copy", totals, |cancel, sink, c| {
             for it in &items {
                 copy_recursive(
                     Path::new(&it.from),
@@ -69,26 +70,29 @@ impl JobRegistry {
         job_id: u64,
         items: Vec<JobItem>,
     ) -> AppResult<()> {
-        let scan_paths: Vec<PathBuf> = items.iter().map(|i| PathBuf::from(&i.from)).collect();
-        run_job(self, sink, job_id, "move", scan_paths, |cancel, sink, c| {
-            for it in &items {
+        // 事前スキャンを item ごとに記録し、rename 成功時は再走査せずこの値を
+        // done へ加算する (同一ボリューム move でソースツリーを 2 回フル走査しない)
+        let item_sizes: Vec<(u64, u64)> = items
+            .iter()
+            .map(|i| {
+                let (mut tf, mut tb) = (0u64, 0u64);
+                scan_size(Path::new(&i.from), &mut tf, &mut tb);
+                (tf, tb)
+            })
+            .collect();
+        let totals = item_sizes
+            .iter()
+            .fold((0u64, 0u64), |acc, s| (acc.0 + s.0, acc.1 + s.1));
+        run_job(self, sink, job_id, "move", totals, |cancel, sink, c| {
+            for (it, &(tf, tb)) in items.iter().zip(&item_sizes) {
                 let src = Path::new(&it.from);
                 let dst = Path::new(&it.to);
                 if let Some(parent) = dst.parent() {
                     fs::create_dir_all(parent)?;
                 }
                 if fs::rename(src, dst).is_ok() {
-                    let meta = fs::symlink_metadata(dst)?;
-                    if meta.is_file() {
-                        c.done_files += 1;
-                        c.done_bytes += meta.len();
-                    } else {
-                        let mut tf = 0u64;
-                        let mut tb = 0u64;
-                        scan_size(dst, &mut tf, &mut tb);
-                        c.done_files += tf;
-                        c.done_bytes += tb;
-                    }
+                    c.done_files += tf;
+                    c.done_bytes += tb;
                     maybe_emit(sink, "move", job_id, c, &it.to, true);
                     continue;
                 }
@@ -115,7 +119,7 @@ impl JobRegistry {
             sink,
             job_id,
             "delete",
-            scan_paths,
+            scan_totals(&scan_paths),
             |cancel, sink, c| {
                 for p in &paths {
                     delete_recursive(Path::new(p), cancel, sink, job_id, c)?;
@@ -305,24 +309,28 @@ fn delete_recursive(
     Ok(())
 }
 
+/// 事前スキャンの合計 (files, bytes)。
+fn scan_totals(paths: &[PathBuf]) -> (u64, u64) {
+    let mut total_files = 0u64;
+    let mut total_bytes = 0u64;
+    for p in paths {
+        scan_size(p, &mut total_files, &mut total_bytes);
+    }
+    (total_files, total_bytes)
+}
+
 fn run_job<F>(
     reg: &JobRegistry,
     sink: &dyn EventSink,
     job_id: u64,
     kind: &str,
-    items_for_scan: Vec<PathBuf>,
+    (total_files, total_bytes): (u64, u64),
     body: F,
 ) -> AppResult<()>
 where
     F: FnOnce(&Arc<AtomicBool>, &dyn EventSink, &mut Counters) -> AppResult<()>,
 {
     let cancel = reg.register(job_id);
-
-    let mut total_files = 0u64;
-    let mut total_bytes = 0u64;
-    for p in &items_for_scan {
-        scan_size(p, &mut total_files, &mut total_bytes);
-    }
     let mut c = Counters {
         total_files,
         done_files: 0,

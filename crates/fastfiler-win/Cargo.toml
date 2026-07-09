@@ -1,8 +1,9 @@
 [package]
 name = "fastfiler-win"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 description = "FastFiler の HWND を要する Win32 統合 (OLE 受信 / 多重起動 / ウィンドウ連携)"
 
 [dependencies]
@@ -12,10 +13,14 @@ raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # domain と同じ 0.58 に揃える (HWND/POINTL の型を共有するため。計画書 §10-5 で統一予定)
-windows = { version = "0.58", features = [
+windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    # CreateFileMappingW / CreateMutexW は Win32_Security ゲート下。
+    # 従来は依存グラフ内の gpu-allocator が偶然有効化していて、単体の
+    # cargo check -p fastfiler-win は通らなかった (自分が使う feature は自分で立てる)
+    "Win32_Security",
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
-]  }
+] }

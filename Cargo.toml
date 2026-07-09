@@ -7,6 +7,21 @@ members = [
     "crates/fastfiler-iced",
 ]
 
+# 共通メタデータ / 依存はここから継承する (各クレートは `xxx.workspace = true`)。
+# windows crate の更新 (計画書 §10-5 の統一) が 1 行で済む
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# domain/win で共有 (features はクレート側で追加指定)
+windows = "0.58"
+windows-core = "0.58"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

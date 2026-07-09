@@ -15,9 +15,7 @@ use once_cell::sync::Lazy;
 mod sys {
     use super::*;
     use lru::LruCache;
-    use std::ffi::OsStr;
     use std::num::NonZeroUsize;
-    use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
@@ -52,12 +50,7 @@ mod sys {
         k
     }
 
-    fn to_wide(s: &str) -> Vec<u16> {
-        OsStr::new(s)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    }
+    use crate::wstr::to_wide_z as to_wide;
 
     pub fn system_icon_png(
         path: &str,
