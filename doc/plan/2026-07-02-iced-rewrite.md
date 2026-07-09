@@ -763,3 +763,42 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   is_dir なら新設 TabMsg::OpenFor(path) を発行 (ロックタブの OpenTabFor と同じ
   open_new_tab 展開)。resolve は UI スレッド (COM 初期化済み) で同期実行。
   core テスト 89 本目 (OpenFor が新規タブ + LoadDir を発行)。USAGE §2 更新。
+
+### 2026-07-09〜10 — 全コードレビュー (133 エージェント) と一括改善の実施
+- **レビュー**: ファイル群 9 班 + 横断 4 班で全 1.6 万行を精読 → 抜け漏れ監査 →
+  全 119 所見を 1 件ずつ反証検証 (refuted 3 / confirmed 59 / partial 57)。
+  統合後 99 項目をレポート化し、ユーザー承認の上で「テスト提案以外」を一括実施。
+- **①バグ 10 件**: SearchHit の job_id ガード漏れ (旧検索の混入) / ロックタブ検索の
+  pending_cursor_name リーク / junction・フォルダ symlink に入れない / hotkeys を
+  UI スレッド同期 shell で開いていた / 背景揺らしが純白テーマで死ぬ /
+  row_at の未クランプ offset (file_list・tree_list — 検索開閉・折りたたみでクリック
+  行ずれ) / SetData の STGMEDIUM 解放漏れ / shell_assoc の cfg 二重定義 /
+  CursorLeft の幽霊ラバーバンド・列リサイズ。
+- **②性能・メモリ**: restore_selection を HashMap 化 (全選択 10 万行 reload の
+  O(n²) 停止を根絶 — 最重要) / overlay の毎 view deep clone を参照 match 化 +
+  ContextMenu 借用化 / Entry を Box<str> 化 + icon_key フィールド廃止 (10 万行で
+  常駐 ~10MB 減) / 並べ替えを index 再マップ化 / move の事前スキャン 1 回化 /
+  sort_by_cached_key ×3 / 検索キャンセル配線 (Effect::CancelSearch — 4 経路 +
+  ペイン close。job_id ガード付き) / DragHover の dedupe。
+- **M-3**: ツリー行キャッシュ (変異点で再構築、TreeList は借用 — FileList と同じ流儀。
+  セッション復元は set_unc_shares 経由に変更)。
+- **③依存**: iced feature を image-without-codecs へ (rav1e 等 55 パッケージ削減:
+  Cargo.lock 553→498) / lru 0.16 統一 / once_cell→std LazyLock / workspace.package・
+  workspace.dependencies 継承 / fastfiler-win に Win32_Security を明示
+  (単体 check が gpu-allocator の偶然の feature 合流に依存していた)。
+- **④Win32 統合**: wstr (to_wide_z/from_wide_z — 6 定義 + 約 10 インライン を集約) /
+  hdrop (CF_HDROP 構築 3 重複を統合 + HGlobalGuard でエラーパスのリーク解消) /
+  CF_HDROP 解析を DragQueryFileW 化 (境界チェックなし生ポインタ走査 ~60 行を削除) /
+  GetData の二重コピー解消 / DragOver キャッシュ Arc 化 / win_com (spawn_sta/with_sta —
+  STA 定型 5 箇所と COINIT フラグ不揃いを統一)。
+- **⑤整頓**: selected_paths ヘルパ (5 重複) / expand_effects 統合 / decide_op 一本化
+  (F-604 の 2 実装) / config_dir 集約 (7→2) / セッション dir の serde enum 化
+  (JSON 不変) / unc_parts / update_pane から domain イベント・検索系を関数分離 /
+  dead code 削除 (is_focused_pane / _quote_paths / tab_bar の Instant / domain
+  path_util::volume_key 110 行) / stale な Tauri 言及 5 ファイル掃除 / ほか小粒多数。
+- 見送り (検証により): refresh_ole_snapshot のスキップ (意図的設計) /
+  domain_event の serde ミラー化 (削減ほぼゼロ) / L-7 の text_cell・スクロールバー
+  完全統一 (意図的差分あり・正味価値薄 — wheel_dy と DRAG_THRESHOLD のみ共有)。
+- テスト: 全 153 本 (core 94 / domain 20+lib23 相当 / iced lib 7 / UI 9) 緑。
+  新規テスト: 検索ガード・スクロールクランプ・ソート再マップ・CancelSearch・
+  wstr/hdrop バイト互換 等。

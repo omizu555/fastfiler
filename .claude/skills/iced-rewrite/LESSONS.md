@@ -9,6 +9,24 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
 
 ---
 
+## 2026-07-10 全コードレビュー実施の学び
+
+- **feature の偶然の合流に依存しない**: fastfiler-win 単体の cargo check は
+  ずっと壊れていた (CreateMutexW 等の Win32_Security を、依存グラフ内の
+  gpu-allocator が偶然有効化していた)。クレートが直接使う windows feature は
+  自分の Cargo.toml に立てる。単体 check を CI 相当のチェックに含めると検出できる。
+- **iced の "image" feature は AV1 エンコーダ (rav1e) 込みの全コーデックを引く**。
+  自前 PNG しか使わないなら "image-without-codecs" (依存 55 個減・Cargo.lock 553→498)。
+- **Entry のような 10 万行級の行構造体は Box<str> が効く** (String 24B → 16B。
+  フィールド 6 本で ~5MB/10 万行)。導出可能な値 (icon_key) はフィールドに持たず
+  アクセサにする。前計算方針とは両立する。
+- **「名前で復元」系は HashMap を 1 回作る** — position() の線形走査は選択数×行数で
+  爆発する (全選択 10 万行の reload で数十秒級だった)。
+- **大規模一括変更でも 1 パッケージごとに fmt/clippy/テストを回す** — Box<str> 化の
+  ような型変更はコンパイラ誘導で機械的に追従できるが、まとめてやると事故る。
+- **update_pane から返る Vec<Effect> の後処理 (展開) は 1 箇所に統合しておく** —
+  DropTransfer と OpenTabFor で 2 本に分かれていた。
+
 ## 2026-07-08 ShellExecuteW の verb は .lnk のリンク解決を素通りして伝播する
 
 - .lnk に明示 verb ("open") を渡すと、リンク解決後の**ターゲットにも同じ verb が
