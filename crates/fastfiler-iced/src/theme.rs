@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 use iced::Color;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 
 fn c(rgb: u32) -> Color {
@@ -227,15 +226,15 @@ struct ThemeFile {
 
 /// 全テーマ (プリセット 3 種 + ユーザーテーマ)。再読込で丸ごと差し替える
 /// (GPUI 版の Box::leak と違い leak しない — 計画書 §10 の改善点)。
-static THEMES: Lazy<RwLock<Vec<Theme>>> = Lazy::new(|| RwLock::new(build_themes()));
+static THEMES: std::sync::LazyLock<RwLock<Vec<Theme>>> =
+    std::sync::LazyLock::new(|| RwLock::new(build_themes()));
 
 fn presets() -> [Theme; 3] {
     [dark(), light(), midnight()]
 }
 
 fn themes_dir() -> Option<PathBuf> {
-    let base = std::env::var("APPDATA").ok()?;
-    Some(PathBuf::from(base).join("FastFiler").join("themes"))
+    Some(fastfiler_core::persist::config_dir()?.join("themes"))
 }
 
 fn build_themes() -> Vec<Theme> {

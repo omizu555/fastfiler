@@ -118,25 +118,48 @@ impl PaneState {
         self.selected = (lo..=hi.min(self.visible_len().saturating_sub(1))).collect();
     }
 
+    /// 選択行のフルパス列 (`cur_path.join(名前)`)。
+    /// 不変条件: 検索結果リスト表示中 (showing_search) は選択 index が
+    /// hits 空間なので呼ばないこと — 呼び出し側でガードする。
+    pub fn selected_paths(&self) -> Vec<std::path::PathBuf> {
+        self.selected
+            .iter()
+            .filter_map(|&i| self.entries.get(i))
+            .map(|e| self.cur_path.join(&*e.name))
+            .collect()
+    }
+
     /// 現在の選択・カーソルの名前スナップショット (reload 前に取る)。
     pub fn selection_names(&self) -> (Vec<String>, Option<String>) {
         let names = self
             .selected
             .iter()
-            .filter_map(|&i| self.entries.get(i).map(|e| e.name.clone()))
+            .filter_map(|&i| self.entries.get(i).map(|e| e.name.to_string()))
             .collect();
         let cursor_name = self
             .cursor
             .and_then(|i| self.entries.get(i))
-            .map(|e| e.name.clone());
+            .map(|e| e.name.to_string());
         (names, cursor_name)
     }
 
     /// reload / 再ソート後に名前で選択・カーソルを復元する。
     pub fn restore_selection(&mut self, names: &[String], cursor_name: Option<&str>) {
-        let index_of = |name: &str| self.entries.iter().position(|e| e.name == name);
-        self.selected = names.iter().filter_map(|n| index_of(n)).collect();
-        self.cursor = cursor_name.and_then(index_of);
+        // 名前→行の表を 1 回だけ構築する (O(選択数 + 行数))。名前ごとの線形走査
+        // (O(選択数 × 行数)) だと全選択 10 万行の reload/並べ替えで数十秒級の停止になる。
+        // rev() で先頭側の行を優先し、旧実装 (position = 最初の一致) と同じ結果を保つ
+        let index: std::collections::HashMap<&str, usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, e)| (&*e.name, i))
+            .collect();
+        self.selected = names
+            .iter()
+            .filter_map(|n| index.get(n.as_str()).copied())
+            .collect();
+        self.cursor = cursor_name.and_then(|n| index.get(n).copied());
         self.anchor = self.cursor;
     }
 }
@@ -271,21 +294,25 @@ mod tests {
         let sel: Vec<_> = p
             .selected
             .iter()
-            .map(|&i| p.entries[i].name.as_str())
+            .map(|&i| p.entries[i].name.as_ref())
             .collect();
         assert_eq!(sel, ["f03.txt", "f01.txt"]);
         assert_eq!(
-            p.cursor.map(|i| p.entries[i].name.as_str()),
+            p.cursor.map(|i| p.entries[i].name.as_ref()),
             Some("f03.txt")
         );
         // 消えた名前は選択から落ちる (f03.txt を削除)
-        let ix = p.entries.iter().position(|e| e.name == "f03.txt").unwrap();
+        let ix = p
+            .entries
+            .iter()
+            .position(|e| &*e.name == "f03.txt")
+            .unwrap();
         p.entries.remove(ix);
         p.restore_selection(&names, Some("f03.txt"));
         let sel: Vec<_> = p
             .selected
             .iter()
-            .map(|&i| p.entries[i].name.as_str())
+            .map(|&i| p.entries[i].name.as_ref())
             .collect();
         assert_eq!(sel, ["f01.txt"]);
         assert_eq!(p.cursor, None);

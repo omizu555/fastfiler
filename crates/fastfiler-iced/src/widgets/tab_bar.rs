@@ -5,8 +5,6 @@
 //!   `Reorder { from, to }` を publish
 //! - 列数 1〜4 (行優先 — USAGE.md §2)
 
-use std::time::Instant;
-
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::renderer::Quad;
 use iced::advanced::text::{
@@ -47,7 +45,7 @@ pub struct TabBar<'a, Message> {
 #[derive(Default)]
 struct State {
     /// 押下中 (開始位置, タブ index)。閾値を超えるとドラッグ並べ替えへ。
-    pressed: Option<(Point, usize, Instant)>,
+    pressed: Option<(Point, usize)>,
     dragging: bool,
     /// ドラッグ中のドロップ先候補。
     drop_to: Option<usize>,
@@ -136,7 +134,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
                     if !self.tabs[ix].locked && close_zone.contains(pos) && self.tabs.len() > 1 {
                         shell.publish((self.on_event)(TabBarEvent::Close(ix)));
                     } else {
-                        state.pressed = Some((pos, ix, Instant::now()));
+                        state.pressed = Some((pos, ix));
                     }
                     shell.capture_event();
                 }
@@ -151,7 +149,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if let Some((start, _ix, _)) = state.pressed {
+                if let Some((start, _ix)) = state.pressed {
                     if let Some(pos) = cursor.position() {
                         if state.dragging {
                             state.drop_to = cursor
@@ -165,7 +163,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TabBar<'_, Message> {
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if let Some((_, from, _)) = state.pressed.take() {
+                if let Some((_, from)) = state.pressed.take() {
                     if state.dragging {
                         if let Some(to) = state.drop_to.take() {
                             if to != from {

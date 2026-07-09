@@ -13,6 +13,10 @@ use crate::transfer::{self, ConflictChoice, TransferOp};
 /// watcher 変化 → reload のデバウンス間隔 (現行値を変えない — LESSONS/計画書)。
 pub const RELOAD_DEBOUNCE_MS: u64 = 150;
 
+// ユーザー向け文言 (同文の重複を防ぐ)
+const MSG_TAB_LOCKED: &str = "タブはロックされています";
+const MSG_NO_OPS_IN_SEARCH: &str = "検索結果ではファイル操作できません (開いてから操作)";
+
 /// ペインへの入力を状態遷移 + 副作用列に変換する。
 /// `locked` はタブのロック状態 (F-104): 移動系は `Effect::OpenTabFor` へ逃がし、
 /// 履歴 (戻る/進む) は「タブはロックされています」表示で不動作。
@@ -101,52 +105,11 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             Some(ix) => activate(p, id, locked, ix),
             None => vec![],
         },
-        PaneMsg::OpenSearch => {
-            if p.search.is_none() {
-                p.search = Some(SearchUi::default());
-            }
-            vec![]
-        }
-        PaneMsg::SearchInput(v) => {
-            if let Some(s) = &mut p.search {
-                s.query = v;
-            }
-            vec![]
-        }
-        PaneMsg::SearchCommit => {
-            let Some(sui) = &mut p.search else {
-                return vec![];
-            };
-            let query = sui.query.trim().to_string();
-            if query.is_empty() {
-                return vec![];
-            }
-            sui.running = true;
-            sui.showing = true;
-            sui.hits.clear();
-            sui.hit_paths.clear();
-            sui.summary = None;
-            sui.job_id = None; // StartSearch 実行側が SearchStarted 相当で確定する
-            p.cursor = None;
-            p.selected.clear();
-            vec![Effect::StartSearch {
-                pane: id,
-                root: p.cur_path.clone(),
-                query,
-            }]
-        }
-        PaneMsg::SearchClose => {
-            p.search = None;
-            p.cursor = None;
-            p.selected.clear();
-            vec![]
-        }
-        PaneMsg::SearchStarted(job_id) => {
-            if let Some(sui) = &mut p.search {
-                sui.job_id = Some(job_id);
-            }
-            vec![]
-        }
+        msg @ (PaneMsg::OpenSearch
+        | PaneMsg::SearchInput(_)
+        | PaneMsg::SearchCommit
+        | PaneMsg::SearchClose
+        | PaneMsg::SearchStarted(_)) => update_search(p, id, msg),
         PaneMsg::GoParent => {
             let from = p.cur_path.clone();
             match p.cur_path.parent() {
@@ -173,9 +136,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
                 p.sort.col = col;
                 p.sort.asc = true;
             }
-            let (names, cursor_name) = p.selection_names();
-            sort_entries(&mut p.entries, p.sort);
-            p.restore_selection(&names, cursor_name.as_deref());
+            resort_keeping_selection(p);
             p.ensure_cursor_visible();
             vec![]
         }
@@ -211,9 +172,13 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             if let Some(job) = &p.job {
                 return vec![Effect::CancelJob { id: job.id }];
             }
-            if p.search.is_some() {
-                p.search = None;
-                return vec![];
+            if let Some(sui) = p.search.take() {
+                // SearchClose と同じ: スクロールを entries 範囲へ戻し、検索も止める
+                p.scroll_offset = p.scroll_offset.clamp(0.0, p.max_scroll());
+                return match sui.job_id {
+                    Some(job_id) => vec![Effect::CancelSearch { job_id }],
+                    None => vec![],
+                };
             }
             p.status_msg = None;
             p.clear_selection();
@@ -226,7 +191,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         }
         PaneMsg::GoBack => {
             if locked {
-                p.status_msg = Some("タブはロックされています".into());
+                p.status_msg = Some(MSG_TAB_LOCKED.into());
                 return vec![];
             }
             let Some(prev) = p.history_back.pop() else {
@@ -237,7 +202,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         }
         PaneMsg::GoForward => {
             if locked {
-                p.status_msg = Some("タブはロックされています".into());
+                p.status_msg = Some(MSG_TAB_LOCKED.into());
                 return vec![];
             }
             let Some(next) = p.history_fwd.pop() else {
@@ -255,103 +220,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         }
         // overlay なし状態で届いた入力系は無視 (update_overlay が正規経路)
         PaneMsg::PathEditInput(_) | PaneMsg::PathEditCommit | PaneMsg::PathEditCancel => vec![],
-        PaneMsg::Domain(ev) => match ev {
-            DomainEvent::FsChange { path } => {
-                // 監視は現在フォルダのみだが、遅れて届く旧パスのイベントは無視
-                if path != p.cur_path.to_string_lossy() {
-                    return vec![];
-                }
-                p.reload_seq += 1;
-                vec![Effect::Debounce {
-                    pane: id,
-                    seq: p.reload_seq,
-                    millis: RELOAD_DEBOUNCE_MS,
-                }]
-            }
-            DomainEvent::JobProgress {
-                job_id,
-                kind,
-                done_files,
-                total_files,
-                done_bytes,
-                total_bytes,
-                current,
-            } => {
-                p.job = Some(JobStatus {
-                    id: job_id,
-                    kind,
-                    done_files,
-                    total_files,
-                    done_bytes,
-                    total_bytes,
-                    current,
-                });
-                vec![]
-            }
-            DomainEvent::JobDone {
-                ok,
-                canceled,
-                error,
-                ..
-            } => {
-                p.job = None;
-                p.status_msg = if canceled {
-                    Some("キャンセルしました".into())
-                } else if let Some(e) = error {
-                    Some(format!("エラー: {e}"))
-                } else if !ok {
-                    Some("一部の項目を処理できませんでした".into())
-                } else {
-                    None // 成功は無言
-                };
-                // watcher が効かないフォルダ (ネットワークドライブ等) でも結果を
-                // 反映させるため明示 reload (GPUI 版パリティ。watcher と二重に
-                // なっても世代キャンセルで最後の 1 回だけが反映される)
-                reload(p, id)
-            }
-            DomainEvent::SearchHit {
-                path, name, is_dir, ..
-            } => {
-                if let Some(sui) = &mut p.search {
-                    if sui.showing {
-                        let pb = std::path::PathBuf::from(&path);
-                        let ext = (!is_dir)
-                            .then(|| name.rsplit_once('.').map(|(_, e)| e.to_string()))
-                            .flatten();
-                        // 検索結果行: 名前列にフルパスの親を出す代わりに名前のみ
-                        // (GPUI 版と同じ見た目は Phase 7 で照合)
-                        sui.hits.push(Entry::new(name, is_dir, 0, 0, ext, false));
-                        sui.hit_paths.push((pb, is_dir));
-                    }
-                }
-                vec![]
-            }
-            DomainEvent::SearchDone {
-                job_id,
-                total,
-                canceled,
-                fallback,
-                error,
-            } => {
-                if let Some(sui) = &mut p.search {
-                    if sui.job_id != Some(job_id) {
-                        return vec![]; // 旧検索の完了通知は無視
-                    }
-                    sui.running = false;
-                    sui.summary = Some(if let Some(e) = error {
-                        format!("検索エラー: {e}")
-                    } else if canceled {
-                        "検索をキャンセルしました".into()
-                    } else if fallback {
-                        format!("{total} 件 (内蔵検索)")
-                    } else {
-                        format!("{total} 件")
-                    });
-                }
-                vec![]
-            }
-            DomainEvent::Unknown { .. } => vec![],
-        },
+        PaneMsg::Domain(ev) => update_domain_event(p, id, ev),
         PaneMsg::ReloadTick(seq) => {
             if seq == p.reload_seq {
                 reload(p, id)
@@ -366,7 +235,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
             let Some(name) = p
                 .cursor
                 .and_then(|i| p.entries.get(i))
-                .map(|e| e.name.clone())
+                .map(|e| e.name.to_string())
             else {
                 return vec![];
             };
@@ -396,7 +265,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         PaneMsg::ModalInput(_) | PaneMsg::ModalCommit | PaneMsg::ModalCancel => vec![],
         PaneMsg::Conflict(_) => vec![],
         PaneMsg::RequestCopy | PaneMsg::RequestCut if p.showing_search() => {
-            p.status_msg = Some("検索結果ではファイル操作できません (開いてから操作)".into());
+            p.status_msg = Some(MSG_NO_OPS_IN_SEARCH.into());
             vec![]
         }
         PaneMsg::RequestCopy => clipboard_write(p, "copy"),
@@ -431,15 +300,10 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
         PaneMsg::RequestDelete => {
             // 検索結果リストの index は entries と別空間 — 破壊的操作は禁止 (安全側)
             if p.showing_search() {
-                p.status_msg = Some("検索結果ではファイル操作できません (開いてから操作)".into());
+                p.status_msg = Some(MSG_NO_OPS_IN_SEARCH.into());
                 return vec![];
             }
-            let paths: Vec<std::path::PathBuf> = p
-                .selected
-                .iter()
-                .filter_map(|&i| p.entries.get(i))
-                .map(|e| p.cur_path.join(&e.name))
-                .collect();
+            let paths = p.selected_paths();
             if paths.is_empty() {
                 return vec![];
             }
@@ -516,12 +380,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
                     p.click_row(ix, false, false);
                 }
             }
-            let paths: Vec<std::path::PathBuf> = p
-                .selected
-                .iter()
-                .filter_map(|&i| p.entries.get(i))
-                .map(|e| p.cur_path.join(&e.name))
-                .collect();
+            let paths = p.selected_paths();
             if paths.is_empty() {
                 return vec![];
             }
@@ -538,12 +397,7 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
 
 /// 選択パスをクリップボードへ (選択が空なら何もしない)。
 fn clipboard_write(p: &PaneState, op: &str) -> Vec<Effect> {
-    let paths: Vec<std::path::PathBuf> = p
-        .selected
-        .iter()
-        .filter_map(|&i| p.entries.get(i))
-        .map(|e| p.cur_path.join(&e.name))
-        .collect();
+    let paths = p.selected_paths();
     if paths.is_empty() {
         return vec![];
     }
@@ -554,7 +408,7 @@ fn clipboard_write(p: &PaneState, op: &str) -> Vec<Effect> {
 }
 
 fn existing_names(p: &PaneState) -> std::collections::BTreeSet<String> {
-    p.entries.iter().map(|e| e.name.clone()).collect()
+    p.entries.iter().map(|e| e.name.to_string()).collect()
 }
 
 /// オーバーレイ表示中のメッセージ処理。`None` を返すと通常処理へフォールスルー。
@@ -611,7 +465,7 @@ fn update_overlay(
                 }
                 // 新規ファイル/リネームで既存名は確定拒否 (GPUI 版は create_new /
                 // no_overwrite でエラーにする — 事前検査で同じ結果に。F7 は冪等なので許容)
-                let clashes = p.entries.iter().any(|e| e.name == name);
+                let clashes = p.entries.iter().any(|e| *e.name == *name);
                 match kind {
                     ModalKind::NewFile if clashes => {
                         p.status_msg = Some(format!(
@@ -812,12 +666,7 @@ fn run_menu_action(
             navigate_or_new_tab(p, id, locked, std::path::PathBuf::from(templates_dir))
         }
         MenuAction::UserCommand(cmd_id) => {
-            let paths: Vec<std::path::PathBuf> = p
-                .selected
-                .iter()
-                .filter_map(|&i| p.entries.get(i))
-                .map(|e| p.cur_path.join(&e.name))
-                .collect();
+            let paths = p.selected_paths();
             vec![Effect::RunUserCommand {
                 id: cmd_id,
                 paths,
@@ -832,6 +681,180 @@ fn self_gen(p: &PaneState) -> u64 {
     p.load_gen
 }
 
+/// domain イベント (watcher / ジョブ進捗 / 検索結果) の反映。
+/// update_pane の match から分離 (イベント追加時の変更範囲をここに閉じる)。
+fn update_domain_event(p: &mut PaneState, id: PaneId, ev: DomainEvent) -> Vec<Effect> {
+    match ev {
+        DomainEvent::FsChange { path } => {
+            // 監視は現在フォルダのみだが、遅れて届く旧パスのイベントは無視
+            if path != p.cur_path.to_string_lossy() {
+                return vec![];
+            }
+            p.reload_seq += 1;
+            vec![Effect::Debounce {
+                pane: id,
+                seq: p.reload_seq,
+                millis: RELOAD_DEBOUNCE_MS,
+            }]
+        }
+        DomainEvent::JobProgress {
+            job_id,
+            kind,
+            done_files,
+            total_files,
+            done_bytes,
+            total_bytes,
+            current,
+        } => {
+            p.job = Some(JobStatus {
+                id: job_id,
+                kind,
+                done_files,
+                total_files,
+                done_bytes,
+                total_bytes,
+                current,
+            });
+            vec![]
+        }
+        DomainEvent::JobDone {
+            ok,
+            canceled,
+            error,
+            ..
+        } => {
+            p.job = None;
+            p.status_msg = if canceled {
+                Some("キャンセルしました".into())
+            } else if let Some(e) = error {
+                Some(format!("エラー: {e}"))
+            } else if !ok {
+                Some("一部の項目を処理できませんでした".into())
+            } else {
+                None // 成功は無言
+            };
+            // watcher が効かないフォルダ (ネットワークドライブ等) でも結果を
+            // 反映させるため明示 reload (GPUI 版パリティ。watcher と二重に
+            // なっても世代キャンセルで最後の 1 回だけが反映される)
+            reload(p, id)
+        }
+        DomainEvent::SearchHit {
+            job_id,
+            path,
+            name,
+            is_dir,
+        } => {
+            if let Some(sui) = &mut p.search {
+                // 旧検索の遅延ヒットを捨てる (SearchDone と同じガード)。
+                // job_id は StartSearch 実行側が検索スレッド起動前に
+                // SearchStarted で同期確定させているため、新検索のヒットを
+                // 誤って落とすことはない (app.rs:1144 の先例パターン)
+                if sui.job_id != Some(job_id) {
+                    return vec![];
+                }
+                if sui.showing {
+                    let pb = std::path::PathBuf::from(&path);
+                    let ext = (!is_dir)
+                        .then(|| name.rsplit_once('.').map(|(_, e)| e.to_string()))
+                        .flatten();
+                    // 検索結果行: 名前列にフルパスの親を出す代わりに名前のみ
+                    // (GPUI 版と同じ見た目は Phase 7 で照合)
+                    sui.hits.push(Entry::new(name, is_dir, 0, 0, ext, false));
+                    sui.hit_paths.push((pb, is_dir));
+                }
+            }
+            vec![]
+        }
+        DomainEvent::SearchDone {
+            job_id,
+            total,
+            canceled,
+            fallback,
+            error,
+        } => {
+            if let Some(sui) = &mut p.search {
+                if sui.job_id != Some(job_id) {
+                    return vec![]; // 旧検索の完了通知は無視
+                }
+                sui.running = false;
+                sui.summary = Some(if let Some(e) = error {
+                    format!("検索エラー: {e}")
+                } else if canceled {
+                    "検索をキャンセルしました".into()
+                } else if fallback {
+                    format!("{total} 件 (内蔵検索)")
+                } else {
+                    format!("{total} 件")
+                });
+            }
+            vec![]
+        }
+        DomainEvent::Unknown { .. } => vec![],
+    }
+}
+
+/// 検索バー系メッセージ (F-701/F-702) の処理。update_pane の match から分離。
+fn update_search(p: &mut PaneState, id: PaneId, msg: PaneMsg) -> Vec<Effect> {
+    match msg {
+        PaneMsg::OpenSearch => {
+            if p.search.is_none() {
+                p.search = Some(SearchUi::default());
+            }
+            vec![]
+        }
+        PaneMsg::SearchInput(v) => {
+            if let Some(s) = &mut p.search {
+                s.query = v;
+            }
+            vec![]
+        }
+        PaneMsg::SearchCommit => {
+            let Some(sui) = &mut p.search else {
+                return vec![];
+            };
+            let query = sui.query.trim().to_string();
+            if query.is_empty() {
+                return vec![];
+            }
+            sui.running = true;
+            sui.showing = true;
+            sui.hits.clear();
+            sui.hit_paths.clear();
+            sui.summary = None;
+            sui.job_id = None; // StartSearch 実行側が SearchStarted 相当で確定する
+            p.cursor = None;
+            p.selected.clear();
+            // 表示リストが hits (空) に切り替わる — 深スクロールを持ち越すと
+            // ヒットテストと描画がずれる (row_at のクランプと対の対策)
+            p.scroll_offset = 0.0;
+            vec![Effect::StartSearch {
+                pane: id,
+                root: p.cur_path.clone(),
+                query,
+            }]
+        }
+        PaneMsg::SearchClose => {
+            let job = p.search.take().and_then(|s| s.job_id);
+            p.cursor = None;
+            p.selected.clear();
+            // 結果リストの深スクロールが entries の範囲外に残らないように
+            p.scroll_offset = p.scroll_offset.clamp(0.0, p.max_scroll());
+            // 走り続けている内蔵検索 (ドライブ全走査等) をバーと一緒に止める
+            match job {
+                Some(job_id) => vec![Effect::CancelSearch { job_id }],
+                None => vec![],
+            }
+        }
+        PaneMsg::SearchStarted(job_id) => {
+            if let Some(sui) = &mut p.search {
+                sui.job_id = Some(job_id);
+            }
+            vec![]
+        }
+        _ => vec![], // dispatcher が検索系のみ渡す
+    }
+}
+
 /// 行の活性化: フォルダ = 移動 / ファイル = 既定アプリで開く (F-301)。
 /// 検索結果リスト表示中は結果パス基準 (フォルダ = 開く / ファイル = 親を開いて選択 — F-701)。
 /// ロックタブではフォルダ進入を新タブへ逃がす (F-104)。
@@ -841,9 +864,18 @@ fn activate(p: &mut PaneState, id: PaneId, locked: bool, ix: usize) -> Vec<Effec
             let Some((path, is_dir)) = sui.hit_paths.get(ix).cloned() else {
                 return vec![];
             };
-            p.search = None;
+            // ヒットを開いたら検索バーごと閉じる — 実行中の検索も止める
+            let cancel = p
+                .search
+                .take()
+                .and_then(|s| s.job_id)
+                .map(|job_id| Effect::CancelSearch { job_id });
+            let push_cancel = |mut fx: Vec<Effect>| {
+                fx.extend(cancel);
+                fx
+            };
             return if is_dir {
-                navigate_or_new_tab(p, id, locked, path)
+                push_cancel(navigate_or_new_tab(p, id, locked, path))
             } else {
                 let parent = path
                     .parent()
@@ -851,15 +883,19 @@ fn activate(p: &mut PaneState, id: PaneId, locked: bool, ix: usize) -> Vec<Effec
                     .unwrap_or_else(|| p.cur_path.clone());
                 let name = path.file_name().map(|s| s.to_string_lossy().to_string());
                 let fx = navigate_or_new_tab(p, id, locked, parent);
-                p.pending_cursor_name = name;
-                fx
+                // ロックタブは新タブへ逃げて自ペインは動かない — pending を
+                // 設定すると無関係な後続 reload でカーソルが飛ぶ (GoParent と同じ判定)
+                if !locked {
+                    p.pending_cursor_name = name;
+                }
+                push_cancel(fx)
             };
         }
     }
     let Some(entry) = p.entries.get(ix) else {
         return vec![];
     };
-    let target = p.cur_path.join(&entry.name);
+    let target = p.cur_path.join(&*entry.name);
     if entry.is_dir {
         navigate_or_new_tab(p, id, locked, target)
     } else {
@@ -908,6 +944,39 @@ fn set_path_and_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) ->
 /// (選択は Loaded 側で名前復元される — USAGE.md §2)。
 pub fn reload(p: &mut PaneState, id: PaneId) -> Vec<Effect> {
     start_load(p, id, p.cur_path.clone())
+}
+
+/// 並べ替え (列見出しクリック): 置換ベクタで entries を並べ替え、選択・カーソル・
+/// アンカーの index を直接再マップする。旧実装の「名前スナップショット + 名前復元」は
+/// 選択行数ぶんの String clone を伴い、内容が変わらない並べ替えには過剰だった。
+/// (entries が差し替わる Loaded は従来どおり名前復元 — restore_selection)
+fn resort_keeping_selection(p: &mut PaneState) {
+    let n = p.entries.len();
+    if n == 0 {
+        return;
+    }
+    let sort = p.sort;
+    let mut order: Vec<u32> = (0..n as u32).collect();
+    // sort_by は安定ソートなので sort_entries と同一の並びになる (entry_cmp 共用)
+    order.sort_by(|&a, &b| {
+        crate::model::entry_cmp(&p.entries[a as usize], &p.entries[b as usize], sort)
+    });
+    let old = std::mem::take(&mut p.entries);
+    let mut slots: Vec<Option<Entry>> = old.into_iter().map(Some).collect();
+    p.entries = order
+        .iter()
+        .map(|&i| slots[i as usize].take().expect("順列は重複しない"))
+        .collect();
+    // 旧 index → 新 index の対応表で選択系を写す
+    let mut new_pos = vec![0u32; n];
+    for (new_ix, &old_ix) in order.iter().enumerate() {
+        new_pos[old_ix as usize] = new_ix as u32;
+    }
+    // 範囲外 index (検索結果リスト表示中の選択 = hits 空間) は旧実装と同じく黙って落とす
+    let remap = |i: usize| new_pos.get(i).map(|&x| x as usize);
+    p.selected = p.selected.iter().filter_map(|&i| remap(i)).collect();
+    p.cursor = p.cursor.and_then(remap);
+    p.anchor = p.anchor.and_then(remap);
 }
 
 fn start_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) -> Vec<Effect> {
@@ -1008,7 +1077,7 @@ mod tests {
                 entries: vec![entry("fresh.txt", false)],
             },
         );
-        assert_eq!(p.entries[0].name, "fresh.txt");
+        assert_eq!(&*p.entries[0].name, "fresh.txt");
         assert!(!p.loading);
     }
 
@@ -1030,14 +1099,155 @@ mod tests {
             },
         );
         assert!(fx.is_empty());
-        let names: Vec<_> = p.entries.iter().map(|e| e.name.as_str()).collect();
+        let names: Vec<_> = p.entries.iter().map(|e| &*e.name).collect();
         assert_eq!(names, ["dir", "a.txt", "b.txt"]); // dir 先頭 + 名前順
-        let sel: Vec<_> = p
-            .selected
-            .iter()
-            .map(|&i| p.entries[i].name.as_str())
-            .collect();
+        let sel: Vec<_> = p.selected.iter().map(|&i| &*p.entries[i].name).collect();
         assert_eq!(sel, ["b.txt"]); // 名前で維持
+    }
+
+    #[test]
+    fn closing_search_cancels_running_job() {
+        // バーを閉じる / Esc / ヒットを開く、のどの経路でも実行中検索を止める (P-2)
+        let close_paths: [fn(&mut PaneState) -> Vec<Effect>; 2] = [
+            |p| update_pane(p, PaneId::default(), false, PaneMsg::SearchClose),
+            |p| update_pane(p, PaneId::default(), false, PaneMsg::ClearSelection),
+        ];
+        for close in close_paths {
+            let mut p = pane_with(&[]);
+            update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+            update_pane(
+                &mut p,
+                PaneId::default(),
+                false,
+                PaneMsg::SearchInput("q".into()),
+            );
+            update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchCommit);
+            update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchStarted(9));
+            let fx = close(&mut p);
+            assert!(fx.contains(&Effect::CancelSearch { job_id: 9 }));
+        }
+        // ヒット活性化でも止まる
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchStarted(9));
+        let sui = p.search.as_mut().unwrap();
+        sui.showing = true;
+        sui.hits.push(entry("dir", true));
+        sui.hit_paths.push((PathBuf::from("C:\\dir"), true));
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
+        assert!(fx.contains(&Effect::CancelSearch { job_id: 9 }));
+        // 未起動 (job_id 未確定) なら Cancel は出ない
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchClose);
+        assert!(fx.is_empty());
+    }
+
+    #[test]
+    fn header_sort_remaps_selection_indices() {
+        // 並べ替えで選択・カーソルが同じ「行 (中身)」に付いていく (M-6 の index 再マップ)
+        let mut p = pane_with(&[("b.txt", false), ("a.txt", false), ("c.txt", false)]);
+        p.click_row(0, false, false); // b.txt
+        p.click_row(2, true, false); // + c.txt
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::HeaderClicked(Column::Name), // 既定 Name/asc → 降順トグル
+        );
+        let names: Vec<_> = p.entries.iter().map(|e| &*e.name).collect();
+        assert_eq!(names, ["c.txt", "b.txt", "a.txt"]);
+        let sel: Vec<_> = p.selected.iter().map(|&i| &*p.entries[i].name).collect();
+        assert_eq!(sel, ["c.txt", "b.txt"]);
+        assert_eq!(p.cursor.map(|i| &*p.entries[i].name), Some("c.txt"));
+    }
+
+    #[test]
+    fn stale_search_hits_are_dropped() {
+        // 検索を打ち直したとき、旧 job のヒットが新結果に混入しない (B-1)
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::SearchInput("a".into()),
+        );
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchCommit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchStarted(2));
+        let hit = |job_id: u64| {
+            PaneMsg::Domain(DomainEvent::SearchHit {
+                job_id,
+                path: "C:\\x\\old.txt".into(),
+                name: "old.txt".into(),
+                is_dir: false,
+            })
+        };
+        // 旧 job (1) のヒットは捨てられ、現 job (2) のヒットだけ載る
+        update_pane(&mut p, PaneId::default(), false, hit(1));
+        assert_eq!(p.search.as_ref().unwrap().hits.len(), 0);
+        update_pane(&mut p, PaneId::default(), false, hit(2));
+        assert_eq!(p.search.as_ref().unwrap().hits.len(), 1);
+    }
+
+    #[test]
+    fn locked_tab_search_activate_does_not_leak_pending_cursor() {
+        // ロックタブで検索ヒット (ファイル) を開いても、自ペインに
+        // pending_cursor_name が残らない (B-2 — 後続 reload でカーソルが飛ぶ)
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        let sui = p.search.as_mut().unwrap();
+        sui.showing = true;
+        sui.hits.push(entry("hit.txt", false));
+        sui.hit_paths
+            .push((PathBuf::from("C:\\elsewhere\\hit.txt"), false));
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            true, // locked
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
+        assert!(matches!(&fx[0], Effect::OpenTabFor { .. }));
+        assert_eq!(p.pending_cursor_name, None);
+        // 非ロックなら従来どおり pending が立つ
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        let sui = p.search.as_mut().unwrap();
+        sui.showing = true;
+        sui.hits.push(entry("hit.txt", false));
+        sui.hit_paths
+            .push((PathBuf::from("C:\\elsewhere\\hit.txt"), false));
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowDoubleClicked { ix: 0 },
+        );
+        assert_eq!(p.pending_cursor_name.as_deref(), Some("hit.txt"));
+    }
+
+    #[test]
+    fn closing_search_clamps_scroll_into_entries_range() {
+        // 結果リストで深くスクロール → 閉じたとき entries の範囲へ戻る (B-6)
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
+        p.viewport_h = 240.0;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        p.scroll_offset = 5000.0; // 結果リストでの深スクロールを模擬
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchClose);
+        assert!(p.scroll_offset <= p.max_scroll());
+        // Esc (ClearSelection) 経由でも同様
+        let mut p = pane_with(&[("a.txt", false)]);
+        p.viewport_h = 240.0;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        p.scroll_offset = 5000.0;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::ClearSelection);
+        assert!(p.search.is_none());
+        assert!(p.scroll_offset <= p.max_scroll());
     }
 
     #[test]
@@ -1276,7 +1486,7 @@ mod tests {
                 entries: vec![entry("other", true), entry("root", true)],
             },
         );
-        assert_eq!(p.cursor.map(|i| p.entries[i].name.as_str()), Some("root"));
+        assert_eq!(p.cursor.map(|i| &*p.entries[i].name), Some("root"));
     }
 
     #[test]
@@ -1295,7 +1505,7 @@ mod tests {
                 asc: false
             }
         );
-        assert_eq!(p.entries[0].name, "b.txt");
+        assert_eq!(&*p.entries[0].name, "b.txt");
         update_pane(
             &mut p,
             PaneId::default(),
@@ -1413,11 +1623,7 @@ mod tests {
             },
         );
         // 選択は名前で維持される
-        let sel: Vec<_> = p
-            .selected
-            .iter()
-            .map(|&i| p.entries[i].name.as_str())
-            .collect();
+        let sel: Vec<_> = p.selected.iter().map(|&i| &*p.entries[i].name).collect();
         assert_eq!(sel, ["b.txt"]);
     }
 

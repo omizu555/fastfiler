@@ -35,9 +35,11 @@ pub enum MenuEvent {
 }
 
 pub struct ContextMenu<'a, Message> {
-    items: Vec<MenuItem>,
+    // 借用で受ける — 所有 Vec だと view() 再構築 (メニュー表示中はマウス移動毎)
+    // のたびにメニューツリー全体の deep clone を呼び出し側に強いる
+    items: &'a [MenuItem],
     at: (f32, f32),
-    open_path: Vec<usize>,
+    open_path: &'a [usize],
     /// テーマの 37 色キーから直接渡される配色 (bg, hover, border, text)。
     /// iced palette 経由だとライトテーマでハイライトが背景に溶けるため直結する
     colors: (Color, Color, Color, Color),
@@ -46,9 +48,9 @@ pub struct ContextMenu<'a, Message> {
 
 impl<'a, Message> ContextMenu<'a, Message> {
     pub fn new(
-        items: Vec<MenuItem>,
+        items: &'a [MenuItem],
         at: (f32, f32),
-        open_path: Vec<usize>,
+        open_path: &'a [usize],
         theme: &crate::theme::Theme,
         on_event: impl Fn(MenuEvent) -> Message + 'a,
     ) -> Self {
@@ -90,7 +92,7 @@ impl<'a, Message> ContextMenu<'a, Message> {
         viewport: &Rectangle,
     ) -> Vec<(Rectangle, &[MenuItem], Vec<usize>)> {
         let mut out = Vec::new();
-        let mut items: &[MenuItem] = &self.items;
+        let mut items: &[MenuItem] = self.items;
         let mut prefix: Vec<usize> = Vec::new();
         let (mut x, mut y) = at;
         // 右端で折り返したら以降のサブも左へ展開し続ける (右往左往させない)

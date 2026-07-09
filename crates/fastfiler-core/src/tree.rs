@@ -37,6 +37,11 @@ pub struct TreeState {
     pub viewport_h: f32,
     /// 次の描画で中央スクロールする行 (自動追従)。
     pub reveal_ix: Option<usize>,
+    /// フラット化済みの表示行キャッシュ。構造が変わる変異点 (update の各アーム /
+    /// reveal / register_unc / set_unc_shares) でのみ再構築する — view() は
+    /// 毎メッセージ再構築されるため、都度フラット化すると展開ツリー全行の
+    /// String/PathBuf clone がマウス移動レートで発生する。
+    rows_cache: Vec<TreeRow>,
 }
 
 impl Default for TreeState {
@@ -52,6 +57,7 @@ impl Default for TreeState {
             scroll: 0.0,
             viewport_h: 0.0,
             reveal_ix: None,
+            rows_cache: Vec::new(),
         }
     }
 }
@@ -90,6 +96,14 @@ pub enum TreeMsg {
     RemoveServer(String),
 }
 
+/// `\\server\share\...` から (server, Some(share)) を借用で返す (UNC でなければ None)。
+fn unc_parts(s: &str) -> Option<(&str, Option<&str>)> {
+    let rest = s.strip_prefix("\\\\")?;
+    let mut it = rest.split('\\');
+    let server = it.next().filter(|x| !x.is_empty())?;
+    Some((server, it.next().filter(|x| !x.is_empty())))
+}
+
 impl TreeState {
     /// ツリーの入力処理 (ノードクリック = ペインへ開く、は update_app が担当)。
     pub fn update(&mut self, msg: TreeMsg) -> Vec<Effect> {
@@ -103,7 +117,7 @@ impl TreeState {
                 vec![Effect::ScheduleSessionSave]
             }
             TreeMsg::Toggle(path) => {
-                if self.expanded.contains(&path) {
+                let fx = if self.expanded.contains(&path) {
                     self.expanded.remove(&path);
                     vec![]
                 } else {
@@ -113,7 +127,9 @@ impl TreeState {
                     } else {
                         vec![Effect::LoadTreeChildren { path }]
                     }
-                }
+                };
+                self.rebuild_rows();
+                fx
             }
             TreeMsg::DrivesLoaded(drives) => {
                 // domain の list_drives は letter を "C:\" (末尾 \ 付き) で返す。
@@ -132,14 +148,16 @@ impl TreeState {
                         (display, PathBuf::from(format!("{letter}\\")))
                     })
                     .collect();
+                self.rebuild_rows();
                 vec![]
             }
             TreeMsg::ChildrenLoaded { path, dirs } => {
                 self.children.insert(path, dirs);
+                self.rebuild_rows();
                 // 遅延ロード完了後に現在地の行位置を再計算 (深いパスへの初回追従)
                 if let Some(cur) = self.current.clone() {
                     self.reveal_ix = self
-                        .rows()
+                        .rows_cache
                         .iter()
                         .position(|r| r.path.as_deref() == Some(cur.as_path()));
                 }
@@ -156,6 +174,7 @@ impl TreeState {
             TreeMsg::RemoveServer(server) => {
                 let prefix = format!("\\\\{server}\\");
                 self.unc_shares.retain(|s| !s.starts_with(&prefix));
+                self.rebuild_rows();
                 vec![Effect::ScheduleSessionSave]
             }
         }
@@ -164,16 +183,9 @@ impl TreeState {
     /// UNC パスを開いたときの自動登録 (F-802)。`\\server\share\…` → `\\server\share`。
     pub fn register_unc(&mut self, path: &Path) -> bool {
         let s = path.to_string_lossy();
-        let Some(rest) = s.strip_prefix("\\\\") else {
+        let Some((server, Some(share))) = unc_parts(&s) else {
             return false;
         };
-        let mut it = rest.split('\\');
-        let (Some(server), Some(share)) = (it.next(), it.next()) else {
-            return false;
-        };
-        if server.is_empty() || share.is_empty() {
-            return false;
-        }
         let root = format!("\\\\{server}\\{share}");
         if self
             .unc_shares
@@ -183,7 +195,15 @@ impl TreeState {
             return false;
         }
         self.unc_shares.push(root);
+        self.rebuild_rows();
         true
+    }
+
+    /// セッション復元用: unc_shares を差し替えて行キャッシュを作り直す
+    /// (フィールド直接代入だとキャッシュが古いまま残る)。
+    pub fn set_unc_shares(&mut self, shares: Vec<String>) {
+        self.unc_shares = shares;
+        self.rebuild_rows();
     }
 
     /// 現在地への追従 (F-803): 祖先を展開し、未ロードの子を読み込み要求、
@@ -193,37 +213,41 @@ impl TreeState {
         let mut effects = Vec::new();
         // UNC はサーバコンテナノード (\\server) も展開しないと share 行が現れない
         let s = path.to_string_lossy();
-        if let Some(rest) = s.strip_prefix("\\\\") {
-            if let Some((server, _)) = rest.split_once('\\') {
-                self.expanded.insert(PathBuf::from(format!("\\\\{server}")));
-            }
+        if let Some((server, _)) = unc_parts(&s) {
+            self.expanded.insert(PathBuf::from(format!("\\\\{server}")));
         }
-        // 祖先チェーン (ルート → path の親まで) を展開
-        let mut anc = Vec::new();
-        let mut cur = path.to_path_buf();
-        while let Some(parent) = cur.parent() {
-            anc.push(parent.to_path_buf());
-            cur = parent.to_path_buf();
-        }
-        for a in anc.into_iter().rev() {
+        // 祖先チェーン (ルート → path の親まで) を展開 — 標準の ancestors() で列挙
+        let ancestors: Vec<&Path> = path.ancestors().skip(1).collect();
+        for a in ancestors.into_iter().rev() {
             if a.as_os_str().is_empty() {
                 continue;
             }
-            self.expanded.insert(a.clone());
-            if !self.children.contains_key(&a) {
-                effects.push(Effect::LoadTreeChildren { path: a });
+            if !self.expanded.contains(a) {
+                self.expanded.insert(a.to_path_buf());
+            }
+            if !self.children.contains_key(a) {
+                effects.push(Effect::LoadTreeChildren {
+                    path: a.to_path_buf(),
+                });
             }
         }
-        // reveal 位置は rows() から算出 (ロード完了後に再計算されるまで近似で良い)
+        // current / expanded が変わった (is_current は行キャッシュに焼き込まれる)
+        self.rebuild_rows();
+        // reveal 位置はキャッシュから算出 (ロード完了後に再計算されるまで近似で良い)
         self.reveal_ix = self
-            .rows()
+            .rows_cache
             .iter()
             .position(|r| r.path.as_deref() == Some(path));
         effects
     }
 
-    /// フラット化した表示行。ドライブ群 → サーバ/share 群 の順 (CONTEXT.md)。
-    pub fn rows(&self) -> Vec<TreeRow> {
+    /// フラット化した表示行 (キャッシュ)。ドライブ群 → サーバ/share 群 の順 (CONTEXT.md)。
+    pub fn rows(&self) -> &[TreeRow] {
+        &self.rows_cache
+    }
+
+    /// 行キャッシュの再構築。構造を変える変異点からのみ呼ぶ。
+    fn rebuild_rows(&mut self) {
         let mut out = Vec::new();
         for (display, path) in &self.drives {
             self.push_dir_row(&mut out, 0, display.clone(), path.clone());
@@ -231,8 +255,8 @@ impl TreeState {
         // UNC: サーバ毎にグルーピング (サーバノードは開けないコンテナ)
         let mut servers: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for share in &self.unc_shares {
-            if let Some(rest) = share.strip_prefix("\\\\") {
-                if let Some((server, _)) = rest.split_once('\\') {
+            if let Some((server, _)) = unc_parts(share) {
+                {
                     servers
                         .entry(server.to_string())
                         .or_default()
@@ -264,7 +288,7 @@ impl TreeState {
                 }
             }
         }
-        out
+        self.rows_cache = out;
     }
 
     fn push_dir_row(&self, out: &mut Vec<TreeRow>, depth: u16, label: String, path: PathBuf) {

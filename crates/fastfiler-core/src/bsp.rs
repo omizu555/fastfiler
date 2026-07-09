@@ -57,7 +57,11 @@ impl PaneNode {
     }
 
     pub fn contains(&self, id: PaneId) -> bool {
-        self.leaves().contains(&id)
+        // leaves() の Vec 確保をしない再帰判定 (ペインメッセージ毎に呼ばれる)
+        match self {
+            PaneNode::Leaf(x) => *x == id,
+            PaneNode::Split { children, .. } => children.iter().any(|c| c.contains(id)),
+        }
     }
 
     /// `target` 葉を `dir` 方向に分割し、直後に `new` を挿入する。

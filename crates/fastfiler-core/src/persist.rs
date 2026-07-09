@@ -25,6 +25,13 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 /// `path` へ `contents` をアトミックかつ耐久的に書き込む。
 ///
 /// 失敗しても呼び出し側は致命的に扱わない想定 (保存はベストエフォート)。
+/// 設定・セッションの保存先 (`%APPDATA%\FastFiler`)。
+/// 同型の解決関数が 7 箇所に乱立していたのを集約 (iced 側もこれを使う)。
+pub fn config_dir() -> Option<std::path::PathBuf> {
+    let base = std::env::var("APPDATA").ok()?;
+    Some(std::path::PathBuf::from(base).join("FastFiler"))
+}
+
 pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::fs;
     use std::io::Write;

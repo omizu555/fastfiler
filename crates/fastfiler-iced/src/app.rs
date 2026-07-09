@@ -66,6 +66,8 @@ pub struct App {
     search: std::sync::Arc<fastfiler_domain::search::SearchState>,
     /// 検索の所属ペイン (job_id → pane)。
     search_owner: HashMap<u64, PaneId>,
+    /// 最新の検索 job id (CancelSearch のガード — 古い ID で新検索を殺さない)。
+    current_search_id: Option<u64>,
     /// 外部 MOVE (エクスプローラ発) の後始末: Copy ジョブ完了後にゴミ箱へ送る
     /// ソースパス (job_id → srcs)。
     external_move_cleanup: HashMap<u64, Vec<PathBuf>>,
@@ -188,9 +190,8 @@ pub fn boot() -> (App, Task<Msg>) {
     };
     {
         let row_h = crate::settings::get().row_h();
-        let ids: Vec<_> = model.panes.keys().collect();
-        for id in ids {
-            model.panes[id].row_h = row_h;
+        for p in model.panes.values_mut() {
+            p.row_h = row_h;
         }
     }
     let cfg = crate::settings::get();
@@ -210,6 +211,7 @@ pub fn boot() -> (App, Task<Msg>) {
         job_owner: HashMap::new(),
         search: std::sync::Arc::new(fastfiler_domain::search::SearchState::default()),
         search_owner: HashMap::new(),
+        current_search_id: None,
         external_move_cleanup: HashMap::new(),
         everything_port: cfg.everything_port,
         undo: UndoManager::new(),
@@ -305,19 +307,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                             PaneMsg::ShellMenuRequest { row: Some(ix) },
                         ));
                     }
-                    let (templates, commands, templates_dir, can_paste) =
-                        effects::collect_menu_context();
-                    return app.apply(AppMsg::Pane(
-                        pane,
-                        PaneMsg::OpenMenu {
-                            at: (x, y),
-                            row: Some(ix),
-                            templates,
-                            commands,
-                            templates_dir,
-                            can_paste,
-                        },
-                    ));
+                    return app.open_context_menu(pane, (x, y), Some(ix));
                 }
                 ListEvent::DragExitedWindow => {
                     // 外部への OLE 送信 (F-603)。DoDragDrop は UI スレッドで
@@ -351,19 +341,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                     }));
                 }
                 ListEvent::BlankRightClicked { x, y } => {
-                    let (templates, commands, templates_dir, can_paste) =
-                        effects::collect_menu_context();
-                    return app.apply(AppMsg::Pane(
-                        pane,
-                        PaneMsg::OpenMenu {
-                            at: (x, y),
-                            row: None,
-                            templates,
-                            commands,
-                            templates_dir,
-                            can_paste,
-                        },
-                    ));
+                    return app.open_context_menu(pane, (x, y), None);
                 }
             };
             app.apply(AppMsg::Pane(pane, pane_msg))
@@ -494,7 +472,8 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 window::Event::Unfocused | window::Event::Focused => {
                     app.modifiers = keyboard::Modifiers::default();
                     if app.model.drag.is_some() {
-                        let _ = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+                        let fx = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+                        debug_assert!(fx.is_empty(), "DragMsg::Cancel は Effect を返さない前提");
                     }
                 }
                 window::Event::Resized(size) => {
@@ -548,19 +527,7 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
         Msg::FooterRightClicked(pane) => {
             // メニュー位置: 負の sentinel を渡すと ContextMenu が実カーソル位置で
             // 開く (widget は draw/update でカーソルを直接観測できる)
-            let at = (-1.0, -1.0);
-            let (templates, commands, templates_dir, can_paste) = effects::collect_menu_context();
-            app.apply(AppMsg::Pane(
-                pane,
-                PaneMsg::OpenMenu {
-                    at,
-                    row: None,
-                    templates,
-                    commands,
-                    templates_dir,
-                    can_paste,
-                },
-            ))
+            app.open_context_menu(pane, (-1.0, -1.0), None)
         }
         Msg::GotScale(s) => {
             app.scale_factor = s;
@@ -572,7 +539,8 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             // どのペインも DragDropped を出さないため、ここで確実に破棄する。
             // 正当なドロップは widget が先に処理済み (drag は既に None) なので無害
             if app.model.drag.is_some() {
-                let _ = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+                let fx = update_app(&mut app.model, AppMsg::Drag(DragMsg::Cancel));
+                debug_assert!(fx.is_empty(), "DragMsg::Cancel は Effect を返さない前提");
             }
             Task::none()
         }
@@ -679,6 +647,23 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
 
 impl App {
     /// core の update を呼び、返った Effect を Task に変換する。
+    /// 右クリックメニューを開く定型 (文脈採取 + OpenMenu 発行)。
+    /// at が負の sentinel のときは ContextMenu が実カーソル位置で開く。
+    fn open_context_menu(&mut self, pane: PaneId, at: (f32, f32), row: Option<usize>) -> Task<Msg> {
+        let (templates, commands, templates_dir, can_paste) = effects::collect_menu_context();
+        self.apply(AppMsg::Pane(
+            pane,
+            PaneMsg::OpenMenu {
+                at,
+                row,
+                templates,
+                commands,
+                templates_dir,
+                can_paste,
+            },
+        ))
+    }
+
     fn apply(&mut self, msg: AppMsg) -> Task<Msg> {
         let focused_before = self.model.focused_pane();
         let overlay_before = self
@@ -952,7 +937,8 @@ impl App {
         let Some(drag) = self.model.drag.clone() else {
             return Task::none();
         };
-        let _ = update_app(&mut self.model, AppMsg::Drag(DragMsg::Cancel));
+        let fx = update_app(&mut self.model, AppMsg::Drag(DragMsg::Cancel));
+        debug_assert!(fx.is_empty(), "DragMsg::Cancel は Effect を返さない前提");
         let req = DragRequest {
             paths: drag.paths.clone(),
             preferred: PreferredEffect::Copy,
@@ -1096,6 +1082,20 @@ impl App {
                 Effect::PaneClosed(id) => {
                     // watcher 等の付随リソースを解放 (N-02)
                     self.watchers.remove(&id);
+                    // このペインが現行の検索を走らせていたら止める
+                    if let Some(cur) = self.current_search_id {
+                        if self.search_owner.get(&cur) == Some(&id) {
+                            self.search.cancel();
+                            self.current_search_id = None;
+                        }
+                    }
+                }
+                Effect::CancelSearch { job_id } => {
+                    // 最新の検索と一致するときだけ止める (古い ID で新検索を殺さない)
+                    if self.current_search_id == Some(job_id) {
+                        self.search.cancel();
+                        self.current_search_id = None;
+                    }
                 }
                 // ジョブ起動: id 採番 → Undo 候補 + 所属ペイン登録 → スレッド起動の順
                 // (起動後の登録だと速いジョブの JobDone に追い越されるレース)
@@ -1141,6 +1141,7 @@ impl App {
                         effects::start_search(&self.search, root, query, self.everything_port)
                     {
                         self.search_owner.insert(job_id, pane);
+                        self.current_search_id = Some(job_id);
                         // job_id を core に確定させる (旧検索の遅延イベント混入ガード)。
                         // 同期に反映したいので update_app を直接回す (Effect は出ない)
                         let _ = update_app(
@@ -1207,9 +1208,8 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
             app.settings = settings::update_in_memory(|s| s.font_size = px);
             // 行高は即時反映 (フォント描画サイズは再起動後)
             let row_h = app.settings.row_h();
-            let ids: Vec<_> = app.model.panes.keys().collect();
-            for id in ids {
-                app.model.panes[id].row_h = row_h;
+            for p in app.model.panes.values_mut() {
+                p.row_h = row_h;
             }
             return app.bump_save_seq();
         }
@@ -1255,7 +1255,10 @@ fn handle_settings(app: &mut App, msg: SettingsMsg) -> Task<Msg> {
         }
         SettingsMsg::OpenHotkeysFile => {
             if let Some(p) = crate::hotkeys::config_path() {
-                let _ = fastfiler_domain::shell::open_with_shell(p.to_string_lossy().to_string());
+                // UI スレッドから同期 ShellExecuteW は再入 panic の芽 (shell.rs の
+                // ドキュメント参照) — 他の open 経路と同じ async 版を使う
+                let _ =
+                    fastfiler_domain::shell::open_with_shell_async(p.to_string_lossy().to_string());
             }
         }
         SettingsMsg::OpenTemplatesDir => {
@@ -1331,12 +1334,10 @@ pub fn ole_diag_pub(msg: &str) {
 
 fn ole_diag(msg: &str) {
     use std::io::Write as _;
-    let Ok(base) = std::env::var("APPDATA") else {
+    let Some(dir) = fastfiler_core::persist::config_dir() else {
         return;
     };
-    let path = std::path::PathBuf::from(base)
-        .join("FastFiler")
-        .join("ole_diag.log");
+    let path = dir.join("ole_diag.log");
     // 育ちすぎ防止: 1MB を超えていたら仕切り直す (診断ログに履歴価値はない)
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
         let _ = std::fs::remove_file(&path);
@@ -1422,8 +1423,15 @@ pub fn theme(app: &App) -> iced::Theme {
     app.redraw_tick.set(n.wrapping_add(1));
     let mut t = app.theme.clone();
     // 17 周期 (素数) × 2e-6 ≈ 最大 3.4e-5 — 8bit 色の 1/115 で視覚上は不変。
-    // どのバッファ枚数 (2/3/4) とも周期が一致しないため常に「前回と違う背景」になる
-    t.pane_bg.r = (t.pane_bg.r + (n % 17 + 1) as f32 * 2e-6).min(1.0);
+    // どのバッファ枚数 (2/3/4) とも周期が一致しないため常に「前回と違う背景」になる。
+    // 純白テーマ (r=1.0) では加算が clamp で消えて揺らぎが死ぬため、
+    // 明るい側は減算方向に揺らす (r=0.0 の黒側は従来どおり加算)
+    let d = (n % 17 + 1) as f32 * 2e-6;
+    t.pane_bg.r = if t.pane_bg.r > 0.5 {
+        t.pane_bg.r - d
+    } else {
+        t.pane_bg.r + d
+    };
     t.to_iced()
 }
 
@@ -1579,11 +1587,18 @@ pub fn view(app: &App) -> Element<'_, Msg> {
     let root = main;
 
     // ---- モーダル / 衝突ダイアログ (フォーカスペインの overlay を stack で合成) ----
+    // 参照 match で読む — clone すると Conflict の転送計画 (ドロップ全件) や
+    // メニューツリーを view 再構築 (表示中はマウス移動毎) のたびに複製してしまう
     let focused = app.model.focused_pane();
-    match app.model.panes.get(focused).and_then(|p| p.overlay.clone()) {
+    match app
+        .model
+        .panes
+        .get(focused)
+        .and_then(|p| p.overlay.as_ref())
+    {
         Some(Overlay::DropMenu { items, at, .. }) => {
             let pane = focused;
-            let menu = ContextMenu::new(items, at, vec![], &app.theme, move |ev| match ev {
+            let menu = ContextMenu::new(items, *at, &[], &app.theme, move |ev| match ev {
                 MenuEvent::Clicked(path) => {
                     Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
                 }
@@ -1598,7 +1613,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             ..
         }) => {
             let pane = focused;
-            let menu = ContextMenu::new(items, at, open_path, &app.theme, move |ev| match ev {
+            let menu = ContextMenu::new(items, *at, open_path, &app.theme, move |ev| match ev {
                 MenuEvent::Clicked(path) => {
                     Msg::Core(AppMsg::Pane(pane, PaneMsg::MenuClicked(path)))
                 }
@@ -1615,7 +1630,7 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             let card = dialog_card(
                 title.to_string(),
                 column![
-                    text_input(placeholder, &value)
+                    text_input(placeholder, value)
                         .id(modal_input_id())
                         .on_input(|v| Msg::Core(AppMsg::Focused(PaneMsg::ModalInput(v))))
                         .on_submit(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit)))

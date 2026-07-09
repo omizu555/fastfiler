@@ -120,6 +120,19 @@ pub fn resolve_conflicts(
     }
 }
 
+/// F-604 の修飾キー規則 (内部 D&D と外部 OLE D&D で共通の唯一の定義):
+/// Ctrl = コピー / Shift or 同一ボリューム = 移動 / それ以外 = コピー。
+pub fn decide_op(ctrl: bool, shift: bool, same_vol: bool) -> TransferOp {
+    if ctrl {
+        TransferOp::Copy
+    } else if shift || same_vol {
+        // Shift 明示 or 同一ドライブの既定 = 移動 (F-604)
+        TransferOp::Move
+    } else {
+        TransferOp::Copy
+    }
+}
+
 /// 外部 D&D (OLE) の希望 DROPEFFECT を決める (F-604。spike_ole の TODO 回収)。
 /// keys は MK_* フラグ、allowed は許可マスク。マスク外を返すと NONE に丸められ
 /// ドロップ拒否になるため、必ず allowed 内から選ぶ。
@@ -129,13 +142,10 @@ pub fn decide_drop_effect(keys: u32, allowed: u32, src: Option<&Path>, dest: &Pa
     const MK_CONTROL: u32 = 0x08;
     const COPY: u32 = 1;
     const MOVE: u32 = 2;
-    let desired = if keys & MK_CONTROL != 0 {
-        COPY
-    } else if keys & MK_SHIFT != 0 || src.is_some_and(|s| same_volume(s, dest)) {
-        // Shift 明示 or 同一ドライブの既定 = 移動 (F-604)
-        MOVE
-    } else {
-        COPY
+    let same_vol = src.is_some_and(|s| same_volume(s, dest));
+    let desired = match decide_op(keys & MK_CONTROL != 0, keys & MK_SHIFT != 0, same_vol) {
+        TransferOp::Copy => COPY,
+        TransferOp::Move => MOVE,
     };
     if desired & allowed != 0 {
         desired

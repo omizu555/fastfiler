@@ -36,3 +36,14 @@ pub(crate) fn ellipsize(label: &str, max_w: f32, font_px: f32) -> String {
     out.push('…');
     out
 }
+
+/// D&D / タブ並べ替えのドラッグ開始閾値 (px)。widget 間で同じ値を使う。
+pub(crate) const DRAG_THRESHOLD: f32 = 6.0;
+
+/// ホイール 1 ノッチのスクロール量 (行高 × 3 — FileList / TreeList 共通)。
+pub(crate) fn wheel_dy(delta: &iced::mouse::ScrollDelta, row_h: f32) -> f32 {
+    match delta {
+        iced::mouse::ScrollDelta::Lines { y, .. } => -y * row_h * 3.0,
+        iced::mouse::ScrollDelta::Pixels { y, .. } => -y,
+    }
+}

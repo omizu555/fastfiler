@@ -79,8 +79,7 @@ impl AppSettings {
 }
 
 fn config_dir() -> Option<PathBuf> {
-    let base = std::env::var("APPDATA").ok()?;
-    Some(PathBuf::from(base).join("FastFiler"))
+    fastfiler_core::persist::config_dir()
 }
 
 fn config_path() -> Option<PathBuf> {

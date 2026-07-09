@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::app_model::{AppModel, TabState, TAB_W_MAX, TAB_W_MIN};
+use crate::app_model::{AppModel, TAB_W_MAX, TAB_W_MIN};
 use crate::bsp::SplitDir;
 use crate::effect::Effect;
 use crate::model::PaneId;
@@ -109,6 +109,8 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
             if !m.panes.contains_key(id) {
                 return vec![];
             }
+            // タブ index は 1 回だけ引く (フォーカス移動と locked 判定で共用)
+            let tix = tab_of(m, id);
             // クリック系はそのペインへフォーカスを移す (F-204)。
             // 右クリック系 (メニュー) も移す — overlay はフォーカスペインのものしか
             // 描画されないため、移さないと非フォーカスペインのフッタ/行/背景の
@@ -125,28 +127,15 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
                     | PaneMsg::OpenMenu { .. }
                     | PaneMsg::ShellMenuRequest { .. }
             ) {
-                if let Some(tix) = tab_of(m, id) {
+                if let Some(tix) = tix {
                     m.active = tix;
                     m.tabs[tix].focused = id;
                 }
             }
-            let locked = tab_of(m, id).map(|t| m.tabs[t].locked).unwrap_or(false);
+            let locked = tix.map(|t| m.tabs[t].locked).unwrap_or(false);
             let structural = matches!(pmsg, PaneMsg::ColResized { .. });
             let effects = update_pane(&mut m.panes[id], id, locked, pmsg);
-            // DropTransfer は衝突検出込みの転送へ展開 (DropMenu 確定経路)
-            let mut expanded = Vec::with_capacity(effects.len());
-            for e in effects {
-                match e {
-                    Effect::DropTransfer {
-                        pane,
-                        op,
-                        paths,
-                        dest,
-                    } => expanded.extend(start_drop_transfer(m, pane, op, paths, dest)),
-                    other => expanded.push(other),
-                }
-            }
-            let mut out = expand_open_tab(m, expanded);
+            let mut out = expand_effects(m, effects);
             // パス変更 (LoadDir) と列幅はセッション保存対象 (800ms デバウンス)。
             // フォーカスペインの移動はツリーを追従させ、UNC は自動登録する (F-802/F-803)
             if structural || out.iter().any(|e| matches!(e, Effect::LoadDir { .. })) {
@@ -187,16 +176,15 @@ fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
                 return vec![]; // 検索結果からのドラッグは対象外 (安全側)
             }
             // 選択中の行をドラッグすると選択全体を運ぶ (USAGE.md §2)
-            let rows: Vec<usize> = if p.selected.contains(&row) {
-                p.selected.iter().copied().collect()
+            let paths: Vec<std::path::PathBuf> = if p.selected.contains(&row) {
+                p.selected_paths()
             } else {
-                vec![row]
+                p.entries
+                    .get(row)
+                    .map(|e| p.cur_path.join(&*e.name))
+                    .into_iter()
+                    .collect()
             };
-            let paths: Vec<std::path::PathBuf> = rows
-                .iter()
-                .filter_map(|&i| p.entries.get(i))
-                .map(|e| p.cur_path.join(&e.name))
-                .collect();
             if paths.is_empty() {
                 return vec![];
             }
@@ -281,7 +269,7 @@ fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
             };
             // ドロップ先: フォルダ行ならそのフォルダ、それ以外は表示中フォルダ (F-601)
             let dest = match row.and_then(|ix| p.entries.get(ix)) {
-                Some(e) if e.is_dir => p.cur_path.join(&e.name),
+                Some(e) if e.is_dir => p.cur_path.join(&*e.name),
                 _ => p.cur_path.clone(),
             };
             // 右ボタン: ドロップメニューで効果を選ぶ (F-605)
@@ -302,14 +290,7 @@ fn update_drag(m: &mut AppModel, msg: DragMsg) -> Vec<Effect> {
                 .paths
                 .first()
                 .is_some_and(|src| transfer::same_volume(src, &dest));
-            let op = if ctrl {
-                TransferOp::Copy
-            } else if shift || same_vol {
-                // Shift 明示 or 同一ドライブの既定 = 移動 (F-604)
-                TransferOp::Move
-            } else {
-                TransferOp::Copy
-            };
+            let op = transfer::decide_op(ctrl, shift, same_vol);
             start_drop_transfer(m, pane, op, drag.paths, dest)
         }
     }
@@ -349,7 +330,7 @@ pub(crate) fn start_drop_transfer_ext(
     // 空集合で計画し衝突は上書き確認なしになるため、表示フォルダのときだけ検出する。
     // フォルダ行ドロップの衝突は domain のジョブが上書きで処理 (GPUI 版と同等)。
     let existing: std::collections::BTreeSet<String> = if dest == p.cur_path {
-        p.entries.iter().map(|e| e.name.clone()).collect()
+        p.entries.iter().map(|e| e.name.to_string()).collect()
     } else {
         Default::default()
     };
@@ -448,11 +429,19 @@ fn update_tab(m: &mut AppModel, msg: TabMsg) -> Vec<Effect> {
     }
 }
 
-/// ロックタブの `OpenTabFor` を新タブ + 読み込みに展開する。
-fn expand_open_tab(m: &mut AppModel, effects: Vec<Effect>) -> Vec<Effect> {
+/// update_pane が返した Effect の後処理展開 (1 パス):
+/// - `DropTransfer` → 衝突検出込みの転送へ (DropMenu 確定経路)
+/// - `OpenTabFor` → 新タブ + 読み込みへ (ロックタブの逃がし)
+fn expand_effects(m: &mut AppModel, effects: Vec<Effect>) -> Vec<Effect> {
     let mut out = Vec::with_capacity(effects.len());
     for e in effects {
         match e {
+            Effect::DropTransfer {
+                pane,
+                op,
+                paths,
+                dest,
+            } => out.extend(start_drop_transfer(m, pane, op, paths, dest)),
             Effect::OpenTabFor { path } => out.extend(open_new_tab(m, path)),
             other => out.push(other),
         }
@@ -467,12 +456,6 @@ fn open_new_tab(m: &mut AppModel, path: PathBuf) -> Vec<Effect> {
 
 fn tab_of(m: &AppModel, id: PaneId) -> Option<usize> {
     m.tabs.iter().position(|t| t.root.contains(id))
-}
-
-/// タブ切替時の表示用: アクティブタブのフォーカスペイン (青枠の宛先)。
-pub fn is_focused_pane(m: &AppModel, tab: &TabState, id: PaneId) -> bool {
-    let _ = m;
-    tab.focused == id
 }
 
 #[cfg(test)]

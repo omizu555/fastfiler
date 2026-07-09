@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 use iced::keyboard::{key::Named, Key, Modifiers};
-use once_cell::sync::Lazy;
 
 /// カスタマイズ可能なコマンド (GPUI 版 HotAction と同一)。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,7 +59,8 @@ const ACTIONS: &[(&str, HotAction, &str)] = &[
 ];
 
 /// 正規化した combo → アクション。
-static MAP: Lazy<RwLock<HashMap<Combo, HotAction>>> = Lazy::new(|| RwLock::new(load()));
+static MAP: std::sync::LazyLock<RwLock<HashMap<Combo, HotAction>>> =
+    std::sync::LazyLock::new(|| RwLock::new(load()));
 
 /// 正規化済みキー組み合わせ。文字キーは小文字 1 文字、特殊キーは名前。
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -132,8 +132,7 @@ fn key_name(key: &Key<&str>) -> Option<String> {
 }
 
 fn config_dir() -> Option<PathBuf> {
-    let base = std::env::var("APPDATA").ok()?;
-    Some(PathBuf::from(base).join("FastFiler"))
+    fastfiler_core::persist::config_dir()
 }
 
 fn defaults_json() -> serde_json::Value {
@@ -167,7 +166,9 @@ fn load() -> HashMap<Combo, HotAction> {
             let _ = std::fs::create_dir_all(&dir);
             let _ = fastfiler_core::persist::write_atomic(&own, &json);
         }
-        migrated.or_else(|| serde_json::from_value(defaults_json()).ok())
+        // 既定値の適用は下の per-action ループ (unwrap_or(default)) が担う —
+        // defaults_json() を Value 経由で再パースする往復は不要
+        migrated
     })()
     .unwrap_or_default();
 

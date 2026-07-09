@@ -22,22 +22,21 @@ new_key_type! {
 /// GPL コードを一切リンクしない層を保つため。計画書 §5.1)。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
-    pub name: String,
+    // 生成後は不変なので Box<str> (16B) — String (24B) だと 10 万行フォルダで
+    // 約 5MB 余計に常駐する (フィールド 6 本 × 8B/行)
+    pub name: Box<str>,
     pub is_dir: bool,
     pub size: u64,
     /// unix 秒 (0 以下 = 不明)。
     pub modified: i64,
     /// 拡張子 (小文字、ドットなし)。
-    pub ext: Option<String>,
+    pub ext: Option<Box<str>>,
     pub hidden: bool,
     // ---- 前計算 (表示・ソート用) ----
-    pub name_lower: String,
-    pub size_text: String,
-    pub modified_text: String,
-    pub kind_text: String,
-    /// アイコン共有キー: フォルダ = "/" / 拡張子あり = ext 小文字 / なし = ""。
-    /// ("/" はファイル名に使えない文字なので拡張子と衝突しない)
-    pub icon_key: String,
+    pub name_lower: Box<str>,
+    pub size_text: Box<str>,
+    pub modified_text: Box<str>,
+    pub kind_text: Box<str>,
 }
 
 impl Entry {
@@ -49,22 +48,18 @@ impl Entry {
         ext: Option<String>,
         hidden: bool,
     ) -> Self {
-        let ext = ext.map(|e| e.to_lowercase());
-        let name_lower = name.to_lowercase();
+        // 供給元は概ね小文字済みだが、検索ヒット等は生の拡張子を渡すため正規化は必須
+        let ext = ext.map(|e| e.to_lowercase().into_boxed_str());
+        let name_lower = name.to_lowercase().into_boxed_str();
         let size_text = if is_dir {
-            String::new()
+            "".into()
         } else {
-            format::human_size(size)
+            format::human_size(size).into_boxed_str()
         };
-        let modified_text = format::format_modified(modified);
-        let kind_text = format::kind_text(is_dir, ext.as_deref());
-        let icon_key = if is_dir {
-            "/".to_string()
-        } else {
-            ext.clone().unwrap_or_default()
-        };
+        let modified_text = format::format_modified(modified).into_boxed_str();
+        let kind_text = format::kind_text(is_dir, ext.as_deref()).into_boxed_str();
         Self {
-            name,
+            name: name.into_boxed_str(),
             is_dir,
             size,
             modified,
@@ -74,7 +69,18 @@ impl Entry {
             size_text,
             modified_text,
             kind_text,
-            icon_key,
+        }
+    }
+
+    /// アイコン共有キー: フォルダ = "/" / 拡張子あり = ext 小文字 / なし = ""。
+    /// ("/" はファイル名に使えない文字なので拡張子と衝突しない)。
+    /// is_dir と ext から導出できるためフィールドとしては持たない
+    /// (String で持つと 10 万行で約 5-7MB の無駄な常駐になる)。
+    pub fn icon_key(&self) -> &str {
+        if self.is_dir {
+            "/"
+        } else {
+            self.ext.as_deref().unwrap_or("")
         }
     }
 }
@@ -104,29 +110,33 @@ impl Default for SortState {
     }
 }
 
+/// 並び順の比較器 (sort_entries と、選択 index を保ったままの並べ替え
+/// [update.rs の HeaderClicked] で共用する)。
+pub fn entry_cmp(a: &Entry, b: &Entry, sort: SortState) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let dir_ord = b.is_dir.cmp(&a.is_dir); // dir(true) を先頭へ
+    if dir_ord != Ordering::Equal {
+        return dir_ord;
+    }
+    let ord = match sort.col {
+        Column::Name => a.name_lower.cmp(&b.name_lower),
+        Column::Modified => a.modified.cmp(&b.modified),
+        Column::Size => a.size.cmp(&b.size),
+        Column::Type => a
+            .ext
+            .cmp(&b.ext)
+            .then_with(|| a.name_lower.cmp(&b.name_lower)),
+    };
+    if sort.asc {
+        ord
+    } else {
+        ord.reverse()
+    }
+}
+
 /// フォルダ常に先頭 + 列キー比較 (GPUI 版 pane.rs:525 と同一規則)。
 pub fn sort_entries(entries: &mut [Entry], sort: SortState) {
-    use std::cmp::Ordering;
-    entries.sort_by(|a, b| {
-        let dir_ord = b.is_dir.cmp(&a.is_dir); // dir(true) を先頭へ
-        if dir_ord != Ordering::Equal {
-            return dir_ord;
-        }
-        let ord = match sort.col {
-            Column::Name => a.name_lower.cmp(&b.name_lower),
-            Column::Modified => a.modified.cmp(&b.modified),
-            Column::Size => a.size.cmp(&b.size),
-            Column::Type => a
-                .ext
-                .cmp(&b.ext)
-                .then_with(|| a.name_lower.cmp(&b.name_lower)),
-        };
-        if sort.asc {
-            ord
-        } else {
-            ord.reverse()
-        }
-    });
+    entries.sort_by(|a, b| entry_cmp(a, b, sort));
 }
 
 /// ペインのオーバーレイ状態 (計画書 §10-3: 8 個の Option を 1 enum に)。
@@ -350,7 +360,7 @@ mod tests {
     fn sort_dirs_first_then_name_case_insensitive() {
         let mut v = vec![e("b.txt", false), e("Alpha", true), e("A.txt", false)];
         sort_entries(&mut v, SortState::default());
-        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        let names: Vec<_> = v.iter().map(|x| x.name.as_ref()).collect();
         assert_eq!(names, ["Alpha", "A.txt", "b.txt"]);
     }
 
@@ -364,7 +374,7 @@ mod tests {
                 asc: false,
             },
         );
-        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        let names: Vec<_> = v.iter().map(|x| x.name.as_ref()).collect();
         assert_eq!(names, ["dir", "z.txt", "a.txt"]);
     }
 
@@ -378,7 +388,7 @@ mod tests {
                 asc: true,
             },
         );
-        let names: Vec<_> = v.iter().map(|x| x.name.as_str()).collect();
+        let names: Vec<_> = v.iter().map(|x| x.name.as_ref()).collect();
         assert_eq!(names, ["a.txt", "c.txt", "b.zip"]);
     }
 
@@ -413,14 +423,14 @@ mod tests {
             Some("TXT".into()),
             false,
         );
-        assert_eq!(x.name_lower, "read me.txt");
-        assert_eq!(x.size_text, "2.0 KB");
-        assert_eq!(x.modified_text, "");
-        assert_eq!(x.kind_text, "TXT");
-        assert_eq!(x.icon_key, "txt");
+        assert_eq!(&*x.name_lower, "read me.txt");
+        assert_eq!(&*x.size_text, "2.0 KB");
+        assert_eq!(&*x.modified_text, "");
+        assert_eq!(&*x.kind_text, "TXT");
+        assert_eq!(x.icon_key(), "txt");
         let d = Entry::new("dir".into(), true, 0, 0, None, false);
-        assert_eq!(d.size_text, "");
-        assert_eq!(d.kind_text, "フォルダ");
-        assert_eq!(d.icon_key, "/");
+        assert_eq!(&*d.size_text, "");
+        assert_eq!(&*d.kind_text, "フォルダ");
+        assert_eq!(d.icon_key(), "/");
     }
 }

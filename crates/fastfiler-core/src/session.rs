@@ -61,11 +61,19 @@ pub enum NodeData {
         cols: Option<[f32; 3]>,
     },
     Split {
-        /// "row" | "column"
-        dir: String,
+        dir: DirData,
         ratios: Vec<f32>,
         children: Vec<NodeData>,
     },
+}
+
+/// 分割方向の保存表現 (JSON では "row" / "column" — GPUI 版と同一)。
+/// stringly-typed をやめてタイポ・値追加漏れをコンパイル時に閉じる。
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum DirData {
+    Row,
+    Column,
 }
 
 /// AppModel → セッションデータ (保存用スナップショット)。
@@ -101,8 +109,8 @@ fn node_to_data(m: &AppModel, tab: &TabState, node: &PaneNode) -> NodeData {
             ..
         } => NodeData::Split {
             dir: match dir {
-                SplitDir::Row => "row".to_string(),
-                SplitDir::Column => "column".to_string(),
+                SplitDir::Row => DirData::Row,
+                SplitDir::Column => DirData::Column,
             },
             ratios: ratios.clone(),
             children: children.iter().map(|c| node_to_data(m, tab, c)).collect(),
@@ -143,7 +151,7 @@ pub fn restore(data: &SessionData, fallback: PathBuf) -> (AppModel, Vec<PaneId>)
     m.tree.width = data
         .tree_width
         .clamp(crate::tree::TREE_W_MIN, crate::tree::TREE_W_MAX);
-    m.tree.unc_shares = data.unc_shares.clone();
+    m.tree.set_unc_shares(data.unc_shares.clone());
     let panes: Vec<PaneId> = m.panes.keys().collect();
     (m, panes)
 }
@@ -169,9 +177,9 @@ fn data_to_node(m: &mut AppModel, node: &NodeData) -> Option<(PaneNode, Option<P
             ratios,
             children,
         } => {
-            let dir = match dir.as_str() {
-                "column" => SplitDir::Column,
-                _ => SplitDir::Row,
+            let dir = match dir {
+                DirData::Column => SplitDir::Column,
+                DirData::Row => SplitDir::Row,
             };
             let mut built = Vec::new();
             let mut focused = None;
@@ -207,8 +215,7 @@ fn data_to_node(m: &mut AppModel, node: &NodeData) -> Option<(PaneNode, Option<P
 }
 
 fn session_dir() -> Option<PathBuf> {
-    let base = std::env::var("APPDATA").ok()?;
-    Some(PathBuf::from(base).join("FastFiler"))
+    crate::persist::config_dir()
 }
 
 fn session_path() -> Option<PathBuf> {

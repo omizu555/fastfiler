@@ -85,6 +85,12 @@ pub enum Effect {
         root: PathBuf,
         query: String,
     },
+    /// 実行中の検索を止める (バーを閉じた / ヒットを開いた / ペインを閉じた)。
+    /// job_id が最新の検索と一致するときだけ実行側が cancel する
+    /// (古い ID で新しい検索を殺さないためのガード)。
+    CancelSearch {
+        job_id: u64,
+    },
     // ---- メニュー / シェル統合 (Phase 5a) ----
     /// テンプレートから新規ファイル (同名は domain が連番)。
     CreateFromTemplate {

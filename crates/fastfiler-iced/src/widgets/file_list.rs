@@ -22,7 +22,7 @@ use iced::advanced::text::{
 use iced::advanced::widget::{tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
-use iced::mouse::{self, ScrollDelta};
+use iced::mouse;
 use iced::widget::image;
 use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shadow, Size, Theme};
 
@@ -122,6 +122,8 @@ struct State {
     last_band: Option<(usize, usize)>,
     /// このペイン発の行ドラッグが進行中か (DragStarted 発行済み)。
     row_dragging: bool,
+    /// 直近で通知したドラッグホバー行 (変化時のみ publish — DragHover の dedupe)。
+    last_hover: Option<Option<usize>>,
 
     /// 通知済みのビューポート高 (変化時のみ publish)。
     notified_h: f32,
@@ -254,7 +256,10 @@ impl<'a, Message> FileList<'a, Message> {
         if pos.y < list.y {
             return None;
         }
-        let ix = ((pos.y - list.y + self.offset) / self.row_h) as usize;
+        // draw と同じクランプ後の offset でヒットテストする (生値を使うと
+        // リスト切替等で offset が範囲外のとき、見えている行と別の行に当たる)
+        let offset = self.offset.clamp(0.0, self.max_offset(list.height));
+        let ix = ((pos.y - list.y + offset) / self.row_h) as usize;
         (ix < self.entries.len()).then_some(ix)
     }
 }
@@ -296,6 +301,12 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         let bounds = layout.bounds();
         let list = self.list_bounds(bounds);
 
+        // ドラッグ非アクティブ時はホバー dedupe を初期化 (次のドラッグの
+        // 初回ホバーを確実に publish する)
+        if !self.drag_active {
+            state.last_hover = None;
+        }
+
         // ビューポート高の変化を core へ (PageUp/Dn・ensure_visible 用)
         if (list.height - state.notified_h).abs() > 0.5 {
             state.notified_h = list.height;
@@ -308,10 +319,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             Event::Mouse(mouse::Event::WheelScrolled { delta })
                 if cursor.position_over(bounds).is_some() =>
             {
-                let dy = match delta {
-                    ScrollDelta::Lines { y, .. } => -y * self.row_h * 3.0,
-                    ScrollDelta::Pixels { y, .. } => -y,
-                };
+                let dy = super::wheel_dy(delta, self.row_h);
                 let new = (self.offset + dy).clamp(0.0, self.max_offset(list.height));
                 if (new - self.offset).abs() > f32::EPSILON {
                     shell.publish((self.on_event)(ListEvent::Scrolled(new)));
@@ -434,7 +442,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                 if let (Some((start, ix, right)), Some(now)) =
                     (state.row_pressed, cursor.position())
                 {
-                    if !state.row_dragging && now.distance(start) > 6.0 {
+                    if !state.row_dragging && now.distance(start) > super::DRAG_THRESHOLD {
                         state.row_dragging = true;
                         shell.publish((self.on_event)(ListEvent::DragStarted {
                             ix,
@@ -442,11 +450,22 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                         }));
                     }
                 }
-                // ドラッグ受け入れモード: 自ペイン上のホバー行を通知
-                if self.drag_active && cursor.position_over(bounds).is_some() {
-                    if let Some(pos) = cursor.position() {
-                        let row = self.row_at(&list, pos);
-                        shell.publish((self.on_event)(ListEvent::DragHover { row }));
+                // ドラッグ受け入れモード: 自ペイン上のホバー行を通知。
+                // 行が変わったときだけ publish する (last_band と同じ dedupe —
+                // 毎マウスイベントで update+view 全再構築を起こさない)
+                if self.drag_active {
+                    if cursor.position_over(bounds).is_some() {
+                        if let Some(pos) = cursor.position() {
+                            let row = self.row_at(&list, pos);
+                            if state.last_hover != Some(row) {
+                                state.last_hover = Some(row);
+                                shell.publish((self.on_event)(ListEvent::DragHover { row }));
+                            }
+                        }
+                    } else {
+                        // ペイン外へ出たらリセット — 再入時に必ず publish し直し、
+                        // ハイライトの残留を防ぐ
+                        state.last_hover = None;
                     }
                 }
             }
@@ -473,12 +492,23 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::CursorLeft) if state.row_pressed.is_some() => {
+            Event::Mouse(mouse::Event::CursorLeft)
+                if state.row_pressed.is_some()
+                    || state.band.is_some()
+                    || state.dragging.is_some() =>
+            {
                 // 閾値未満のままウィンドウ外へ出た場合も押下状態を破棄する
-                // (外での Released は届かないため、残すと幽霊ドラッグが始まる)
+                // (外での Released は届かないため、残すと幽霊ドラッグが始まる)。
+                // ラバーバンド・列リサイズも同様に破棄しないと、窓外で離した後の
+                // マウス移動で選択範囲や列幅が勝手に動き続ける
                 let was_dragging = state.row_dragging;
                 state.row_dragging = false;
                 state.row_pressed = None;
+                state.dragging = None;
+                if state.band.take().is_some() {
+                    state.last_band = None;
+                    shell.request_redraw(); // バンド矩形を消す
+                }
                 if was_dragging {
                     shell.publish((self.on_event)(ListEvent::DragExitedWindow));
                     shell.capture_event();
@@ -551,7 +581,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
 
     fn draw(
         &self,
-        _tree: &Tree,
+        tree: &Tree,
         renderer: &mut iced::Renderer,
         theme: &Theme,
         style: &iced::advanced::renderer::Style,
@@ -672,13 +702,11 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         let last = (first + visible).min(self.entries.len());
 
         for ix in first..last {
-            let row_y = list.y + (ix as f32 * self.row_h - offset);
+            let y = list.y + (ix as f32 * self.row_h - offset);
             // 完全に見えている行だけ文字とアイコンを描く (部分行は背景のみ —
             // ソフトウェアレンダラのはみ出しをレイアウト段階で断つ)
-            let fully_visible =
-                row_y >= list.y - 0.5 && row_y + self.row_h <= list.y + list.height + 0.5;
+            let fully_visible = y >= list.y - 0.5 && y + self.row_h <= list.y + list.height + 0.5;
             let entry = &self.entries[ix];
-            let y = list.y + (ix as f32 * self.row_h - offset);
             let is_sel = self.selected.contains(&ix);
             let is_cur = self.cursor == Some(ix);
             let is_drop = self.drop_highlight == Some(ix);
@@ -733,7 +761,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
             if !fully_visible {
                 continue;
             }
-            if let Some(handle) = self.icons.get(&entry.icon_key) {
+            if let Some(handle) = self.icons.get(entry.icon_key()) {
                 renderer.draw_image(
                     iced::advanced::image::Image {
                         handle: handle.clone(),
@@ -797,7 +825,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for FileList<'_, Message> {
         }
 
         // ---- ラバーバンド矩形 (空白からの左ドラッグ中) ----
-        if let Some((a, b)) = _tree.state.downcast_ref::<State>().band {
+        if let Some((a, b)) = tree.state.downcast_ref::<State>().band {
             let rect = Rectangle {
                 x: a.x.min(b.x),
                 y: a.y.min(b.y).max(list.y),

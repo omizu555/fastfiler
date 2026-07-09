@@ -14,7 +14,7 @@ use iced::advanced::text::{
 use iced::advanced::widget::{tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
 use iced::alignment::Vertical;
-use iced::mouse::{self, ScrollDelta};
+use iced::mouse;
 use iced::{Border, Color, Element, Event, Length, Pixels, Point, Rectangle, Shadow, Size, Theme};
 
 const INDENT: f32 = 14.0;
@@ -35,7 +35,8 @@ pub enum TreeEvent {
 }
 
 pub struct TreeList<'a, Message> {
-    rows: Vec<TreeRow>,
+    // core の行キャッシュを借用 (FileList と同じ流儀 — view() 毎の clone をしない)
+    rows: &'a [TreeRow],
     offset: f32,
     reveal_ix: Option<usize>,
     on_event: Box<dyn Fn(TreeEvent) -> Message + 'a>,
@@ -50,7 +51,7 @@ struct State {
 
 impl<'a, Message> TreeList<'a, Message> {
     pub fn new(
-        tree_state: &fastfiler_core::tree::TreeState,
+        tree_state: &'a fastfiler_core::tree::TreeState,
         on_event: impl Fn(TreeEvent) -> Message + 'a,
     ) -> Self {
         Self {
@@ -66,7 +67,10 @@ impl<'a, Message> TreeList<'a, Message> {
     }
 
     fn row_at(&self, bounds: &Rectangle, pos: Point) -> Option<usize> {
-        let ix = ((pos.y - bounds.y + self.offset) / TREE_ROW_H) as usize;
+        // draw と同じクランプ後の offset でヒットテストする (折りたたみで行数が
+        // 減った直後は生 offset が範囲外に残り、クリック行が表示とずれる)
+        let offset = self.offset.clamp(0.0, self.max_offset(bounds.height));
+        let ix = ((pos.y - bounds.y + offset) / TREE_ROW_H) as usize;
         (ix < self.rows.len()).then_some(ix)
     }
 }
@@ -129,10 +133,7 @@ impl<Message> Widget<Message, Theme, iced::Renderer> for TreeList<'_, Message> {
             Event::Mouse(mouse::Event::WheelScrolled { delta })
                 if cursor.position_over(bounds).is_some() =>
             {
-                let dy = match delta {
-                    ScrollDelta::Lines { y, .. } => -y * TREE_ROW_H * 3.0,
-                    ScrollDelta::Pixels { y, .. } => -y,
-                };
+                let dy = super::wheel_dy(delta, TREE_ROW_H);
                 let new = (self.offset + dy).clamp(0.0, self.max_offset(bounds.height));
                 if (new - self.offset).abs() > f32::EPSILON {
                     shell.publish((self.on_event)(TreeEvent::Scrolled(new)));

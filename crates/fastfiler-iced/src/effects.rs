@@ -28,7 +28,6 @@ pub mod domain_channel {
     use std::sync::Mutex;
 
     use async_channel::{Receiver, Sender};
-    use once_cell::sync::Lazy;
     use serde_json::Value;
 
     pub type DomainRawEvent = (String, Value);
@@ -37,7 +36,7 @@ pub mod domain_channel {
         Mutex<Option<Receiver<DomainRawEvent>>>,
     );
 
-    static CHANNEL: Lazy<ChannelPair> = Lazy::new(|| {
+    static CHANNEL: std::sync::LazyLock<ChannelPair> = std::sync::LazyLock::new(|| {
         let (tx, rx) = async_channel::unbounded();
         (tx, Mutex::new(Some(rx)))
     });
@@ -168,6 +167,7 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
         | Effect::PaneClosed(_)
         | Effect::OpenTabFor { .. }
         | Effect::StartSearch { .. }
+        | Effect::CancelSearch { .. }
         | Effect::DropTransfer { .. } // update_app 内で展開済み (ここには来ない)
         | Effect::SpawnExternalMove { .. } // app.rs run_effects 側で処理
         | Effect::ScheduleSessionSave => Task::none(),
@@ -597,8 +597,8 @@ fn synth_entries(n: usize) -> Vec<Entry> {
 fn fetch_icons(entries: &[Entry], known: &HashSet<String>) -> IconBytes {
     let mut keys: HashSet<&str> = HashSet::new();
     for e in entries {
-        if !known.contains(&e.icon_key) {
-            keys.insert(e.icon_key.as_str());
+        if !known.contains(e.icon_key()) {
+            keys.insert(e.icon_key());
         }
     }
     keys.into_iter()
