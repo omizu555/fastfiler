@@ -128,6 +128,16 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
                     | PaneMsg::ShellMenuRequest { .. }
             ) {
                 if let Some(tix) = tix {
+                    // フォーカスが別ペインへ移るときはパスバー編集を破棄する
+                    // (エクスプローラ準拠。残すと編集状態が不可視のまま持ち越される)
+                    let prev = m.focused_pane();
+                    if prev != id {
+                        if let Some(pp) = m.panes.get_mut(prev) {
+                            if matches!(pp.overlay, Some(crate::model::Overlay::PathEdit { .. })) {
+                                pp.overlay = None;
+                            }
+                        }
+                    }
                     m.active = tix;
                     m.tabs[tix].focused = id;
                 }
@@ -550,6 +560,24 @@ mod tests {
         // F6 巡回
         update_app(&mut m, AppMsg::Tab(TabMsg::CycleFocus));
         assert_eq!(m.focused_pane(), second);
+    }
+
+    #[test]
+    fn click_on_other_pane_cancels_path_edit() {
+        // パスバー編集中に別ペインをクリック: フォーカス移動と同時に編集を破棄する
+        // (残すと編集状態が不可視のまま持ち越され、戻ったときに古い入力が現れる)
+        let mut m = model();
+        let first = m.focused_pane();
+        update_app(&mut m, AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)));
+        let second = m.focused_pane();
+        update_app(&mut m, AppMsg::Pane(second, PaneMsg::OpenPathEdit));
+        assert!(matches!(
+            m.panes[second].overlay,
+            Some(crate::model::Overlay::PathEdit { .. })
+        ));
+        update_app(&mut m, AppMsg::Pane(first, PaneMsg::BlankPressed));
+        assert_eq!(m.focused_pane(), first);
+        assert!(m.panes[second].overlay.is_none());
     }
 
     #[test]

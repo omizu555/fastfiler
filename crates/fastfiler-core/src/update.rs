@@ -450,6 +450,28 @@ fn update_overlay(
                 p.overlay = None;
                 Some(vec![])
             }
+            // マウス操作 (一覧・ツリー・ボタンのクリック) は編集を破棄して
+            // その操作をそのまま通す (エクスプローラ準拠: パスバー編集中でも
+            // 1 クリック目からクリック先が効く)。キー操作はオーバーレイ表示中
+            // GUI 層で止まるため、これらがここへ届くのはマウス由来のときだけ
+            PaneMsg::RowPressed { .. }
+            | PaneMsg::RowReleased { .. }
+            | PaneMsg::RowDoubleClicked { .. }
+            | PaneMsg::BlankPressed
+            | PaneMsg::BandSelect { .. }
+            | PaneMsg::RightPressed { .. }
+            | PaneMsg::OpenMenu { .. }
+            | PaneMsg::ShellMenuRequest { .. }
+            | PaneMsg::HeaderClicked(_)
+            | PaneMsg::ColResized { .. }
+            | PaneMsg::NavigateTo(_)
+            | PaneMsg::GoParent
+            | PaneMsg::GoBack
+            | PaneMsg::GoForward
+            | PaneMsg::Reload => {
+                p.overlay = None;
+                None
+            }
             _ => Some(vec![]),
         },
         Overlay::Modal { kind, value } => match msg {
@@ -1710,6 +1732,51 @@ mod tests {
         update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
         let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::PathEditCommit);
         assert!(fx.is_empty());
+    }
+
+    #[test]
+    fn path_edit_cancelled_by_mouse_and_click_applies() {
+        // 行クリック: 編集を破棄しつつ 1 クリック目からそのまま選択が効く
+        let mut p = pane_with(&[("a.txt", false), ("b.txt", false)]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::PathEditInput("D:\\typed".into()),
+        );
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::RowPressed {
+                ix: 1,
+                ctrl: false,
+                shift: false,
+            },
+        );
+        assert!(p.overlay.is_none());
+        assert!(p.selected.contains(&1));
+        // 入力途中の値は破棄される (typed へは移動しない)
+        assert_ne!(p.cur_path, PathBuf::from("D:\\typed"));
+
+        // ツリークリック (NavigateTo): 編集を破棄してそのまま移動する
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::NavigateTo(PathBuf::from("D:\\data")),
+        );
+        assert!(p.overlay.is_none());
+        assert_eq!(p.cur_path, PathBuf::from("D:\\data"));
+        assert!(fx.iter().any(|e| matches!(e, Effect::LoadDir { .. })));
+
+        // 空白クリック: 編集を破棄して選択解除
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::BlankPressed);
+        assert!(p.overlay.is_none());
+        assert!(p.selected.is_empty());
     }
 
     #[test]

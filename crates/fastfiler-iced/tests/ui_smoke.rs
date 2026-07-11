@@ -458,6 +458,53 @@ fn left_drag_carries_whole_selection() {
     );
 }
 
+/// 実機報告「パスバーをクリックした直後、ファイル/フォルダをクリックしても
+/// 選択できない (Enter で編集を閉じるまで一覧が無反応)」。
+/// パスバー編集中でも一覧クリックは 1 クリック目からそのまま効くこと
+/// (編集はその時点で破棄される — エクスプローラ準拠)。
+#[test]
+fn list_click_works_while_path_edit_is_open() {
+    let (mut app, row_pos) = boot_with_selected_rows();
+
+    // パスバー (ボタン表示、ラベル=現在パス) をクリック → 編集モードへ
+    let path_label = app::cur_path_for_test(&app);
+    assert!(
+        click_and_apply(&mut app, &path_label) > 0,
+        "パスバーが反応しない"
+    );
+    assert!(
+        app::path_edit_open_for_test(&app),
+        "パスバークリックで編集が開かない"
+    );
+
+    // 編集中に行 0 を普通にクリック (press + release)
+    let mut ui = simulator(app::view(&app));
+    ui.point_at(row_pos);
+    let _ = ui.simulate(vec![
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: row_pos }),
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+            iced::mouse::Button::Left,
+        )),
+    ]);
+    let msgs: Vec<Msg> = ui.into_messages().collect();
+    assert!(!msgs.is_empty(), "編集中の一覧クリックが無反応");
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+
+    // 編集は破棄され、クリックは 1 回目からそのまま効いている
+    assert!(
+        !app::path_edit_open_for_test(&app),
+        "一覧クリックでパスバー編集が閉じない"
+    );
+    assert_eq!(
+        app::selection_for_test(&app),
+        vec![0],
+        "編集中の一覧クリックが選択に反映されない (実機バグの再現)"
+    );
+}
+
 /// 上と対: ドラッグに至らない単純クリックは、離した時点で単一選択へ確定する。
 #[test]
 fn plain_click_on_selection_collapses_on_release() {

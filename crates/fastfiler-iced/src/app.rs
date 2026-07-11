@@ -1364,6 +1364,14 @@ pub fn drop_menu_open_for_test(app: &App) -> bool {
         .is_some_and(|p| matches!(p.overlay, Some(fastfiler_core::Overlay::DropMenu { .. })))
 }
 
+/// 統合テスト用: フォーカスペインでパスバー編集が開いているか。
+pub fn path_edit_open_for_test(app: &App) -> bool {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .is_some_and(|p| matches!(p.overlay, Some(fastfiler_core::Overlay::PathEdit { .. })))
+}
+
 /// 統合テスト用: フォーカスペインの選択行 (昇順)。
 pub fn selection_for_test(app: &App) -> Vec<usize> {
     app.model
