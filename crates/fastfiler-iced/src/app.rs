@@ -18,7 +18,7 @@ use fastfiler_core::update_app::{update_app, AppMsg, DragMsg, TabMsg};
 use fastfiler_core::{domain_event, Entry, NavKey, Overlay, PaneId, PaneMsg};
 use fastfiler_domain::undo::UndoManager;
 use iced::keyboard::{self, key::Named, Key};
-use iced::widget::{button, column, container, image, row, stack, text, text_input};
+use iced::widget::{button, column, container, image, row, stack, text, text_editor, text_input};
 use iced::{mouse, window, Element, Event, Length, Size, Subscription, Task};
 
 use crate::effects::{self, domain_channel, IconBytes, Jobs, OpOutcome, PaneWatcher};
@@ -27,6 +27,11 @@ use crate::widgets::drag_handle::DragHandle;
 use crate::widgets::file_list::{FileList, ListEvent, HEADER_H};
 use crate::widgets::tab_bar::{TabBar, TabBarEvent, TabItem, CELL_H};
 use crate::widgets::tree_list::{TreeEvent, TreeList};
+
+/// 複数行モーダル (F7) のヒント文言。ui_smoke がテキスト検索で
+/// 「モーダルが開いているか」の判定に使うため公開 const で共有する。
+pub const MULTILINE_HINT: &str =
+    "1 行につき 1 フォルダを作成します (空行は無視 / Ctrl+Enter で作成)";
 
 /// モーダル入力欄のウィジェット Id (開いたときのフォーカス/選択操作の宛先)。
 fn modal_input_id() -> iced::advanced::widget::Id {
@@ -56,6 +61,15 @@ pub struct App {
     icons: HashMap<String, image::Handle>,
     /// キーボード修飾キーの現在値 (マウスイベントに modifiers が乗らないため追跡)。
     modifiers: keyboard::Modifiers,
+    /// 複数行モーダル (ModalKind::is_multiline / 現状 F7) のエディタ状態。
+    /// text_editor::Content はステートフル型で core に置けないため、ここに保持。
+    /// 編集中の全文は Content だけが持ち、core の Overlay::Modal.value へは
+    /// 確定時 (ModalEditorCommit) と破棄前フラッシュでのみ同期する
+    /// (毎キーの全文コピーを避ける)。PaneId は Content の持ち主 —
+    /// フォーカスペインが変わったら書き戻してから作り直す (タブ切替や OLE
+    /// ドロップはモーダルを破棄せずフォーカスだけ動かすため、使い回すと
+    /// 別ペインの内容を表示して確定値と食い違う)。開閉追従は sync_modal_editor。
+    modal_editor: Option<(PaneId, text_editor::Content)>,
     /// ペイン毎の watcher 資源 (PaneClosed で解放 — N-02 の検証対象)。
     watchers: HashMap<PaneId, PaneWatcher>,
     /// ファイルジョブのレジストリ (キャンセル) + 通し番号。
@@ -124,6 +138,11 @@ pub enum Msg {
     List(PaneId, ListEvent),
     /// core メッセージの直接投入。
     Core(AppMsg),
+    /// 複数行モーダル (text_editor) の編集アクション。
+    ModalEditor(text_editor::Action),
+    /// 複数行モーダルの確定 — Content の全文を core へ同期してから ModalCommit
+    /// (編集中は同期しないため、確定はこの 2 段メッセージを使う)。
+    ModalEditorCommit,
     Key(keyboard::Event),
     Window(window::Event),
     /// domain イベント (watcher / ジョブ)。
@@ -206,6 +225,7 @@ pub fn boot() -> (App, Task<Msg>) {
         model,
         icons: HashMap::new(),
         modifiers: keyboard::Modifiers::default(),
+        modal_editor: None,
         watchers: HashMap::new(),
         jobs: Jobs::new(),
         job_owner: HashMap::new(),
@@ -280,6 +300,17 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("C:\\"))
 }
 
+/// フォーカス対象の入力オーバーレイの種別 (apply の「新たに開いたか」判定用)。
+/// メニューや衝突ダイアログはフォーカス操作の対象外なので None。
+fn overlay_input_kind(
+    p: &fastfiler_core::model::PaneState,
+) -> Option<std::mem::Discriminant<Overlay>> {
+    p.overlay
+        .as_ref()
+        .filter(|o| matches!(o, Overlay::PathEdit { .. } | Overlay::Modal { .. }))
+        .map(std::mem::discriminant)
+}
+
 pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
     match msg {
         Msg::List(pane, ev) => {
@@ -347,6 +378,24 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             app.apply(AppMsg::Pane(pane, pane_msg))
         }
         Msg::Core(m) => app.apply(m),
+        Msg::ModalEditor(action) => {
+            // 編集は Content に閉じる (core への全文同期は確定/破棄時のみ —
+            // 大量貼り付け後の毎キー O(全文) コピーを避ける)
+            if let Some((_, content)) = app.modal_editor.as_mut() {
+                content.perform(action);
+            }
+            Task::none()
+        }
+        Msg::ModalEditorCommit => {
+            let Some((_, content)) = app.modal_editor.as_ref() else {
+                return Task::none();
+            };
+            // 全文を core へ同期してから確定 (行分割・検証は core 側)
+            let value = content.text();
+            let sync = app.apply(AppMsg::Focused(PaneMsg::ModalInput(value)));
+            let commit = app.apply(AppMsg::Focused(PaneMsg::ModalCommit));
+            Task::batch([sync, commit])
+        }
         Msg::Domain(event, payload) => {
             match event.as_str() {
                 "fs-change" => {
@@ -588,23 +637,26 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
             };
             app.apply(AppMsg::Pane(pane, m))
         }
-        Msg::OpDone(outcome) => match outcome {
-            OpOutcome::Done { record, message } => {
-                if let Some(op) = record {
+        Msg::OpDone(mut outcome) => {
+            // 通知文言と reload 要否は OpOutcome 側が知っている (整形の一元化) —
+            // ここは undo 記録 + 表示 + reload の配線だけ
+            if let OpOutcome::Done { record, .. } = &mut outcome {
+                if let Some(op) = record.take() {
                     app.undo.push(op);
                 }
-                let status = match message {
-                    Some(m) => app.apply(AppMsg::Focused(PaneMsg::StatusMsg(m))),
-                    None => Task::none(),
-                };
-                // watcher が効かないフォルダでも結果を反映 (明示 reload — GPUI パリティ)
-                let reload = app.apply(AppMsg::Focused(PaneMsg::Reload));
-                Task::batch([status, reload])
             }
-            OpOutcome::Failed(e) => {
-                app.apply(AppMsg::Focused(PaneMsg::StatusMsg(format!("エラー: {e}"))))
-            }
-        },
+            let status = match outcome.status_message() {
+                Some(m) => app.apply(AppMsg::Focused(PaneMsg::StatusMsg(m))),
+                None => Task::none(),
+            };
+            // watcher が効かないフォルダでも結果を反映 (明示 reload — GPUI パリティ)
+            let reload = if outcome.reloads() {
+                app.apply(AppMsg::Focused(PaneMsg::Reload))
+            } else {
+                Task::none()
+            };
+            Task::batch([status, reload])
+        }
         Msg::PerformUndo => match app.undo.pop() {
             Some(op) => effects::perform_undo(op),
             None => app.apply(AppMsg::Focused(PaneMsg::StatusMsg(
@@ -666,20 +718,32 @@ impl App {
 
     fn apply(&mut self, msg: AppMsg) -> Task<Msg> {
         let focused_before = self.model.focused_pane();
-        let overlay_before = self
+        let input_before = self
             .model
             .panes
             .get(focused_before)
-            .is_some_and(|p| p.overlay.is_some());
+            .and_then(overlay_input_kind);
         let search_before = self
             .model
             .panes
             .get(focused_before)
             .is_some_and(|p| p.search.is_some());
         let effects = update_app(&mut self.model, msg);
+        self.sync_modal_editor();
         let mut task = self.run_effects(effects);
-        // 入力オーバーレイ/検索バーが開いたらフォーカスを移す
-        if !overlay_before {
+        // 入力オーバーレイ (パスバー編集/モーダル) が「新たに」開いたらフォーカスを
+        // 移す。overlay の有無比較ではメニュー → モーダルの遷移 (右クリック →
+        // 新しいフォルダ等) を取りこぼす。同種でもペインが変われば移す
+        // (ペイン A のパスバー編集中に B のパスバーをクリック)。同一ペイン同種は
+        // 再フォーカスしない (編集中の ModalInput ごとに rename の select_range が
+        // 走ると選択が壊れる)
+        let focused_now = self.model.focused_pane();
+        let input_now = self
+            .model
+            .panes
+            .get(focused_now)
+            .and_then(overlay_input_kind);
+        if input_now.is_some() && (input_now != input_before || focused_now != focused_before) {
             task = Task::batch([task, self.overlay_focus_task()]);
         }
         self.refresh_ole_snapshot();
@@ -1023,6 +1087,49 @@ impl App {
         }
         let data = fastfiler_core::session::snapshot(&self.model, bounds, maximized);
         fastfiler_core::session::save(&data);
+    }
+
+    /// ペインの複数行モーダル (ModalKind::is_multiline) の value への参照。
+    fn multiline_modal_value(&self, pane: PaneId) -> Option<&str> {
+        self.model.panes.get(pane).and_then(|p| match &p.overlay {
+            Some(Overlay::Modal { kind, value }) if kind.is_multiline() => Some(value.as_str()),
+            _ => None,
+        })
+    }
+
+    /// 複数行モーダルの text_editor::Content を overlay 状態へ追従させる
+    /// (開いたら core の value から生成、閉じた/持ち主が変わったら破棄)。
+    /// 編集中の全文は Content だけが持つため、破棄・付け替えの前に持ち主
+    /// ペインの value へ書き戻す — タブ切替や OLE ドロップのように
+    /// 「モーダルを破棄せずフォーカスだけ動かす」経路で Content が落ちても、
+    /// 戻ってきたときに入力を復元できる。持ち主が変わったら必ず作り直す
+    /// (使い回すと別ペインの内容を表示して確定値と食い違う)。
+    fn sync_modal_editor(&mut self) {
+        let focused = self.model.focused_pane();
+        let open = self.multiline_modal_value(focused).is_some();
+        // 現スロットがフォーカスペインの開いているモーダルのものならそのまま
+        // (編集中の再生成はカーソル/IME 状態を壊す)
+        if open && matches!(&self.modal_editor, Some((owner, _)) if *owner == focused) {
+            return;
+        }
+        // 破棄/付け替えの前に、持ち主のモーダルがまだ生きていれば全文を書き戻す
+        if let Some((owner, content)) = self.modal_editor.take() {
+            if self.multiline_modal_value(owner).is_some() {
+                let value = content.text();
+                let fx = update_app(
+                    &mut self.model,
+                    AppMsg::Pane(owner, PaneMsg::ModalInput(value)),
+                );
+                // apply を経由しない直接 update_app は「ModalInput は Effect を
+                // 返さない」前提に依存する — 変わったらここを apply 経由へ
+                debug_assert!(fx.is_empty(), "ModalInput が Effect を返すようになった");
+            }
+        }
+        if open {
+            if let Some(v) = self.multiline_modal_value(focused) {
+                self.modal_editor = Some((focused, text_editor::Content::with_text(v)));
+            }
+        }
     }
 
     fn overlay_focus_task(&self) -> Task<Msg> {
@@ -1389,6 +1496,15 @@ pub fn tree_row0_center_for_test(app: &App) -> (f32, f32) {
     (x, y)
 }
 
+/// 統合テスト用: フォーカスペインの load_gen (reload が実際に走ったかの観測)。
+pub fn load_gen_for_test(app: &App) -> u64 {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .map(|p| p.load_gen)
+        .unwrap_or_default()
+}
+
 /// 統合テスト用: フォーカスペインの cur_path (文字列 — 区切り正規化の検証用)。
 pub fn cur_path_for_test(app: &App) -> String {
     app.model
@@ -1632,31 +1748,59 @@ pub fn view(app: &App) -> Element<'_, Msg> {
         Some(Overlay::Modal { kind, value }) => {
             let (title, placeholder) = match kind {
                 ModalKind::Rename { .. } => ("名前の変更", "新しい名前"),
-                ModalKind::NewFolder => ("新しいフォルダ", "フォルダ名"),
+                ModalKind::NewFolder => ("新しいフォルダ", "フォルダ名 (改行で複数)"),
                 ModalKind::NewFile => ("新しいファイル", "ファイル名"),
             };
-            let card = dialog_card(
-                title.to_string(),
-                column![
-                    text_input(placeholder, value)
-                        .id(modal_input_id())
-                        .on_input(|v| Msg::Core(AppMsg::Focused(PaneMsg::ModalInput(v))))
-                        .on_submit(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit)))
-                        .size(14)
-                        .padding(6),
-                    row![
-                        button(text("OK").size(13))
-                            .padding([3, 14])
-                            .on_press(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit))),
-                        button(text("キャンセル").size(13))
-                            .padding([3, 14])
-                            .on_press(Msg::Core(AppMsg::Focused(PaneMsg::ModalCancel))),
-                    ]
-                    .spacing(8),
+            // OK の宛先だけ異なる (複数行は Content の全文同期を挟む 2 段確定)
+            let buttons = |commit: Msg| {
+                row![
+                    button(text("OK").size(13))
+                        .padding([3, 14])
+                        .on_press(commit),
+                    button(text("キャンセル").size(13))
+                        .padding([3, 14])
+                        .on_press(Msg::Core(AppMsg::Focused(PaneMsg::ModalCancel))),
                 ]
-                .spacing(10)
-                .into(),
-            );
+                .spacing(8)
+            };
+            let card = match app.modal_editor.as_ref() {
+                // 複数行モーダル (is_multiline / 現状 F7) はメモ帳のノリのエディタ —
+                // 1 行 1 フォルダの一括作成。Enter は改行 (確定は OK / Ctrl+Enter)。
+                // sync_modal_editor が表示中の Content を保証する (フォールバック不到達)
+                Some((_, content)) if kind.is_multiline() => dialog_card(
+                    title.to_string(),
+                    column![
+                        text_editor(content)
+                            .id(modal_input_id())
+                            .placeholder(placeholder)
+                            .on_action(Msg::ModalEditor)
+                            .key_binding(modal_editor_key_binding)
+                            .size(14)
+                            .padding(6)
+                            .height(Length::Fixed(160.0)),
+                        text(MULTILINE_HINT).size(12),
+                        buttons(Msg::ModalEditorCommit),
+                    ]
+                    .spacing(10)
+                    .into(),
+                    560.0,
+                ),
+                _ => dialog_card(
+                    title.to_string(),
+                    column![
+                        text_input(placeholder, value)
+                            .id(modal_input_id())
+                            .on_input(|v| Msg::Core(AppMsg::Focused(PaneMsg::ModalInput(v))))
+                            .on_submit(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit)))
+                            .size(14)
+                            .padding(6),
+                        buttons(Msg::Core(AppMsg::Focused(PaneMsg::ModalCommit))),
+                    ]
+                    .spacing(10)
+                    .into(),
+                    420.0,
+                ),
+            };
             stack![root, card].into()
         }
         Some(Overlay::Conflict { plan }) => {
@@ -1693,11 +1837,32 @@ pub fn view(app: &App) -> Element<'_, Msg> {
                 ]
                 .spacing(10)
                 .into(),
+                420.0,
             );
             stack![root, card].into()
         }
         _ => root,
     }
+}
+
+/// 複数行モーダルエディタ (is_multiline) のキー割当: Esc=キャンセル /
+/// Ctrl+Enter=確定 (全文同期を挟む ModalEditorCommit)。
+/// text_editor の既定は Esc を Unfocus で capture するため、そのままでは
+/// keyboard::listen のフォールバック (Esc=ClearSelection) に届かない。
+/// Enter は既定のまま改行 (1 行 1 項目の列挙用)。
+fn modal_editor_key_binding(kp: text_editor::KeyPress) -> Option<text_editor::Binding<Msg>> {
+    use text_editor::{Binding, Status};
+    if matches!(kp.status, Status::Focused { .. }) {
+        if matches!(kp.key.as_ref(), Key::Named(Named::Escape)) {
+            return Some(Binding::Custom(Msg::Core(AppMsg::Focused(
+                PaneMsg::ModalCancel,
+            ))));
+        }
+        if matches!(kp.key.as_ref(), Key::Named(Named::Enter)) && kp.modifiers.command() {
+            return Some(Binding::Custom(Msg::ModalEditorCommit));
+        }
+    }
+    Binding::from_key_press(kp)
 }
 
 /// BSP からペイン矩形を計算する (render_node の分配式のレイアウト版 —
@@ -1992,10 +2157,10 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
 }
 
 /// 中央寄せのダイアログカード (背景を薄く暗くする)。
-fn dialog_card(title: String, body: Element<'_, Msg>) -> Element<'_, Msg> {
+fn dialog_card(title: String, body: Element<'_, Msg>, max_width: f32) -> Element<'_, Msg> {
     let panel = container(column![text(title).size(16), body].spacing(12))
         .padding(16)
-        .max_width(420)
+        .max_width(max_width)
         .style(container::rounded_box);
     container(panel)
         .center(Length::Fill)

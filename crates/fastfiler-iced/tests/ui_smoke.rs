@@ -23,6 +23,22 @@ fn boot_app() -> App {
     app
 }
 
+/// キー押下イベントの組み立て (iced の KeyPressed は 7 フィールド —
+/// 使う 2 つ以外は Unidentified/Standard/None の定型)。
+fn key_pressed(key: iced::keyboard::Key, modifiers: iced::keyboard::Modifiers) -> iced::Event {
+    iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+        key: key.clone(),
+        modified_key: key,
+        physical_key: iced::keyboard::key::Physical::Unidentified(
+            iced::keyboard::key::NativeCode::Unidentified,
+        ),
+        location: iced::keyboard::Location::Standard,
+        repeat: false,
+        modifiers,
+        text: None,
+    })
+}
+
 /// view からボタンをクリックし、発行されたメッセージを update へ流す。
 fn click_and_apply(app: &mut App, label: &str) -> usize {
     let mut ui = simulator(app::view(app));
@@ -580,6 +596,244 @@ fn tree_drive_click_navigates_with_clean_path() {
     assert_eq!(app::cur_path_for_test(&app), "Q:\\");
 }
 
+/// F7 の新規フォルダモーダルは複数行エディタ (1 行 1 フォルダの一括作成)。
+/// UI 経路の検証: 開く → 貼り付けが core に同期 → OK で閉じる / Enter は改行の
+/// まま閉じない / Esc はエディタにフォーカスがあっても 1 回で閉じる。
+/// 行分割と CreateDir 発行そのものは core の単体テスト側。
+#[test]
+fn new_folder_modal_is_multiline_editor() {
+    use iced::widget::text_editor::{Action, Edit};
+    let hint = app::MULTILINE_HINT;
+    let open = |app: &mut App| {
+        let _ = app::update(
+            app,
+            Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::OpenNewFolder)),
+        );
+    };
+    let modal_open = |app: &App| simulator(app::view(app)).find(hint).is_ok();
+    // モーダル中央のエディタへのクリック + 任意キーの流し込み (メッセージを返す)
+    let click_editor_then_key = |app: &App, key: iced::keyboard::key::Named| -> Vec<Msg> {
+        let pos = iced::Point::new(480.0, 300.0);
+        let mut ui = simulator(app::view(app));
+        ui.point_at(pos);
+        let _ = ui.simulate(vec![
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: pos }),
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Left,
+            )),
+            key_pressed(
+                iced::keyboard::Key::Named(key),
+                iced::keyboard::Modifiers::default(),
+            ),
+        ]);
+        ui.into_messages().collect()
+    };
+
+    let mut app = boot_app();
+    open(&mut app);
+    assert!(modal_open(&app), "F7 相当で複数行エディタが開かない");
+
+    // 複数行の貼り付け → OK で閉じる (確定成功 = 行分割が通った)
+    let _ = app::update(
+        &mut app,
+        Msg::ModalEditor(Action::Edit(Edit::Paste(std::sync::Arc::new(
+            "d1\nd2".into(),
+        )))),
+    );
+    assert!(click_and_apply(&mut app, "OK") > 0, "OK が押せない");
+    assert!(!modal_open(&app), "複数行の確定でモーダルが閉じない");
+
+    // 不正な行 (区切り文字) が混じると OK でも閉じない (core の検証が効く)
+    open(&mut app);
+    let _ = app::update(
+        &mut app,
+        Msg::ModalEditor(Action::Edit(Edit::Paste(std::sync::Arc::new(
+            "ok\nng/name".into(),
+        )))),
+    );
+    click_and_apply(&mut app, "OK");
+    assert!(modal_open(&app), "不正な行を含む確定が素通りしている");
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::ModalCancel)),
+    );
+
+    // Enter は改行 (メモ帳のノリ) — モーダルは閉じない
+    open(&mut app);
+    for m in click_editor_then_key(&app, iced::keyboard::key::Named::Enter) {
+        let _ = app::update(&mut app, m);
+    }
+    assert!(
+        modal_open(&app),
+        "Enter でモーダルが閉じてしまう (改行のはず)"
+    );
+
+    // Esc はエディタにフォーカスがあっても 1 回で閉じる (カスタム key_binding)
+    let msgs = click_editor_then_key(&app, iced::keyboard::key::Named::Escape);
+    assert!(
+        msgs.iter().any(|m| matches!(
+            m,
+            Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::ModalCancel))
+        )),
+        "エディタ内の Esc が ModalCancel を発行しない"
+    );
+    for m in msgs {
+        let _ = app::update(&mut app, m);
+    }
+    assert!(!modal_open(&app), "Esc でモーダルが閉じない");
+}
+
+/// タブ切替のように「モーダルを破棄せずフォーカスだけ動かす」経路では、
+/// エディタの入力は破棄前に core へ書き戻され (sync_modal_editor のフラッシュ)、
+/// 戻ってきたときに復元される — 編集中は毎キー同期しない設計の安全網。
+#[test]
+fn multiline_editor_input_survives_tab_switch() {
+    use iced::widget::text_editor::{Action, Edit};
+    let hint = app::MULTILINE_HINT;
+    let mut app = boot_app();
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::OpenNewFolder)),
+    );
+    let _ = app::update(
+        &mut app,
+        Msg::ModalEditor(Action::Edit(Edit::Paste(std::sync::Arc::new(
+            "keep1\nkeep2".into(),
+        )))),
+    );
+    // タブ追加 → フォーカスは新タブへ (モーダルは元ペインに生存、Content は破棄)
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(fastfiler_core::update_app::TabMsg::Add)),
+    );
+    assert!(
+        simulator(app::view(&app)).find(hint).is_err(),
+        "新タブに元ペインのモーダルが見えている"
+    );
+    // 元タブへ戻る → モーダル再表示、書き戻した全文から Content 復元
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(fastfiler_core::update_app::TabMsg::Select(0))),
+    );
+    assert!(
+        simulator(app::view(&app)).find(hint).is_ok(),
+        "元タブに戻ってもモーダルが再表示されない"
+    );
+    // 確定が通る = 入力 (keep1/keep2) が失われていない (空なら開いたまま)
+    assert!(click_and_apply(&mut app, "OK") > 0, "OK が押せない");
+    assert!(
+        simulator(app::view(&app)).find(hint).is_err(),
+        "確定でモーダルが閉じない (タブ切替で入力が失われた?)"
+    );
+}
+
+/// フォーカスだけ動かす経路のもう 1 系統 — OLE 右ドロップ (DropMenu が開き
+/// focused が直接差し替わる) でも、エディタ入力はフラッシュ → 復元される。
+#[test]
+fn multiline_editor_input_survives_ole_focus_move() {
+    use iced::widget::text_editor::{Action, Edit};
+    let hint = app::MULTILINE_HINT;
+    let mut app = boot_app();
+    let first = app::focused_pane_for_test(&app);
+    // 左右分割 → フォーカスは新 (右) ペイン。そこで F7 相当 + 貼り付け
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Tab(
+            fastfiler_core::update_app::TabMsg::SplitFocused(fastfiler_core::bsp::SplitDir::Row),
+        )),
+    );
+    let second = app::focused_pane_for_test(&app);
+    assert_ne!(first, second);
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Focused(fastfiler_core::PaneMsg::OpenNewFolder)),
+    );
+    let _ = app::update(
+        &mut app,
+        Msg::ModalEditor(Action::Edit(Edit::Paste(std::sync::Arc::new(
+            "keep1\nkeep2".into(),
+        )))),
+    );
+    // 外部右ドロップが左ペインへ → DropMenu が開き、フォーカスだけ左へ移る
+    // (クリック経路と違いモーダルは破棄されない)。ドロップ元は表示中フォルダの
+    // 外にする — 同一フォルダからのドロップは無視される (update_app の仕様)
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Drag(DragMsg::External {
+            pane: first,
+            paths: vec![std::env::temp_dir().join("elsewhere").join("dropped.txt")],
+            effect: 1,
+            right_button: true,
+            at: (20.0, 20.0),
+            commands: vec![],
+        })),
+    );
+    assert!(
+        simulator(app::view(&app)).find(hint).is_err(),
+        "フォーカス移動後も右ペインのモーダルが見えている"
+    );
+    // メニューを閉じ、右ペインをクリックで戻る → モーダル再表示 + 入力復元
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(first, fastfiler_core::PaneMsg::MenuClose)),
+    );
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(second, fastfiler_core::PaneMsg::BlankPressed)),
+    );
+    assert!(
+        simulator(app::view(&app)).find(hint).is_ok(),
+        "右ペインに戻ってもモーダルが再表示されない"
+    );
+    // 確定が通る = 入力 (keep1/keep2) が失われていない (空なら開いたまま)
+    assert!(click_and_apply(&mut app, "OK") > 0, "OK が押せない");
+    assert!(
+        simulator(app::view(&app)).find(hint).is_err(),
+        "確定でモーダルが閉じない (OLE 経由で入力が失われた?)"
+    );
+}
+
+/// 操作完了 (OpDone) の明示 reload が、係留中の watcher デバウンス tick を
+/// 吸収する通し (iced 層) — listing が二重に走らない。
+#[test]
+fn opdone_reload_absorbs_watcher_debounce() {
+    use fastfiler_core::domain_event::DomainEvent;
+    use fastfiler_iced::effects::OpOutcome;
+    let mut app = boot_app();
+    let pane = app::focused_pane_for_test(&app);
+    let cur = app::cur_path_for_test(&app);
+    // watcher 変化 → デバウンス係留 (seq 1)
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(
+            pane,
+            fastfiler_core::PaneMsg::Domain(DomainEvent::FsChange { path: cur }),
+        )),
+    );
+    let gen_before = app::load_gen_for_test(&app);
+    // 操作完了 → 明示 reload が 1 回走る
+    let _ = app::update(
+        &mut app,
+        Msg::OpDone(OpOutcome::Done {
+            record: None,
+            message: None,
+        }),
+    );
+    let gen_after = app::load_gen_for_test(&app);
+    assert_eq!(gen_after, gen_before + 1, "OpDone の明示 reload が走らない");
+    // 係留していた tick (seq 1) は吸収済み — 二重 reload しない
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Pane(pane, fastfiler_core::PaneMsg::ReloadTick(1))),
+    );
+    assert_eq!(
+        app::load_gen_for_test(&app),
+        gen_after,
+        "明示 reload 後の watcher tick が二重 reload している"
+    );
+}
+
 /// 検索ショートカットの実証 (実機報告「Ctrl+F で検索ボックスが出ない」の切り分け)。
 /// hotkeys.json のカスタム (search: ctrl+k) が生きている環境では Ctrl+F は
 /// 割り当てが無いのが正しい — 既定とカスタムの両方をヘッドレスで検証する。
@@ -594,17 +848,11 @@ fn search_shortcut_opens_search_bar() {
     }
 
     let press = |app: &mut App, ch: &str| {
-        let key = iced::keyboard::Key::Character(ch.into());
-        let ev = iced::keyboard::Event::KeyPressed {
-            key: key.clone(),
-            modified_key: key.clone(),
-            physical_key: iced::keyboard::key::Physical::Unidentified(
-                iced::keyboard::key::NativeCode::Unidentified,
-            ),
-            location: iced::keyboard::Location::Standard,
-            repeat: false,
-            modifiers: iced::keyboard::Modifiers::CTRL,
-            text: None,
+        let iced::Event::Keyboard(ev) = key_pressed(
+            iced::keyboard::Key::Character(ch.into()),
+            iced::keyboard::Modifiers::CTRL,
+        ) else {
+            unreachable!()
         };
         let _ = app::update(app, Msg::Key(ev));
     };

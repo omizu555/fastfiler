@@ -49,8 +49,10 @@ pub enum Effect {
         from: PathBuf,
         to: PathBuf,
     },
-    CreateDir {
-        path: PathBuf,
+    /// フォルダの一括作成 (F7 複数行 = 1 行 1 フォルダ)。1 Effect にまとめて
+    /// 完了通知 → 明示 reload を 1 回に抑える (N 行で N 回 reload しない)。
+    CreateDirs {
+        paths: Vec<PathBuf>,
     },
     /// 空ファイル作成 (同名があれば domain 側が連番を振る)。
     CreateFile {

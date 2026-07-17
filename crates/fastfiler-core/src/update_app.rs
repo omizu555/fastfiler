@@ -128,12 +128,18 @@ pub fn update_app(m: &mut AppModel, msg: AppMsg) -> Vec<Effect> {
                     | PaneMsg::ShellMenuRequest { .. }
             ) {
                 if let Some(tix) = tix {
-                    // フォーカスが別ペインへ移るときはパスバー編集を破棄する
-                    // (エクスプローラ準拠。残すと編集状態が不可視のまま持ち越される)
+                    // フォーカスが別ペインへ移るときは移動元の入力オーバーレイ
+                    // (パスバー編集・入力モーダル) を破棄する (エクスプローラ準拠。
+                    // 残すと不可視のまま持ち越される上、モーダルは GUI 層の単一
+                    // エディタ状態 (modal_editor) と食い違う)
                     let prev = m.focused_pane();
                     if prev != id {
                         if let Some(pp) = m.panes.get_mut(prev) {
-                            if matches!(pp.overlay, Some(crate::model::Overlay::PathEdit { .. })) {
+                            if matches!(
+                                pp.overlay,
+                                Some(crate::model::Overlay::PathEdit { .. })
+                                    | Some(crate::model::Overlay::Modal { .. })
+                            ) {
                                 pp.overlay = None;
                             }
                         }
@@ -574,6 +580,29 @@ mod tests {
         assert!(matches!(
             m.panes[second].overlay,
             Some(crate::model::Overlay::PathEdit { .. })
+        ));
+        update_app(&mut m, AppMsg::Pane(first, PaneMsg::BlankPressed));
+        assert_eq!(m.focused_pane(), first);
+        assert!(m.panes[second].overlay.is_none());
+    }
+
+    #[test]
+    fn click_on_other_pane_cancels_modal() {
+        // 入力モーダル (F7 等) 中に別ペインをクリック: PathEdit と同じく破棄する。
+        // 残すと不可視のまま持ち越され、GUI 層の単一エディタ状態 (modal_editor)
+        // と食い違って「表示と確定値が別ペインのもの」になる
+        let mut m = model();
+        let first = m.focused_pane();
+        update_app(&mut m, AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)));
+        let second = m.focused_pane();
+        update_app(&mut m, AppMsg::Pane(second, PaneMsg::OpenNewFolder));
+        update_app(
+            &mut m,
+            AppMsg::Pane(second, PaneMsg::ModalInput("typed".into())),
+        );
+        assert!(matches!(
+            m.panes[second].overlay,
+            Some(crate::model::Overlay::Modal { .. })
         ));
         update_app(&mut m, AppMsg::Pane(first, PaneMsg::BlankPressed));
         assert_eq!(m.focused_pane(), first);

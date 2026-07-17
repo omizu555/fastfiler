@@ -155,7 +155,30 @@ pub enum OpOutcome {
         record: Option<UndoOp>,
         message: Option<String>,
     },
+    /// 一括操作の部分失敗 — 一部は成功しているので、通知した上で
+    /// 結果の反映 (reload) も行う (Failed は「何も変わっていない」前提で
+    /// reload しない。この区別が UI の出し分けの土台)。
+    PartialFailure {
+        message: String,
+    },
     Failed(String),
+}
+
+impl OpOutcome {
+    /// フッタ通知の文言 (整形の一元化 — 表示側は出すだけ)。
+    pub fn status_message(&self) -> Option<String> {
+        match self {
+            OpOutcome::Done { message, .. } => message.clone(),
+            OpOutcome::PartialFailure { message } => Some(message.clone()),
+            OpOutcome::Failed(e) => Some(format!("エラー: {e}")),
+        }
+    }
+
+    /// 結果反映の明示 reload を行うか (watcher が効かないフォルダ対策 —
+    /// Failed だけは「何も変わっていない」前提で行わない)。
+    pub fn reloads(&self) -> bool {
+        !matches!(self, OpOutcome::Failed(_))
+    }
 }
 
 /// pane 文脈が不要な Effect の実行。LoadDir/SpawnJob/PaneClosed/ScheduleSessionSave は
@@ -276,13 +299,7 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
                 message: None,
             })
         }),
-        Effect::CreateDir { path } => blocking_op(move || {
-            file_ops::create_dir(&path)?;
-            Ok(OpOutcome::Done {
-                record: None,
-                message: None,
-            })
-        }),
+        Effect::CreateDirs { paths } => blocking_op(move || Ok(create_dirs_outcome(&paths))),
         Effect::CreateFromTemplate { dir, template } => blocking_op(move || {
             templates::create_file_from_template(
                 template,
@@ -357,6 +374,37 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
 }
 
 /// ブロッキングなファイル操作を背景スレッドで実行し、結果を OpDone で返す。
+/// CreateDirs (F7 複数行の一括作成) の実体。blocking closure から分離して
+/// 部分失敗の集計を単体テスト可能にする。失敗した (名前, エラー) を集め、
+/// 成功分はそのまま活かす。モーダルは確定時点で閉じていて再入力できないため、
+/// 失敗名は列挙して 1 通で知らせる (エラー本文は最後の 1 件を代表にする)。
+fn create_dirs_outcome(paths: &[std::path::PathBuf]) -> OpOutcome {
+    let failed: Vec<(String, fastfiler_domain::error::AppError)> = paths
+        .iter()
+        .filter_map(|path| {
+            file_ops::create_dir(path).err().map(|e| {
+                let name = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                (name, e)
+            })
+        })
+        .collect();
+    match failed.last() {
+        None => OpOutcome::Done {
+            record: None,
+            message: None,
+        },
+        Some((_, last_err)) => {
+            let names: String = failed.iter().map(|(n, _)| format!("「{n}」")).collect();
+            OpOutcome::PartialFailure {
+                message: format!("{names}を作成できませんでした ({last_err})"),
+            }
+        }
+    }
+}
+
 fn blocking_op(
     f: impl FnOnce() -> Result<OpOutcome, fastfiler_domain::error::AppError> + Send + 'static,
 ) -> Task<Msg> {
@@ -613,4 +661,42 @@ fn fetch_icons(entries: &[Entry], known: &HashSet<String>) -> IconBytes {
             Some((key.to_string(), bytes.as_ref().clone()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_dirs_outcome_collects_partial_failures() {
+        let base = std::env::temp_dir().join(format!("ff_cdirs_{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        // 同名ファイルを置いて 1 件だけ失敗させる
+        std::fs::write(base.join("block"), b"x").unwrap();
+        let outcome =
+            create_dirs_outcome(&[base.join("block"), base.join("ok1"), base.join("ok2")]);
+        match &outcome {
+            OpOutcome::PartialFailure { message } => {
+                assert!(message.contains("「block」"), "失敗名が入らない: {message}");
+                assert!(
+                    !message.contains("「ok1」"),
+                    "成功した名前まで失敗扱い: {message}"
+                );
+            }
+            other => panic!("PartialFailure にならない: {other:?}"),
+        }
+        // 失敗があっても成功分は作られる (部分成功)
+        assert!(base.join("ok1").is_dir());
+        assert!(base.join("ok2").is_dir());
+        // 全成功なら Done (message なし)
+        let outcome = create_dirs_outcome(&[base.join("ok3")]);
+        assert!(matches!(
+            outcome,
+            OpOutcome::Done {
+                record: None,
+                message: None
+            }
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

@@ -479,34 +479,80 @@ fn update_overlay(
                 *value = v.clone();
                 Some(vec![])
             }
-            PaneMsg::ModalCommit => {
-                let name = value.trim().to_string();
-                // 空・パス区切りを含む名前は確定させない (モーダルは開いたまま)
-                if name.is_empty() || name.contains(['\\', '/']) {
-                    return Some(vec![]);
-                }
-                // 新規ファイル/リネームで既存名は確定拒否 (GPUI 版は create_new /
-                // no_overwrite でエラーにする — 事前検査で同じ結果に。F7 は冪等なので許容)
-                let clashes = p.entries.iter().any(|e| *e.name == *name);
-                match kind {
-                    ModalKind::NewFile if clashes => {
-                        p.status_msg = Some(format!(
-                            "「{name}」は既に存在します (Windows では同名のファイルとフォルダは共存できません)"
-                        ));
+            // 確定は kind ごとに検証と Effect 発行を持つ (経路は一本)。
+            // 検証 NG はモーダルを開いたまま。作成/リネーム後は watcher reload で
+            // その名前へカーソルが乗るよう pending_cursor_name を仕込む
+            PaneMsg::ModalCommit => match kind {
+                // F7 (is_multiline): 1 行 1 フォルダの一括作成。既存名との衝突は
+                // create_dir_all が冪等に吸収するため検査しない
+                ModalKind::NewFolder => match parse_folder_names(value) {
+                    Err(bad) => {
+                        // 不正な行は理由を通知してモーダルを開いたまま
+                        // (無反応だとどの行が悪いか分からない)
+                        p.status_msg = Some(invalid_name_message(&bad));
+                        Some(vec![])
+                    }
+                    // 有効な行なし (実質未入力) はモーダルを開いたまま
+                    Ok(names) if names.is_empty() => Some(vec![]),
+                    Ok(names) => {
+                        p.overlay = None;
+                        // カーソルは reload で先頭の名前へ
+                        p.pending_cursor_name = names.first().cloned();
+                        Some(vec![Effect::CreateDirs {
+                            paths: names.iter().map(|name| p.cur_path.join(name)).collect(),
+                        }])
+                    }
+                },
+                ModalKind::Rename { original } => {
+                    let name = match check_name(value) {
+                        NameCheck::Empty => return Some(vec![]),
+                        NameCheck::Invalid(bad) => {
+                            p.status_msg = Some(invalid_name_message(&bad));
+                            return Some(vec![]);
+                        }
+                        NameCheck::Ok(name) => name,
+                    };
+                    // 同名は何もせず閉じるだけ
+                    if name == *original {
+                        p.overlay = None;
                         return Some(vec![]);
                     }
-                    ModalKind::Rename { original } if clashes && name != *original => {
-                        p.status_msg = Some(format!(
-                            "「{name}」は既に存在します (Windows では同名のファイルとフォルダは共存できません)"
-                        ));
+                    // 既存名は確定拒否 (GPUI 版は no_overwrite でエラーにする —
+                    // 事前検査で同じ結果に)
+                    if p.entries.iter().any(|e| *e.name == *name) {
+                        p.status_msg = Some(clash_message(&name));
                         return Some(vec![]);
                     }
-                    _ => {}
+                    let original = original.clone();
+                    p.overlay = None;
+                    p.pending_cursor_name = Some(name.clone());
+                    Some(vec![Effect::Rename {
+                        from: p.cur_path.join(original),
+                        to: p.cur_path.join(name),
+                    }])
                 }
-                let kind = kind.clone();
-                p.overlay = None;
-                Some(commit_modal(p, kind, name))
-            }
+                ModalKind::NewFile => {
+                    let name = match check_name(value) {
+                        NameCheck::Empty => return Some(vec![]),
+                        NameCheck::Invalid(bad) => {
+                            p.status_msg = Some(invalid_name_message(&bad));
+                            return Some(vec![]);
+                        }
+                        NameCheck::Ok(name) => name,
+                    };
+                    // 既存名は確定拒否 (GPUI 版は create_new でエラーにする)
+                    if p.entries.iter().any(|e| *e.name == *name) {
+                        p.status_msg = Some(clash_message(&name));
+                        return Some(vec![]);
+                    }
+                    p.overlay = None;
+                    p.pending_cursor_name = Some(name.clone());
+                    Some(vec![Effect::CreateFile {
+                        dir: p.cur_path.clone(),
+                        name,
+                    }])
+                }
+            },
             PaneMsg::ModalCancel | PaneMsg::ClearSelection => {
                 p.overlay = None;
                 Some(vec![])
@@ -628,34 +674,64 @@ fn update_overlay(
     }
 }
 
-/// 入力モーダルの確定 (F2/F7/F8)。作成/リネーム後は watcher reload で
-/// その名前へカーソルが乗るよう pending_cursor_name を仕込む。
-fn commit_modal(p: &mut PaneState, kind: ModalKind, name: String) -> Vec<Effect> {
-    match kind {
-        ModalKind::Rename { original } => {
-            if name == original {
-                return vec![];
+/// Windows のファイル/フォルダ名に使えない文字 (パス区切り含む)。
+const INVALID_NAME_CHARS: [char; 9] = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+
+/// 名前 1 件の検証結果 (F2/F8 の単一行と F7 の行ごとで共通)。
+enum NameCheck {
+    /// 空 (実質未入力) — 確定させない (無通知)。
+    Empty,
+    /// 使えない文字入り — 確定させず invalid_name_message で通知する。
+    Invalid(String),
+    Ok(String),
+}
+
+/// trim + Windows の名前規則で 1 件検証する。区切り文字を許すと
+/// 「D:notes」のようなドライブ相対名が cur_path.join で別ドライブへ
+/// すり替わる (F7 レビューの知見 — F2/F8 では ADS 誤作成も防ぐ)。
+fn check_name(value: &str) -> NameCheck {
+    let name = value.trim();
+    if name.is_empty() {
+        NameCheck::Empty
+    } else if name.contains(INVALID_NAME_CHARS) || name.chars().any(char::is_control) {
+        NameCheck::Invalid(name.to_string())
+    } else {
+        NameCheck::Ok(name.to_string())
+    }
+}
+
+/// 使えない文字を含む名前の通知文言 (F2/F7/F8 共通)。
+fn invalid_name_message(name: &str) -> String {
+    format!("「{name}」は名前に使えません (\\ / : * ? \" < > | と制御文字は不可)")
+}
+
+/// F7 の複数行入力を行ごとのフォルダ名に分解する (1 行 1 フォルダ)。
+/// 前後空白は除去・空行は無視・重複行は先勝ちで 1 つに畳む (NTFS は大文字
+/// 小文字を区別しないため、大小違いだけの行も同一視 — 2 行受理して 1 つしか
+/// できない「黙った半分成功」を防ぐ)。
+/// エディタ (cosmic-text) は孤立 \r も改行として表示するため、分割は
+/// \n / \r の両方で行う (str::lines は孤立 \r を割らず、表示と作成結果が
+/// 食い違う)。使えない文字を含む行は Err(その行) — 呼び出し側で通知する。
+fn parse_folder_names(value: &str) -> Result<Vec<String>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut names: Vec<String> = Vec::new();
+    for line in value.split(['\n', '\r']) {
+        match check_name(line) {
+            NameCheck::Empty => continue,
+            NameCheck::Invalid(bad) => return Err(bad),
+            NameCheck::Ok(name) => {
+                if seen.insert(name.to_lowercase()) {
+                    names.push(name);
+                }
             }
-            p.pending_cursor_name = Some(name.clone());
-            vec![Effect::Rename {
-                from: p.cur_path.join(original),
-                to: p.cur_path.join(name),
-            }]
-        }
-        ModalKind::NewFolder => {
-            p.pending_cursor_name = Some(name.clone());
-            vec![Effect::CreateDir {
-                path: p.cur_path.join(name),
-            }]
-        }
-        ModalKind::NewFile => {
-            p.pending_cursor_name = Some(name.clone());
-            vec![Effect::CreateFile {
-                dir: p.cur_path.clone(),
-                name,
-            }]
         }
     }
+    Ok(names)
+}
+
+/// 既存名と衝突したときの通知文言 (F2/F8 共通)。
+fn clash_message(name: &str) -> String {
+    format!("「{name}」は既に存在します (Windows では同名のファイルとフォルダは共存できません)")
 }
 
 /// メニュー項目の実行 (メニューは閉じた後に呼ばれる)。
@@ -965,6 +1041,10 @@ fn set_path_and_load(p: &mut PaneState, id: PaneId, path: std::path::PathBuf) ->
 /// F5 / watcher の再読み込み: 選択・カーソル・スクロールを維持したまま読み直す
 /// (選択は Loaded 側で名前復元される — USAGE.md §2)。
 pub fn reload(p: &mut PaneState, id: PaneId) -> Vec<Effect> {
+    // これから取る一覧が最新になるので、係留中の watcher デバウンス tick は
+    // 不要 — seq を進めて無効化する (明示 reload + watcher で listing が
+    // 二重に走るのを防ぐ。reload 開始後の FsChange は新しい seq で再デバウンス)
+    p.reload_seq += 1;
     start_load(p, id, p.cur_path.clone())
 }
 
@@ -1699,6 +1779,47 @@ mod tests {
     }
 
     #[test]
+    fn explicit_reload_absorbs_pending_watcher_debounce() {
+        // 自分の操作の明示 reload (OpDone 経路) が走ったら、係留中の watcher
+        // デバウンス tick は不要 — listing が二重に走らない
+        use crate::domain_event::DomainEvent;
+        let mut p = pane_with(&[]);
+        let cur = p.cur_path.to_string_lossy().to_string();
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Domain(DomainEvent::FsChange { path: cur.clone() }),
+        );
+        let pending_seq = p.reload_seq;
+        // 明示 reload → 係留中の tick は stale になる
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::Reload);
+        assert!(matches!(fx[0], Effect::LoadDir { .. }));
+        assert!(
+            update_pane(
+                &mut p,
+                PaneId::default(),
+                false,
+                PaneMsg::ReloadTick(pending_seq)
+            )
+            .is_empty(),
+            "明示 reload 後の watcher tick が二重 reload している"
+        );
+        // reload 後の新しい変化は改めてデバウンス → tick で reload される
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Domain(DomainEvent::FsChange { path: cur }),
+        );
+        let Effect::Debounce { seq, .. } = fx[0] else {
+            panic!("FsChange が Debounce を出さない: {fx:?}");
+        };
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ReloadTick(seq));
+        assert!(matches!(fx[0], Effect::LoadDir { .. }));
+    }
+
+    #[test]
     fn path_edit_overlay_flow() {
         let mut p = pane_with(&[("x.txt", false)]);
         update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenPathEdit);
@@ -1811,6 +1932,174 @@ mod tests {
         );
         assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
         assert!(p.overlay.is_some());
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCancel);
+
+        // F2/F8 も F7 と同じ名前規則 — 使えない文字は拒否 + 理由通知
+        // (「a:b」を許すとリネームは ADS、作成はドライブ相対の誤爆になる)
+        p.status_msg = None;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenRename);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("a:b".into()),
+        );
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
+        assert!(p.overlay.is_some(), "F2 の不正名でモーダルが閉じた");
+        assert!(p.status_msg.is_some(), "F2 の不正名が通知されない");
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCancel);
+        p.status_msg = None;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFile);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("a*b".into()),
+        );
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
+        assert!(p.overlay.is_some(), "F8 の不正名でモーダルが閉じた");
+        assert!(p.status_msg.is_some(), "F8 の不正名が通知されない");
+    }
+
+    #[test]
+    fn new_folder_multiline_creates_one_dir_per_line() {
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        // 空行・前後空白・重複行は畳まれ、残った行ごとに CreateDir
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("alpha\n\n  beta  \nalpha\n".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![
+                    PathBuf::from("C:\\root\\alpha"),
+                    PathBuf::from("C:\\root\\beta"),
+                ],
+            }]
+        );
+        // カーソルは先頭の名前へ
+        assert_eq!(p.pending_cursor_name.as_deref(), Some("alpha"));
+        assert!(p.overlay.is_none());
+
+        // 単一行は従来どおり 1 件 (回帰)
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("solo".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![PathBuf::from("C:\\root\\solo")],
+            }]
+        );
+
+        // 空行だけ (実質未入力) は確定されずモーダルが残る
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("  \n\n".into()),
+        );
+        assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
+        assert!(p.overlay.is_some());
+
+        // 使えない文字を含む行が 1 つでもあれば全体を確定させず理由を通知
+        for bad in ["ok\nng/name", "a:b", "a*b\nok", "tab\tname"] {
+            p.status_msg = None;
+            update_pane(
+                &mut p,
+                PaneId::default(),
+                false,
+                PaneMsg::ModalInput(bad.into()),
+            );
+            assert!(
+                update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty(),
+                "{bad:?} が確定されてしまう"
+            );
+            assert!(p.overlay.is_some());
+            assert!(p.status_msg.is_some(), "{bad:?} の拒否理由が通知されない");
+        }
+
+        // 孤立 \r もエディタ表示と同じく行区切りとして扱う (cosmic-text 準拠)
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("cr1\rcr2".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![
+                    PathBuf::from("C:\\root\\cr1"),
+                    PathBuf::from("C:\\root\\cr2"),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn new_folder_folds_case_insensitive_duplicates() {
+        // NTFS は大文字小文字を区別しない — 大小違いだけの行は先勝ちで 1 つに
+        // 畳む (2 行受理して 1 フォルダしかできない「黙った半分成功」を防ぐ)
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("Docs\ndocs\nDOCS\nother".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![
+                    PathBuf::from("C:\\root\\Docs"),
+                    PathBuf::from("C:\\root\\other"),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn loaded_without_pending_match_consumes_pending_gracefully() {
+        // 一括作成で先頭行の作成が失敗した場合など、reload に pending の名前が
+        // 無くてもカーソルは誤った行に飛ばず、pending は消費されて次回の
+        // reload に持ち越さない (Loaded は take で必ず消費する)
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("ghost\nreal".into()),
+        );
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(p.pending_cursor_name.as_deref(), Some("ghost"));
+        let generation = p.load_gen;
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Loaded {
+                generation,
+                entries: vec![entry("real", true)],
+            },
+        );
+        assert_eq!(p.pending_cursor_name, None);
+        assert_eq!(p.cursor, None);
     }
 
     #[test]

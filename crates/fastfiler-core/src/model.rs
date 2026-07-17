@@ -146,6 +146,7 @@ pub enum Overlay {
     /// パスバー直接入力 (F-304)。
     PathEdit { value: String },
     /// 入力モーダル (F2 リネーム / F7 新規フォルダ / F8 新規ファイル)。
+    /// value は kind.is_multiline() のとき複数行を許す (1 行 1 フォルダの一括作成)。
     Modal { kind: ModalKind, value: String },
     /// 同名衝突ダイアログ (F-503)。
     Conflict { plan: crate::transfer::TransferPlan },
@@ -175,6 +176,16 @@ pub enum ModalKind {
     Rename { original: String },
     NewFolder,
     NewFile,
+}
+
+impl ModalKind {
+    /// 複数行入力を許すモーダルか (現状 NewFolder のみ — 1 行 1 フォルダの
+    /// 一括作成)。core の確定経路 (update.rs の ModalCommit) と GUI のエディタ
+    /// 選択 (fastfiler-iced app.rs) の両方がこの述語から導出される —
+    /// 新たな複数行モーダルを足すときはここを true にするだけで両層が揃う。
+    pub fn is_multiline(&self) -> bool {
+        matches!(self, ModalKind::NewFolder)
+    }
 }
 
 /// 検索バーの状態 (F-701/F-702)。
