@@ -820,3 +820,98 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - テスト: core 96 本 (新規 2: マウスキャンセル+クリック反映 / 別ペインクリックで
   破棄) + UI 10 本 (新規 1: パスバー実クリック → 行を座標クリック → 1 回で選択。
   overlay 状態フック path_edit_open_for_test 追加)。USAGE §2 更新。
+
+### 2026-07-16 — 機能改善: 新規フォルダ (F7) の複数行一括作成
+- 要望: ダイアログを大きくし、メモ帳のノリで複数行を書けるようにして
+  1 行 = 1 フォルダで一括作成したい。
+- core: ModalCommit の NewFolder を行分割に変更 (parse_folder_names —
+  trim・空行無視・重複畳み込み・`\`/`/` を含む行があれば確定拒否)。
+  行ごとに Effect::CreateDir を発行 (create_dir_all なので既存名は冪等)。
+  pending_cursor_name は先頭行。
+- iced: NewFolder ダイアログだけ text_input → **text_editor** (複数行・高さ 160px・
+  カード幅 420→560)。text_editor::Content はステートフル型で core に置けないため
+  App::modal_editor に保持し、Action ごとに content.text() を ModalInput で core へ
+  同期 (source of truth は編集中= Content / 確定検証= core の value)。
+  Enter は改行、確定は OK / Ctrl+Enter、Esc はカスタム key_binding で 1 回キャンセル
+  (既定 Binding は Esc を Unfocus で capture し keyboard::listen に届かない)。
+- 副産物の修正: apply のフォーカス発行条件を「overlay 有無」→「入力オーバーレイ
+  (PathEdit/Modal) の種類遷移」に変更 — 右クリックメニュー → 新しいフォルダ等の
+  「オーバーレイからオーバーレイ」遷移で入力欄にフォーカスが移らない既存バグを解消。
+- コードレビュー (10 観点並列) → 検証 → 修正の追加ラウンド:
+  (1) **クロスペイン desync (CONFIRMED)** — Modal はフォーカス移動で破棄されず
+  (破棄は PathEdit のみ)、2 ペイン/タブで同時に開くと単一の modal_editor が
+  使い回され「表示は B の内容・確定は A の値」になる。修正 = update_app の
+  フォーカス移動破棄を Modal にも拡張 (LESSONS 2026-07-11 の不変条件に整合) +
+  modal_editor を (PaneId, Content) にしてペインが変われば作り直し (タブ切替・
+  OLE ドロップ等フォーカスだけ動く経路の防御)。
+  (2) **孤立 \r の行分割不一致 (CONFIRMED)** — cosmic-text は \r 単独も改行表示
+  するが str::lines は割らない → split(['\n','\r']) に変更。
+  (3) **不正文字の素通り (CONFIRMED)** — 「D:notes」は join で cur_path を
+  すり替え別ドライブに作成される。\ / : * ? " < > | + 制御文字を行単位で拒否し、
+  フッタへ理由を通知 (無反応だとどの行が悪いか分からない)。
+  (4) パスバー編集 A → B の同種遷移でフォーカスが移らない既存バグ — 判定に
+  「ペイン変更」を追加。ほか簡潔化 (discriminant 化・タイトル重複解消・
+  テストのキーイベントヘルパー抽出)。
+- テスト: core 98 本 (新規 2: 複数行/空行/重複/不正文字 4 種/CR 分割/単一行回帰、
+  別ペインクリックでモーダル破棄) + UI 11 本 (新規 1: 開く → 貼り付け → OK で
+  閉じる / 不正行は閉じない + 通知 / Enter は改行 / エディタ内 Esc が 1 回で
+  ModalCancel)。実機 e2e (SendKeys): 「alpha\nbeta\n空行\ngamma」→ 3 フォルダ
+  生成・空行無視、「a:b」→ 拒否 + フッタ通知 + モーダル維持を確認。USAGE §2 更新。
+
+### 2026-07-17 — F7 複数行化の改善提案 4 点を実装 (レビュー指摘の残件)
+- **高速化**: エディタの毎キー全文同期 (content.text() + clone) を廃止。
+  編集中の全文は Content だけが持ち、core への同期は確定時
+  (Msg::ModalEditorCommit = 全文同期 → ModalCommit の 2 段) と
+  **破棄前フラッシュ** (sync_modal_editor — タブ切替や OLE ドロップのように
+  モーダルを破棄せずフォーカスだけ動く経路で入力が消えないための書き戻し) のみ。
+  重複畳み込みは HashSet 化 (O(n²)→O(n)) + 大文字小文字を同一視
+  (NTFS 非区別 —「Docs/docs」の黙った半分成功を防ぐ)。
+- **簡潔化**: ModalCommit を kind ごとの 3 分岐に一本化し、不到達だった
+  commit_modal の NewFolder 腕ごと commit_modal/commit_new_folders を削除
+  (kind ごとに検証 + Effect 発行を所有。共通部は single_line_name/clash_message)。
+- **設計**: 「NewFolder は複数行」の知識を ModalKind::is_multiline() に集約。
+  GUI のエディタ選択・Content 同期・キー割当 (modal_editor_key_binding に改名)
+  はすべて述語から導出 — 将来 F8 を複数行化するときは述語を true にするだけ。
+- **テスト**: core 100 本 (新規 2: 大小違い重複行の畳み込み / pending 不一致時の
+  消費とカーソル不迷子) + UI 12 本 (新規 1: タブ切替でエディタ入力が失われない
+  — フラッシュ復元の通し)。実機 e2e: 「Docs\ndocs\nmix1」→ Docs+mix1、
+  新確定経路 (Ctrl+Enter) の動作を確認。
+
+### 2026-07-17 — F7 改善第 2 弾 (一括 Effect / 文言 const / 前提固定 / OLE テスト)
+- **Effect::CreateDir → CreateDirs (一括)**: N 行の作成を 1 blocking op に
+  まとめ、OpDone → 明示 reload を N 回 → 1 回に。部分失敗はモーダルが既に
+  閉じて再入力できないため、失敗した名前を列挙して 1 通で通知
+  (「「block」を作成できませんでした (…os error 183)」— 実機確認済み)。
+- ヒント文言を app::MULTILINE_HINT (pub const) に集約 — ui_smoke の
+  テキスト検索と view の二重管理を解消。
+- sync_modal_editor のフラッシュ (apply を経由しない直接 update_app) に
+  debug_assert で「ModalInput は Effect を返さない」前提を固定。
+- UI テスト +1: OLE 右ドロップ (focused を直接差し替える経路) でも
+  エディタ入力がフラッシュ → 復元される通し (計 13 本)。ドロップ元は
+  表示中フォルダの外にする必要がある (同一フォルダからのドロップは無視)。
+
+### 2026-07-17 — F7 改善第 3 弾 (reload 二重走行の解消 / PartialFailure)
+- **明示 reload が係留中の watcher デバウンスを吸収**: reload() で
+  reload_seq を進め、OpDone の明示 reload 直後に満了する watcher tick を
+  stale 化 — 自分の操作後の listing が 2 回 → 1 回に (F5 も同様)。
+  reload 後の新しい FsChange は新 seq で改めてデバウンスされる (テストで固定)。
+- **OpOutcome::PartialFailure を新設**: 一括操作の部分失敗を Done (undo 記録 +
+  通知) / Failed (reload なし) と区別 — 通知した上で結果も反映する。
+  CreateDirs の集計は Vec<(名前, エラー)> 1 本に整理し、blocking closure から
+  create_dirs_outcome() として分離 → tempdir で部分失敗を再現する単体テストを
+  追加 (core 101 / iced lib 8 / UI 13 本 green)。実機 e2e も再確認。
+
+### 2026-07-17 — F7 改善第 4 弾 (名前検証の統一 / 通知整形の集約)
+- **F2/F8 も F7 と同じ名前規則に統一**: 検証を check_name (NameCheck 3 値:
+  Empty / Invalid / Ok) に集約し、単一行も `\ / : * ? " < > |` + 制御文字を
+  拒否 + フッタ通知。従来は `\` `/` のみで、「a:b」は新規ファイルだと NTFS の
+  代替ストリームを静かに作り (実測)、リネームは分かりにくい OS 構文エラーだった。
+  実機 e2e: F2 で「a:b」→ 拒否 + 「「a:b.txt」は名前に使えません…」を確認。
+  parse_folder_names も同じ check_name を行単位で使う (規則の定義は 1 箇所)。
+- **通知整形を OpOutcome へ集約**: status_message() / reloads() を実装し、
+  app.rs の OpDone は undo 記録 + 表示 + reload の配線だけに (「エラー: 」
+  プレフィックス等の文言知識が variant 側に閉じた)。
+- **reload 吸収の通しテスト**: load_gen_for_test フックを追加し、ui_smoke で
+  FsChange 係留 → OpDone (明示 reload で gen+1) → 旧 tick が沈黙する通しを固定
+  (計 UI 14 本)。SpawnJob 化 (数千行の進捗/キャンセル) は基盤変更が大きく
+  現実的な行数では不要のため見送り (必要になったら転送ジョブ基盤を再利用)。

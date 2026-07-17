@@ -9,7 +9,76 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
 
 ---
 
-## 2026-07-11 オーバーレイの「既定で握りつぶす」はマウス操作を巻き込む
+## 2026-07-17 reload の二重走行と部分失敗の設計
+
+- **「自分の操作 → 明示 reload」と watcher デバウンスは同じフォルダで二重に
+  走る** — reload 実行時に reload_seq を進めれば、係留中の tick が stale 化して
+  1 回に畳める (これから取る一覧が最新なので安全。reload 後の変化は新 seq で
+  再デバウンス)。デバウンスの seq 比較方式はこういう「割り込み無効化」が
+  1 行で書けるのが利点。
+- **一括操作の結果は 成功 / 部分失敗 / 全滅 の 3 値** — Done (undo 記録) /
+  PartialFailure (通知 + reload) / Failed (通知のみ、何も変わっていない前提)。
+  bool や Option<String> に潰すと「部分失敗なのに reload されない」型の
+  取りこぼしが起きる。集計は blocking closure に埋めず関数に切り出すと
+  tempdir で単体テストできる。
+- **名前検証は入力ダイアログ全種で共通の 1 関数にする** — F7 だけ厳しくすると
+  「a:b」の抜け道が残る。実測: CreateFile 系 (新規ファイル) は「x:y」で
+  file x + 代替ストリーム y を**静かに作る**。fs::rename は構文エラーで失敗
+  (ADS にはならないが通知はランタイムの OS エラー文言)。どちらも事前拒否 +
+  理由通知が正解。Empty / Invalid / Ok の 3 値で返すと「空は無通知・不正は
+  理由通知」の出し分けが呼び出し側で揃う。
+
+## 2026-07-17 一括操作の Effect 設計
+
+- **N 件の独立ファイル操作は 1 Effect (Vec) にまとめる** — 1 件 1 Effect だと
+  OpDone → 明示 reload が N 回走る (N 行の一括フォルダ作成で顕在化)。
+  1 blocking op に畳めば通知も reload も 1 回で、部分失敗は「失敗した名前を
+  列挙して 1 通」にできる (操作元 UI が既に閉じている場合、個別通知は
+  上書き合戦になり最後の 1 件しか見えない)。
+- **DragMsg::External のテストはドロップ元を表示中フォルダの外にする** —
+  「自分のフォルダへのドロップは無視」ガード (update_app) があり、temp を
+  開いたペインへ temp 直下のパスを落とすと何も起きずテストが空振りする。
+
+## 2026-07-16 text_editor (複数行入力) の組み込みパターン
+
+- **text_editor::Content はステートフル型で core に置けない** — GUI 層 (App) に
+  `Option<(PaneId, Content)>` を持つ。編集中の正は Content、確定時の検証は
+  core の value という分担なら Elm 構造を壊さない。**同期は毎キーではなく
+  「確定時 (全文同期 → Commit の 2 段メッセージ) + 破棄前フラッシュ」**にする —
+  毎キー content.text() は貼り付け後の全文 O(n) コピーになる。フラッシュを
+  忘れると「タブ切替で入力消失」になる (モーダルを破棄せずフォーカスだけ
+  動かす経路がある限り必要)。Content の生成/破棄は apply 直後に overlay 状態へ
+  追従させる (sync_modal_editor)。「どのモーダルが複数行か」は core の述語
+  (ModalKind::is_multiline) に集約し、GUI はそこから導出する。
+- **text_editor の既定 key_binding は Esc を `Unfocus` で capture する** —
+  keyboard::listen は Status::Ignored のイベントしか受け取らないため、
+  アプリ側の Esc フォールバックには届かない (text_input は Esc を capture しない
+  ので気づきにくい非対称)。Esc/Ctrl+Enter などは `.key_binding()` の
+  `Binding::Custom(msg)` で明示する。closure はフォーカス外でも呼ばれるので
+  `kp.status` の Focused 判定を入れ、既定は `Binding::from_key_press(kp)` へ委譲。
+- **「オーバーレイが開いたらフォーカス」を overlay の有無で判定すると、
+  メニュー → モーダルの遷移 (右クリック → 新しいフォルダ) を取りこぼす** —
+  入力系オーバーレイの「種類 (mem::discriminant) + フォーカスペイン」の遷移で
+  判定する (同一ペイン同種のままなら再フォーカスしない。rename の select_range
+  が編集中に再発火するのも防げる)。
+- **GUI 層に「単一スロット」のウィジェット状態を作るなら、core 側の
+  「入力オーバーレイはフォーカス離脱で破棄」不変条件と対で守る** —
+  Modal は PathEdit と違い破棄されておらず、2 ペインで同時に開けたため
+  単一 Content の使い回しで「表示と確定値が別ペイン」の desync になった
+  (レビューで検出)。破棄の拡張 + Content に持ち主 PaneId を付けて二重に防御。
+  タブ切替や OLE ドロップは「フォーカスだけ動かす」ので破棄フックを通らない
+  点に注意。
+- **core の行分割はエディタの改行認識と揃える** — cosmic-text は孤立 \r も
+  改行として表示するが str::lines は割らない。「画面では 2 行・作成は 1 個」の
+  不一致になるので split(['\n','\r']) を使う。名前検証は Windows 不正文字
+  (\ / : * ? " < > | + 制御文字) を弾く — 特に「D:notes」のようなドライブ相対名は
+  PathBuf::join が cur_path を丸ごと差し替えて**別ドライブに作られる**。
+- **実機 e2e は PowerShell SendKeys で成立する** (AppActivate(PID) → SendKeys →
+  結果のファイルシステム検証)。ただし**ユーザーの hotkeys.json が既定キーを
+  再割当していることがある** (この環境は new-folder=ctrl+shift+n。F7 は無反応) —
+  e2e の前に %APPDATA%\FastFiler\hotkeys.json を確認する。デスクトップには
+  ユーザー自身の常用インスタンスが居ることがある — Stop-Process は自分が
+  起動した PID に限定する。
 
 - update_overlay の `_ => Some(vec![])` (既定スワロー) は、キー横取り防止の
   つもりがマウスクリックまで無反応にする (パスバー編集中に一覧が丸ごと死んだ)。
