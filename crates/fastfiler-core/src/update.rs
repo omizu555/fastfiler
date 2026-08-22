@@ -814,6 +814,15 @@ fn run_menu_action(
                 cwd: p.cur_path.clone(),
             }]
         }
+        MenuAction::Properties => {
+            // 行の上 = その行のプロパティ / 背景 = 現在フォルダのプロパティ
+            // (背景では p.cursor へフォールバックしない — エクスプローラ準拠)。
+            let path = match target_row.and_then(|ix| p.entries.get(ix)) {
+                Some(e) => p.cur_path.join(&*e.name),
+                None => p.cur_path.clone(),
+            };
+            vec![Effect::ShowProperties { path }]
+        }
         MenuAction::Submenu => vec![], // キャンセル等 (閉じるだけ)
     }
 }
@@ -2205,6 +2214,59 @@ mod tests {
             }]
         );
         assert!(p.overlay.is_none());
+    }
+
+    #[test]
+    fn properties_menu_targets_row_or_current_folder() {
+        // 行の上 → その行のプロパティ (最下部固定 — ADR 0007 追記)
+        let mut p = pane_with(&[("a.txt", false)]);
+        let open = |row| PaneMsg::OpenMenu {
+            at: (0.0, 0.0),
+            row,
+            templates: vec![],
+            commands: vec![],
+            templates_dir: String::new(),
+            can_paste: false,
+        };
+        update_pane(&mut p, PaneId::default(), false, open(Some(0)));
+        let last = match &p.overlay {
+            Some(Overlay::ContextMenu { items, .. }) => {
+                assert_eq!(items.last().unwrap().label, "プロパティ");
+                items.len() - 1
+            }
+            _ => panic!("メニューが開いていない"),
+        };
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::MenuClicked(vec![last]),
+        );
+        assert_eq!(
+            fx,
+            vec![Effect::ShowProperties {
+                path: PathBuf::from("C:\\root\\a.txt"),
+            }]
+        );
+        // 背景 → 現在フォルダのプロパティ (カーソルへフォールバックしない)
+        p.click_row(0, false, false); // カーソルを乗せた状態でも
+        update_pane(&mut p, PaneId::default(), false, open(None));
+        let last = match &p.overlay {
+            Some(Overlay::ContextMenu { items, .. }) => items.len() - 1,
+            _ => panic!("メニューが開いていない"),
+        };
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::MenuClicked(vec![last]),
+        );
+        assert_eq!(
+            fx,
+            vec![Effect::ShowProperties {
+                path: PathBuf::from("C:\\root"),
+            }]
+        );
     }
 
     #[test]

@@ -251,6 +251,12 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
             shell::open_with_shell_async(path.to_string_lossy().to_string());
             Task::none()
         }
+        Effect::ShowProperties { path } => {
+            // SHObjectProperties はダイアログを閉じるまでブロックするため、
+            // 専用 STA スレッドで投げっぱなし (ADR 0007 追記の GPUI 版と同じ)
+            let _ = shell::show_properties_async(path.to_string_lossy().to_string());
+            Task::none()
+        }
         Effect::Debounce { pane, seq, millis } => Task::future(async move {
             tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
             Msg::Core(AppMsg::Pane(pane, PaneMsg::ReloadTick(seq)))

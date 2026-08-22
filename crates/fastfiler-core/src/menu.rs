@@ -2,9 +2,10 @@
 //!
 //! 項目 (USAGE.md §2 と同一):
 //! - 行: 開く / コピー / 切り取り / 貼り付け / 名前の変更 / 削除 /
-//!   新しいフォルダ / 新しいファイル ▸ / ユーザーコマンド
+//!   新しいフォルダ / 新しいファイル ▸ / ユーザーコマンド / プロパティ
 //! - 背景: 貼り付け / 最新の情報に更新 / 新しいフォルダ / 新しいファイル ▸ /
-//!   ユーザーコマンド
+//!   ユーザーコマンド / プロパティ (現在フォルダ)
+//! - プロパティは最下部固定 (ADR 0007 追記 2026-06-07 — GPUI 版パリティ)。
 //! - サブメニュー ▸ はクリック開閉 (hover では開かない)。常に 1 か所のみ表示。
 
 /// メニュー構築に使う軽量なコマンド情報 (domain UserCommand の抜粋 —
@@ -46,6 +47,8 @@ pub enum MenuAction {
     /// テンプレートフォルダをフォーカスペインで開く。
     OpenTemplatesDir,
     UserCommand(String),
+    /// Windows のプロパティダイアログ (行 = その項目 / 背景 = 現在フォルダ)。
+    Properties,
     /// サブメニュー (クリックで開閉)。
     Submenu,
 }
@@ -108,6 +111,8 @@ pub fn build_menu(ctx: &MenuContext) -> Vec<MenuItem> {
             items.extend(user_command_items(ctx.commands, None));
         }
     }
+    // 最下部固定 (エクスプローラ準拠 — ADR 0007 追記)
+    items.push(MenuItem::leaf("プロパティ", MenuAction::Properties));
     items
 }
 
@@ -289,7 +294,8 @@ mod tests {
                 "名前の変更",
                 "削除",
                 "新しいフォルダ",
-                "新しいファイル"
+                "新しいファイル",
+                "プロパティ"
             ]
         );
         assert!(!items[3].enabled); // 貼り付け淡色 (can_paste=false)
@@ -306,7 +312,8 @@ mod tests {
                 "貼り付け",
                 "最新の情報に更新",
                 "新しいフォルダ",
-                "新しいファイル"
+                "新しいファイル",
+                "プロパティ"
             ]
         );
         assert!(bg[0].enabled);

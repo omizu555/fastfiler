@@ -116,6 +116,11 @@ pub enum Effect {
     ShowShellMenu {
         paths: Vec<PathBuf>,
     },
+    /// プロパティダイアログ (SHObjectProperties — 専用 STA スレッドで
+    /// 投げっぱなし。ADR 0007 追記)。
+    ShowProperties {
+        path: PathBuf,
+    },
     /// 外部 (OLE) からの移動: Copy ジョブ + 完了後にソースをゴミ箱 (実行側が分解)。
     /// 受信側の rename はドラッグ直後のソースロックと衝突するため使わない。
     SpawnExternalMove {
