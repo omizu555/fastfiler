@@ -9,6 +9,25 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
 
 ---
 
+## 2026-08-22 RDP クリップボード (仮想ファイル) 対応の知見
+
+- **RDP / Outlook のファイルコピーは CF_HDROP を載せない** — 実パスが越境
+  できないため FileGroupDescriptorW (記述子) + FileContents (内容) の仮想形式
+  で来る (MS-RDPECLIP)。CF_HDROP だけ見ていると「ファイルなし」に見える。
+  記述子は素のクリップボード API で読める (軽量・can_paste 判定に好適) が、
+  **内容は lindex 指定の IDataObject::GetData が必須** → OleGetClipboard 一択。
+  遅延レンダリングで実転送がそこで走るため UI スレッド禁止 (ジョブスレッドで
+  OleInitialize)。tymed は IStream / HGLOBAL の両対応にする (rdpclip は IStream)。
+- **windows-rs の packed(1) 構造体 (FILEGROUPDESCRIPTORW 等) はフィールド参照が
+  E0793 (UB)** — read_unaligned で構造体を取り出した後も、配列フィールドの
+  iter() や添字代入は参照を作るので不可。**フィールドをローカルへ丸ごと複写**
+  してから使う (書き込みも `fd.cFileName = buf;` の全体代入にする)。
+- **クリップボード形式の e2e は送信側を自前 IDataObject で偽装できる** —
+  rdpclip と同じ形式を OleSetClipboard すれば RDP なしで受信経路を通しで
+  検証できる (tests/virtual_paste.rs が先例)。システムのクリップボードを
+  書き換えるので #[ignore] + 手動実行にする。他プロセスとの OpenClipboard
+  競合で稀にフレークする (リトライせず再実行で判断)。
+
 ## 2026-07-17 reload の二重走行と部分失敗の設計
 
 - **「自分の操作 → 明示 reload」と watcher デバウンスは同じフォルダで二重に

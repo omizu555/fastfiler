@@ -915,3 +915,28 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   FsChange 係留 → OpDone (明示 reload で gen+1) → 旧 tick が沈黙する通しを固定
   (計 UI 14 本)。SpawnJob 化 (数千行の進捗/キャンセル) は基盤変更が大きく
   現実的な行数では不要のため見送り (必要になったら転送ジョブ基盤を再利用)。
+
+### 2026-08-22 — RDP / Outlook の仮想ファイル貼り付け対応 (実機要望)
+- **リモートデスクトップ越しのコピー → 貼り付けが不可だった**: RDP の
+  クリップボード転送 (MS-RDPECLIP) はファイルを CF_HDROP (実パス) ではなく
+  仮想形式 (FileGroupDescriptorW + FileContents) で渡すため、CF_HDROP のみ
+  対応の貼り付けでは「クリップボードにファイルがありません」になっていた。
+  Outlook 添付のコピーも同形式 (今回の対応で同時に解決)。
+- **domain**: virtual_files.rs を新設 — 記述子は素のクリップボード API で読み
+  (can_paste 判定と衝突計画用・OLE 不要)、内容は lindex 指定の GetData が要る
+  ため OleGetClipboard (with_ole_clipboard — ジョブ専用スレッドで OLE 初期化)。
+  cFileName は外部プロセスが書ける入力なので sanitize_rel_path で検証
+  (絶対パス / `..` / `:` / 不正文字 / 末尾 `.`・空白を拒否。単体テスト付き)。
+  file_jobs::run_virtual_paste が既存の run_job 基盤 (kind="copy") に載せて
+  進捗・キャンセル・フッタ表示をそのまま流用。IStream / HGLOBAL 両 tymed 対応。
+- **core**: transfer::plan_virtual_paste / resolve_virtual_conflicts (純ロジック +
+  テスト 4 本)。衝突はトップレベル名単位 (フォルダの中身は同じ新名の下へ)。
+  PasteVirtualRead → (衝突なし) Effect::PasteVirtual / (衝突) Overlay::VirtualConflict。
+  仮想貼り付けは**常にコピー動作** (rdpclip は切り取りの越境削除を通知できない —
+  エクスプローラも同じ)。Undo 記録なし (通常コピーと同じ)。
+- **iced**: ClipboardRead を CF_HDROP → 仮想の 2 段フォールバックに。衝突
+  ダイアログは conflict_card として実パス版と共用 (確定 Msg も同じ)。
+- **検証**: rdpclip / Outlook と同じ形式を自前 IDataObject で OleSetClipboard
+  する e2e テスト (tests/virtual_paste.rs、クリップボードを書き換えるため
+  #[ignore] — 手動で 5/5 green。IStream と HGLOBAL の両分岐を通す)。
+  core 107 / domain 45 / iced 22 本 green。
