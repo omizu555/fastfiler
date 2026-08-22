@@ -388,7 +388,7 @@ GPUI `uniform_list` の代替であり、性能目標 N-01 の要。**iced の�
 | インクリメンタルサーチ (#3) | キー入力の「一覧が受けた印字可能文字」を core が扱う経路を用意 (現状は捨てている) |
 | Spring-loaded folder (#17) | `DragState` にホバー滞留タイマーの席を用意 |
 | 性能パネル (#22) | §9 の perf フック |
-| シェル New メニュー / プロパティ | domain `show_properties` は実装済み。メニュー木 (core/menu.rs) に項目を足すだけで済む構造に |
+| シェル New メニュー / プロパティ | domain `show_properties` は実装済み。メニュー木 (core/menu.rs) に項目を足すだけで済む構造に → **プロパティは 2026-08-22 に実装済み** (§15)。New メニューは未着手 |
 | ごみ箱・特殊フォルダ | 将来シェル名前空間 (PIDL) を扱うなら domain に閉じる方針だけ明記 |
 
 ---
@@ -940,3 +940,12 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   する e2e テスト (tests/virtual_paste.rs、クリップボードを書き換えるため
   #[ignore] — 手動で 5/5 green。IStream と HGLOBAL の両分岐を通す)。
   core 107 / domain 45 / iced 22 本 green。
+
+### 2026-08-22 — 右クリックメニュー最下部に「プロパティ」(実機要望)
+- ADR 0007 追記 (2026-06-07、GPUI 版) のパリティ回収 — §11 の縫い目
+  「メニュー木に項目を足すだけ」の通り、core/menu.rs に MenuAction::Properties を
+  追加 (行・背景とも最下部固定)。行の上はその項目、背景は現在フォルダ
+  (背景では p.cursor へフォールバックしない — エクスプローラ準拠)。
+- 実行は既存の domain shell::show_properties_async (SHObjectProperties を専用
+  STA スレッドで投げっぱなし — ダイアログの寿命問題を回避) を Effect::ShowProperties
+  で配線。core テスト +1 (行/背景の対象パス)。core 153 / iced 22 本 green。
