@@ -12,6 +12,37 @@
 
 use crate::error::{AppError, AppResult};
 
+/// CF_HDROP (実パスのファイル) がクリップボードにあるか (貼り付けの淡色判定)。
+/// IsClipboardFormatAvailable は遅延レンダリングを起こさない軽量チェック —
+/// メニュー展開のたびに全パスを列挙しない。
+pub fn clipboard_has_files() -> bool {
+    #[cfg(not(windows))]
+    {
+        return false;
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::System::DataExchange::IsClipboardFormatAvailable;
+        use windows::Win32::System::Ole::CF_HDROP;
+        IsClipboardFormatAvailable(CF_HDROP.0 as u32).is_ok()
+    }
+}
+
+/// 「OpenClipboard → f → CloseClipboard」の定型。クリップボードは排他資源 —
+/// f がどの経路で return しても必ず閉じる (本モジュール 3 箇所 +
+/// virtual_files の記述子読取で共用)。
+#[cfg(windows)]
+pub(crate) fn with_clipboard<T>(f: impl FnOnce() -> AppResult<T>) -> AppResult<T> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
+    if unsafe { OpenClipboard(HWND(std::ptr::null_mut())) }.is_err() {
+        return Err(AppError::Win32("OpenClipboard 失敗".into()));
+    }
+    let r = f();
+    let _ = unsafe { CloseClipboard() };
+    r
+}
+
 pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {
     if paths.is_empty() {
         return Err(AppError::Win32("paths が空です".into()));
@@ -29,10 +60,7 @@ pub fn clipboard_write_paths(paths: Vec<String>, op: String) -> AppResult<()> {
 
 #[cfg(windows)]
 unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-    };
+    use windows::Win32::System::DataExchange::{EmptyClipboard, SetClipboardData};
     use windows::Win32::System::Ole::CF_HDROP;
 
     // CF_HDROP バイト列 (DROPFILES + ダブル NUL ワイド列) — 構築は hdrop.rs に
@@ -44,10 +72,7 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
     let effect: u32 = if op == "cut" || op == "move" { 2 } else { 1 };
     let mut h_eff = crate::hdrop::HGlobalGuard::from_dword(effect)?;
 
-    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Win32("OpenClipboard 失敗".into()));
-    }
-    let res = (|| -> AppResult<()> {
+    with_clipboard(|| {
         EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
 
         SetClipboardData(CF_HDROP.0 as u32, h_drop.handle())
@@ -62,9 +87,7 @@ unsafe fn write_paths_win(paths: &[String], op: &str) -> AppResult<()> {
             .map_err(|e| AppError::Win32(format!("SetClipboardData(Pref): {e}")))?;
         h_eff.disarm();
         Ok(())
-    })();
-    let _ = CloseClipboard();
-    res
+    })
 }
 
 // =================================================================
@@ -91,10 +114,8 @@ pub fn clipboard_read_paths() -> AppResult<Option<ClipboardPaths>> {
 
 #[cfg(windows)]
 unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
-    use windows::Win32::Foundation::{HGLOBAL, HWND};
-    use windows::Win32::System::DataExchange::{
-        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    };
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{GetClipboardData, IsClipboardFormatAvailable};
     use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
     use windows::Win32::System::Ole::CF_HDROP;
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
@@ -102,11 +123,7 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
     if IsClipboardFormatAvailable(CF_HDROP.0 as u32).is_err() {
         return Ok(None);
     }
-    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Win32("OpenClipboard 失敗".into()));
-    }
-
-    let result: AppResult<Option<ClipboardPaths>> = (|| {
+    with_clipboard(|| {
         let h = GetClipboardData(CF_HDROP.0 as u32)
             .map_err(|e| AppError::Win32(format!("GetClipboardData(HDROP): {e}")))?;
         if h.is_invalid() {
@@ -147,10 +164,7 @@ unsafe fn read_paths_win() -> AppResult<Option<ClipboardPaths>> {
             }
         }
         Ok(Some(ClipboardPaths { paths, op }))
-    })();
-
-    let _ = CloseClipboard();
-    result
+    })
 }
 
 // =================================================================
@@ -175,10 +189,7 @@ pub fn clipboard_write_text(text: &str) -> AppResult<()> {
 
 #[cfg(windows)]
 unsafe fn write_text_win(text: &str) -> AppResult<()> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-    };
+    use windows::Win32::System::DataExchange::{EmptyClipboard, SetClipboardData};
     use windows::Win32::System::Ole::CF_UNICODETEXT;
 
     // 改行を CRLF に正規化
@@ -189,16 +200,11 @@ unsafe fn write_text_win(text: &str) -> AppResult<()> {
     let bytes: Vec<u8> = wide.iter().flat_map(|u| u.to_le_bytes()).collect();
     let mut h = crate::hdrop::HGlobalGuard::from_bytes(&bytes)?;
 
-    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Win32("OpenClipboard 失敗".into()));
-    }
-    let res = (|| -> AppResult<()> {
+    with_clipboard(|| {
         EmptyClipboard().map_err(|e| AppError::Win32(format!("EmptyClipboard: {e}")))?;
         SetClipboardData(CF_UNICODETEXT.0 as u32, h.handle())
             .map_err(|e| AppError::Win32(format!("SetClipboardData(TEXT): {e}")))?;
         h.disarm();
         Ok(())
-    })();
-    let _ = CloseClipboard();
-    res
+    })
 }

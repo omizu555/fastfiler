@@ -485,11 +485,10 @@ pub fn collect_menu_context() -> (
         })
         .unwrap_or_default();
     let tdir = templates::templates_dir().unwrap_or_default();
-    // 実パス (CF_HDROP) か仮想ファイル (RDP/Outlook) のどちらかがあれば貼り付け可
-    let can_paste = matches!(
-        fastfiler_domain::win_clipboard::clipboard_read_paths(),
-        Ok(Some(_))
-    ) || fastfiler_domain::virtual_files::virtual_files_available();
+    // 実パス (CF_HDROP) か仮想ファイル (RDP/Outlook) のどちらかがあれば貼り付け可。
+    // どちらも IsClipboardFormatAvailable の軽量チェック (全パス列挙はしない)
+    let can_paste = fastfiler_domain::win_clipboard::clipboard_has_files()
+        || fastfiler_domain::virtual_files::virtual_files_available();
     (templates, commands, tdir, can_paste)
 }
 

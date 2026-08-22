@@ -100,11 +100,9 @@ fn cf_file_contents() -> u32 {
 
 #[cfg(windows)]
 unsafe fn read_descriptors_win() -> AppResult<Option<Vec<VirtualFileEntry>>> {
-    use windows::Win32::Foundation::{HGLOBAL, HWND};
+    use windows::Win32::Foundation::HGLOBAL;
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY;
-    use windows::Win32::System::DataExchange::{
-        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    };
+    use windows::Win32::System::DataExchange::{GetClipboardData, IsClipboardFormatAvailable};
     use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
     use windows::Win32::UI::Shell::{FD_ATTRIBUTES, FD_FILESIZE, FILEDESCRIPTORW};
 
@@ -112,10 +110,7 @@ unsafe fn read_descriptors_win() -> AppResult<Option<Vec<VirtualFileEntry>>> {
     if cf == 0 || IsClipboardFormatAvailable(cf).is_err() {
         return Ok(None);
     }
-    if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
-        return Err(AppError::Win32("OpenClipboard 失敗".into()));
-    }
-    let result: AppResult<Option<Vec<VirtualFileEntry>>> = (|| {
+    crate::win_clipboard::with_clipboard(|| {
         let h = GetClipboardData(cf)
             .map_err(|e| AppError::Win32(format!("GetClipboardData(FileGroupDescriptorW): {e}")))?;
         if h.is_invalid() {
@@ -177,9 +172,7 @@ unsafe fn read_descriptors_win() -> AppResult<Option<Vec<VirtualFileEntry>>> {
         })();
         let _ = GlobalUnlock(hg);
         parsed
-    })();
-    let _ = CloseClipboard();
-    result
+    })
 }
 
 /// 呼び出しスレッドで OLE を初期化し、クリップボードの `IDataObject` を f へ渡す。
