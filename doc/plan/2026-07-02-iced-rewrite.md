@@ -949,3 +949,11 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - 実行は既存の domain shell::show_properties_async (SHObjectProperties を専用
   STA スレッドで投げっぱなし — ダイアログの寿命問題を回避) を Effect::ShowProperties
   で配線。core テスト +1 (行/背景の対象パス)。core 153 / iced 22 本 green。
+
+### 2026-08-22 — セルフレビュー提案の回収 (can_paste 軽量化 / クリップボード定型の集約)
+- **can_paste 判定を IsClipboardFormatAvailable に変更**: メニュー展開のたびに
+  CF_HDROP を全読取 (GlobalLock + DragQueryFileW でパス列挙) していたのを、
+  形式の有無チェックだけに (win_clipboard::clipboard_has_files 新設)。
+- **「OpenClipboard → f → CloseClipboard」定型を with_clipboard に集約**:
+  win_clipboard 3 箇所 + virtual_files の記述子読取の計 4 箇所が共用。
+  クリップボード e2e (virtual_paste) で回帰なしを確認。
