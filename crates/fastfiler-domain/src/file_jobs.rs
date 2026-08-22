@@ -107,6 +107,61 @@ impl JobRegistry {
         })
     }
 
+    /// 仮想ファイル貼り付け (RDP/Outlook — virtual_files.rs)。クリップボードの
+    /// FILECONTENTS を dest 配下へ書き出す。実パスのコピーと同じ進捗イベント
+    /// (kind="copy") を emit するので、UI のジョブ表示はそのまま流用できる。
+    /// OLE 初期化を含むため専用スレッドから呼ぶこと (spawn_job と同じ実行形態)。
+    #[cfg(windows)]
+    pub fn run_virtual_paste(
+        &self,
+        sink: &dyn EventSink,
+        job_id: u64,
+        dest: PathBuf,
+        items: Vec<VirtualPasteItem>,
+    ) -> AppResult<()> {
+        // 事前スキャン相当: 記述子のサイズ合計 (FD_FILESIZE が無い項目は 0 —
+        // バイト進捗が過小になるだけでファイル数進捗は正しい)
+        let total_files = items.iter().filter(|i| !i.is_dir).count() as u64;
+        let total_bytes: u64 = items.iter().filter_map(|i| i.size).sum();
+        run_job(
+            self,
+            sink,
+            job_id,
+            "copy",
+            (total_files, total_bytes),
+            |cancel, sink, c| {
+                crate::virtual_files::with_ole_clipboard(|data| {
+                    for it in &items {
+                        if cancel.load(Ordering::SeqCst) {
+                            return Err(AppError::Canceled);
+                        }
+                        let target = dest.join(&it.rel_path);
+                        if it.is_dir {
+                            fs::create_dir_all(&target)?;
+                            continue;
+                        }
+                        if let Some(parent) = target.parent() {
+                            fs::create_dir_all(parent)?;
+                        }
+                        crate::virtual_files::extract_contents_to_file(
+                            data,
+                            it.index,
+                            &target,
+                            cancel,
+                            &mut |n| {
+                                c.done_bytes += n;
+                                maybe_emit(sink, "copy", job_id, c, &it.rel_path, false);
+                            },
+                        )?;
+                        c.done_files += 1;
+                        maybe_emit(sink, "copy", job_id, c, &it.rel_path, false);
+                    }
+                    Ok(())
+                })
+            },
+        )
+    }
+
     pub fn run_delete(
         &self,
         sink: &dyn EventSink,
@@ -134,6 +189,16 @@ impl JobRegistry {
 pub struct JobItem {
     pub from: String,
     pub to: String,
+}
+
+/// 仮想ファイル貼り付けの 1 項目 (リネーム解決済み)。
+/// index はクリップボードの FILECONTENTS lindex、rel_path は宛先相対パス。
+#[derive(Debug, Clone)]
+pub struct VirtualPasteItem {
+    pub index: u32,
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Clone)]

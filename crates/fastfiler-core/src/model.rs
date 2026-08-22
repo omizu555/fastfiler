@@ -150,6 +150,9 @@ pub enum Overlay {
     Modal { kind: ModalKind, value: String },
     /// 同名衝突ダイアログ (F-503)。
     Conflict { plan: crate::transfer::TransferPlan },
+    /// 仮想ファイル貼り付け (RDP/Outlook) の同名衝突ダイアログ。ボタンは
+    /// Conflict と同じ PaneMsg::Conflict(choice) で確定する。
+    VirtualConflict { plan: crate::transfer::VirtualPlan },
     /// 右ボタン D&D のドロップメニュー (F-605)。
     DropMenu {
         items: Vec<crate::menu::MenuItem>,

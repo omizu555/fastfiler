@@ -84,6 +84,11 @@ pub enum PaneMsg {
         paths: Vec<String>,
         op: String,
     },
+    /// 仮想ファイル (RDP/Outlook — FileGroupDescriptorW) の読み取り結果
+    /// (Effect::ClipboardRead の返し。CF_HDROP が無いときのフォールバック)。
+    PasteVirtualRead {
+        entries: Vec<crate::transfer::VirtualEntry>,
+    },
     /// 衝突ダイアログの選択。
     Conflict(crate::transfer::ConflictChoice),
     /// Delete (選択をごみ箱へ)。

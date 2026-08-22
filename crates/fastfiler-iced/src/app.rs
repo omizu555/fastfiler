@@ -1243,6 +1243,21 @@ impl App {
                     }
                     effects::spawn_job(&self.jobs, job_id, op, items);
                 }
+                Effect::PasteVirtual {
+                    pane,
+                    dest,
+                    entries,
+                } => {
+                    // 仮想ファイル貼り付け (RDP/Outlook)。常にコピー動作なので
+                    // Undo 候補の登録はない (ソースは相手側マシンに残る)
+                    let job_id = self.jobs.next_id();
+                    ole_diag(&format!(
+                        "spawn virtual-paste job={job_id} items={} dest={dest:?}",
+                        entries.len()
+                    ));
+                    self.job_owner.insert(job_id, pane);
+                    effects::spawn_virtual_paste(&self.jobs, job_id, dest, entries);
+                }
                 Effect::StartSearch { pane, root, query } => {
                     if let Some(job_id) =
                         effects::start_search(&self.search, root, query, self.everything_port)
@@ -1804,45 +1819,53 @@ pub fn view(app: &App) -> Element<'_, Msg> {
             stack![root, card].into()
         }
         Some(Overlay::Conflict { plan }) => {
-            let n = plan.conflicts.len();
             let first = plan
                 .conflicts
                 .first()
                 .and_then(|&i| plan.items.get(i))
                 .map(|it| it.to_name.clone())
                 .unwrap_or_default();
-            let detail = if n == 1 {
-                format!("「{first}」は既に存在します。")
-            } else {
-                format!("「{first}」ほか {n} 件が既に存在します。")
-            };
-            let choice = |c: ConflictChoice| Msg::Core(AppMsg::Focused(PaneMsg::Conflict(c)));
-            let card = dialog_card(
-                "同名のファイルがあります".to_string(),
-                column![
-                    text(detail).size(13),
-                    text("(複数件には一括で適用されます)").size(12),
-                    row![
-                        button(text("上書き").size(13))
-                            .padding([3, 12])
-                            .on_press(choice(ConflictChoice::Overwrite)),
-                        button(text("別名で保存").size(13))
-                            .padding([3, 12])
-                            .on_press(choice(ConflictChoice::RenameBoth)),
-                        button(text("キャンセル").size(13))
-                            .padding([3, 12])
-                            .on_press(choice(ConflictChoice::Cancel)),
-                    ]
-                    .spacing(8),
-                ]
-                .spacing(10)
-                .into(),
-                420.0,
-            );
-            stack![root, card].into()
+            stack![root, conflict_card(plan.conflicts.len(), first)].into()
+        }
+        Some(Overlay::VirtualConflict { plan }) => {
+            let first = plan.conflicts.first().cloned().unwrap_or_default();
+            stack![root, conflict_card(plan.conflicts.len(), first)].into()
         }
         _ => root,
     }
+}
+
+/// 同名衝突ダイアログ (実パス貼り付け Conflict と仮想貼り付け VirtualConflict で
+/// 共用 — どちらも PaneMsg::Conflict(choice) で確定する)。
+fn conflict_card<'a>(n: usize, first: String) -> Element<'a, Msg> {
+    let detail = if n == 1 {
+        format!("「{first}」は既に存在します。")
+    } else {
+        format!("「{first}」ほか {n} 件が既に存在します。")
+    };
+    let choice = |c: ConflictChoice| Msg::Core(AppMsg::Focused(PaneMsg::Conflict(c)));
+    dialog_card(
+        "同名のファイルがあります".to_string(),
+        column![
+            text(detail).size(13),
+            text("(複数件には一括で適用されます)").size(12),
+            row![
+                button(text("上書き").size(13))
+                    .padding([3, 12])
+                    .on_press(choice(ConflictChoice::Overwrite)),
+                button(text("別名で保存").size(13))
+                    .padding([3, 12])
+                    .on_press(choice(ConflictChoice::RenameBoth)),
+                button(text("キャンセル").size(13))
+                    .padding([3, 12])
+                    .on_press(choice(ConflictChoice::Cancel)),
+            ]
+            .spacing(8),
+        ]
+        .spacing(10)
+        .into(),
+        420.0,
+    )
 }
 
 /// 複数行モーダルエディタ (is_multiline) のキー割当: Esc=キャンセル /

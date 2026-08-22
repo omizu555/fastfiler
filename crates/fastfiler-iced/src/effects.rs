@@ -187,6 +187,7 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
     match effect {
         Effect::LoadDir { .. }
         | Effect::SpawnJob { .. }
+        | Effect::PasteVirtual { .. } // app.rs run_effects 側で処理 (job 登録が要る)
         | Effect::PaneClosed(_)
         | Effect::OpenTabFor { .. }
         | Effect::StartSearch { .. }
@@ -271,17 +272,44 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
             })
         }),
         Effect::ClipboardRead { pane } => Task::future(async move {
-            let read =
-                tokio::task::spawn_blocking(fastfiler_domain::win_clipboard::clipboard_read_paths)
-                    .await;
+            // CF_HDROP (実パス) を優先し、無ければ仮想ファイル (RDP/Outlook の
+            // FileGroupDescriptorW) へフォールバックする
+            enum Clip {
+                Paths(fastfiler_domain::win_clipboard::ClipboardPaths),
+                Virtual(Vec<fastfiler_domain::virtual_files::VirtualFileEntry>),
+                Empty,
+            }
+            let read = tokio::task::spawn_blocking(|| -> Result<Clip, fastfiler_domain::error::AppError> {
+                match fastfiler_domain::win_clipboard::clipboard_read_paths()? {
+                    Some(cb) => Ok(Clip::Paths(cb)),
+                    None => {
+                        match fastfiler_domain::virtual_files::clipboard_read_virtual_entries()? {
+                            Some(entries) => Ok(Clip::Virtual(entries)),
+                            None => Ok(Clip::Empty),
+                        }
+                    }
+                }
+            })
+            .await;
             let to_pane = |m: PaneMsg| Msg::Core(AppMsg::Pane(pane, m));
             match read {
-                Ok(Ok(Some(cb))) => to_pane(PaneMsg::PasteRead {
+                Ok(Ok(Clip::Paths(cb))) => to_pane(PaneMsg::PasteRead {
                     paths: cb.paths,
                     op: cb.op,
                 }),
+                Ok(Ok(Clip::Virtual(entries))) => to_pane(PaneMsg::PasteVirtualRead {
+                    entries: entries
+                        .into_iter()
+                        .map(|e| fastfiler_core::transfer::VirtualEntry {
+                            index: e.index,
+                            rel_path: e.rel_path,
+                            is_dir: e.is_dir,
+                            size: e.size,
+                        })
+                        .collect(),
+                }),
                 // クリップボードにファイルなし → 無言 (貼り付け淡色相当)
-                Ok(Ok(None)) => to_pane(PaneMsg::StatusMsg(
+                Ok(Ok(Clip::Empty)) => to_pane(PaneMsg::StatusMsg(
                     "クリップボードにファイルがありません".into(),
                 )),
                 Ok(Err(e)) => to_pane(PaneMsg::StatusMsg(format!("貼り付けエラー: {e}"))),
@@ -451,10 +479,11 @@ pub fn collect_menu_context() -> (
         })
         .unwrap_or_default();
     let tdir = templates::templates_dir().unwrap_or_default();
+    // 実パス (CF_HDROP) か仮想ファイル (RDP/Outlook) のどちらかがあれば貼り付け可
     let can_paste = matches!(
         fastfiler_domain::win_clipboard::clipboard_read_paths(),
         Ok(Some(_))
-    );
+    ) || fastfiler_domain::virtual_files::virtual_files_available();
     (templates, commands, tdir, can_paste)
 }
 
@@ -504,6 +533,41 @@ pub fn spawn_job(jobs: &Jobs, job_id: u64, op: TransferOp, items: Vec<(PathBuf, 
             TransferOp::Move => registry.run_move(&sink, job_id, job_items),
         };
         if let Err(e) = r {
+            // run_job 内で done は emit 済みのはずだが、起動前失敗の保険
+            sink.emit_json(
+                "fs:job:done",
+                serde_json::json!({
+                    "job_id": job_id, "kind": "job", "ok": false,
+                    "canceled": false, "error": e.to_string(),
+                    "total_files": 0, "done_files": 0,
+                    "total_bytes": 0, "done_bytes": 0,
+                }),
+            );
+        }
+    });
+}
+
+/// 仮想ファイル貼り付けジョブ (RDP/Outlook) を専用スレッドで起動する。
+/// spawn_job と同じ規約: id 採番と job_owner 登録を**この呼び出し前**に行うこと。
+pub fn spawn_virtual_paste(
+    jobs: &Jobs,
+    job_id: u64,
+    dest: PathBuf,
+    entries: Vec<fastfiler_core::transfer::VirtualEntry>,
+) {
+    let registry = Arc::clone(&jobs.registry);
+    let items: Vec<fastfiler_domain::file_jobs::VirtualPasteItem> = entries
+        .into_iter()
+        .map(|e| fastfiler_domain::file_jobs::VirtualPasteItem {
+            index: e.index,
+            rel_path: e.rel_path,
+            is_dir: e.is_dir,
+            size: e.size,
+        })
+        .collect();
+    std::thread::spawn(move || {
+        let sink = ChannelSink::new();
+        if let Err(e) = registry.run_virtual_paste(&sink, job_id, dest, items) {
             // run_job 内で done は emit 済みのはずだが、起動前失敗の保険
             sink.emit_json(
                 "fs:job:done",

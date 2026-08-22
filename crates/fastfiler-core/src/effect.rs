@@ -41,6 +41,13 @@ pub enum Effect {
         op: crate::transfer::TransferOp,
         items: Vec<(PathBuf, PathBuf)>,
     },
+    /// 仮想ファイル貼り付けジョブ (RDP/Outlook — クリップボードの FILECONTENTS
+    /// を dest へ抽出する。常にコピー動作。進捗は SpawnJob と同じ経路)。
+    PasteVirtual {
+        pane: PaneId,
+        dest: PathBuf,
+        entries: Vec<crate::transfer::VirtualEntry>,
+    },
     CancelJob {
         id: u64,
     },

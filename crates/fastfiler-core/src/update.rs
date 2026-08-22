@@ -297,6 +297,25 @@ pub fn update_pane(p: &mut PaneState, id: PaneId, locked: bool, msg: PaneMsg) ->
                 vec![]
             }
         }
+        PaneMsg::PasteVirtualRead { entries } => {
+            // RDP/Outlook の仮想ファイル (ソースパスなし)。常にコピー動作 —
+            // rdpclip は切り取りの移動 (ソース削除) を越境できないため。
+            let existing = existing_names(p);
+            let plan = transfer::plan_virtual_paste(entries, &p.cur_path, &existing);
+            if plan.entries.is_empty() {
+                return vec![];
+            }
+            if plan.conflicts.is_empty() {
+                vec![Effect::PasteVirtual {
+                    pane: id,
+                    dest: plan.dest,
+                    entries: plan.entries,
+                }]
+            } else {
+                p.overlay = Some(Overlay::VirtualConflict { plan });
+                vec![]
+            }
+        }
         PaneMsg::RequestDelete => {
             // 検索結果リストの index は entries と別空間 — 破壊的操作は禁止 (安全側)
             if p.showing_search() {
@@ -663,6 +682,30 @@ fn update_overlay(
                     pane: id,
                     op: plan.op,
                     items,
+                }])
+            }
+            PaneMsg::ClearSelection => {
+                p.overlay = None;
+                Some(vec![])
+            }
+            _ => Some(vec![]),
+        },
+        Overlay::VirtualConflict { plan } => match msg {
+            PaneMsg::Conflict(choice) => {
+                let plan = plan.clone();
+                p.overlay = None;
+                if *choice == ConflictChoice::Cancel {
+                    return Some(vec![]);
+                }
+                let existing = existing_names(p);
+                let entries = transfer::resolve_virtual_conflicts(&plan, *choice, &existing);
+                if entries.is_empty() {
+                    return Some(vec![]);
+                }
+                Some(vec![Effect::PasteVirtual {
+                    pane: id,
+                    dest: plan.dest,
+                    entries,
                 }])
             }
             PaneMsg::ClearSelection => {
@@ -2159,6 +2202,76 @@ mod tests {
                     PathBuf::from("D:\\src\\a.txt"),
                     PathBuf::from("C:\\root\\a (2).txt")
                 )],
+            }]
+        );
+        assert!(p.overlay.is_none());
+    }
+
+    #[test]
+    fn virtual_paste_without_conflict_spawns_extract_job() {
+        use crate::transfer::VirtualEntry;
+        let mut p = pane_with(&[("existing.txt", false)]);
+        let entries = vec![VirtualEntry {
+            index: 0,
+            rel_path: "new.txt".into(),
+            is_dir: false,
+            size: Some(10),
+        }];
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::PasteVirtualRead {
+                entries: entries.clone(),
+            },
+        );
+        assert_eq!(
+            fx,
+            vec![Effect::PasteVirtual {
+                pane: PaneId::default(),
+                dest: PathBuf::from("C:\\root"),
+                entries,
+            }]
+        );
+        assert!(p.overlay.is_none());
+    }
+
+    #[test]
+    fn virtual_paste_with_conflict_opens_dialog_then_rename_both() {
+        use crate::transfer::{ConflictChoice, VirtualEntry};
+        let mut p = pane_with(&[("a.txt", false)]);
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::PasteVirtualRead {
+                entries: vec![VirtualEntry {
+                    index: 0,
+                    rel_path: "a.txt".into(),
+                    is_dir: false,
+                    size: None,
+                }],
+            },
+        );
+        assert!(fx.is_empty());
+        assert!(matches!(p.overlay, Some(Overlay::VirtualConflict { .. })));
+        let fx = update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::Conflict(ConflictChoice::RenameBoth),
+        );
+        assert_eq!(
+            fx,
+            vec![Effect::PasteVirtual {
+                pane: PaneId::default(),
+                dest: PathBuf::from("C:\\root"),
+                entries: vec![VirtualEntry {
+                    index: 0,
+                    rel_path: "a (2).txt".into(),
+                    is_dir: false,
+                    size: None,
+                }],
             }]
         );
         assert!(p.overlay.is_none());

@@ -120,6 +120,103 @@ pub fn resolve_conflicts(
     }
 }
 
+// =================================================================
+// 仮想ファイル貼り付け (RDP/Outlook — FileGroupDescriptorW) の計画
+// =================================================================
+
+/// 仮想ファイル 1 件。`index` はクリップボード内の FILECONTENTS lindex、
+/// `rel_path` は宛先相対の `dir\file.txt` 形式 (GUI 層でサニタイズ済み)。
+/// core は domain 非依存のため domain::virtual_files と同形の別定義。
+#[derive(Debug, Clone, PartialEq)]
+pub struct VirtualEntry {
+    pub index: u32,
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub size: Option<u64>,
+}
+
+/// 仮想貼り付けの計画。conflicts は宛先に同名が存在する**トップレベル名**
+/// (rel_path の先頭成分) — ダイアログ表示と解決の単位。
+#[derive(Debug, Clone, PartialEq)]
+pub struct VirtualPlan {
+    pub dest: PathBuf,
+    pub entries: Vec<VirtualEntry>,
+    pub conflicts: Vec<String>,
+}
+
+/// rel_path の先頭成分 (衝突判定・リネームの単位)。
+fn top_level_name(rel_path: &str) -> &str {
+    rel_path.split('\\').next().unwrap_or(rel_path)
+}
+
+/// 仮想ファイル貼り付けの計画を作る。ソースパスが無いので同一フォルダ規則
+/// (no-op move / 即複製) は無く、衝突検出のみ (常にコピー動作)。
+pub fn plan_virtual_paste(
+    entries: Vec<VirtualEntry>,
+    dest: &Path,
+    existing_names: &BTreeSet<String>,
+) -> VirtualPlan {
+    let mut conflicts: Vec<String> = Vec::new();
+    for e in &entries {
+        let top = top_level_name(&e.rel_path);
+        if existing_names.contains(top) && !conflicts.iter().any(|c| c == top) {
+            conflicts.push(top.to_string());
+        }
+    }
+    VirtualPlan {
+        dest: dest.to_path_buf(),
+        entries,
+        conflicts,
+    }
+}
+
+/// 仮想貼り付けの衝突解決。rel_path のトップレベル成分を書き換えた
+/// entries を返す (Overwrite はそのまま / Cancel は空)。
+pub fn resolve_virtual_conflicts(
+    plan: &VirtualPlan,
+    choice: ConflictChoice,
+    existing_names: &BTreeSet<String>,
+) -> Vec<VirtualEntry> {
+    match choice {
+        ConflictChoice::Cancel => vec![],
+        ConflictChoice::Overwrite => plan.entries.clone(),
+        ConflictChoice::RenameBoth => {
+            // 既存名 + 今回持ち込む非衝突トップレベル名の両方を避けて連番を振る
+            let mut taken: BTreeSet<String> = existing_names.clone();
+            for e in &plan.entries {
+                let top = top_level_name(&e.rel_path);
+                if !plan.conflicts.iter().any(|c| c == top) {
+                    taken.insert(top.to_string());
+                }
+            }
+            // 同一トップレベル配下の全 entry が同じ新名を共有する (フォルダの中身)
+            let mut renames: std::collections::BTreeMap<String, String> =
+                std::collections::BTreeMap::new();
+            for c in &plan.conflicts {
+                let unique = unique_name(c, &taken);
+                taken.insert(unique.clone());
+                renames.insert(c.clone(), unique);
+            }
+            plan.entries
+                .iter()
+                .map(|e| {
+                    let top = top_level_name(&e.rel_path);
+                    match renames.get(top) {
+                        Some(new_top) => {
+                            let rest = &e.rel_path[top.len()..]; // "\..." または ""
+                            VirtualEntry {
+                                rel_path: format!("{new_top}{rest}"),
+                                ..e.clone()
+                            }
+                        }
+                        None => e.clone(),
+                    }
+                })
+                .collect()
+        }
+    }
+}
+
 /// F-604 の修飾キー規則 (内部 D&D と外部 OLE D&D で共通の唯一の定義):
 /// Ctrl = コピー / Shift or 同一ボリューム = 移動 / それ以外 = コピー。
 pub fn decide_op(ctrl: bool, shift: bool, same_vol: bool) -> TransferOp {
@@ -340,6 +437,79 @@ mod tests {
             Path::new("\\\\nas\\docs")
         ));
         assert!(!same_volume(Path::new("C:\\a"), Path::new("\\\\nas\\m")));
+    }
+
+    fn ventry(index: u32, rel: &str, is_dir: bool) -> VirtualEntry {
+        VirtualEntry {
+            index,
+            rel_path: rel.to_string(),
+            is_dir,
+            size: None,
+        }
+    }
+
+    #[test]
+    fn virtual_plan_flags_top_level_conflicts_once() {
+        let dest = PathBuf::from("C:\\dest");
+        let existing = taken(&["a.txt", "dir"]);
+        let plan = plan_virtual_paste(
+            vec![
+                ventry(0, "a.txt", false),      // 衝突
+                ventry(1, "b.txt", false),      // 衝突なし
+                ventry(2, "dir", true),         // 衝突 (フォルダ)
+                ventry(3, "dir\\c.txt", false), // 同じトップレベル → 重複計上しない
+                ventry(4, "dir\\sub\\d.txt", false),
+            ],
+            &dest,
+            &existing,
+        );
+        assert_eq!(plan.conflicts, vec!["a.txt".to_string(), "dir".to_string()]);
+        assert_eq!(plan.entries.len(), 5);
+    }
+
+    #[test]
+    fn virtual_rename_both_renames_folder_and_children_consistently() {
+        let dest = PathBuf::from("C:\\dest");
+        let existing = taken(&["dir", "b.txt"]);
+        let plan = plan_virtual_paste(
+            vec![
+                ventry(0, "dir", true),
+                ventry(1, "dir\\c.txt", false),
+                ventry(2, "b.txt", false),
+            ],
+            &dest,
+            &existing,
+        );
+        let resolved = resolve_virtual_conflicts(&plan, ConflictChoice::RenameBoth, &existing);
+        assert_eq!(resolved[0].rel_path, "dir (2)");
+        assert_eq!(resolved[1].rel_path, "dir (2)\\c.txt"); // 中身も同じ新名の下へ
+        assert_eq!(resolved[2].rel_path, "b (2).txt");
+    }
+
+    #[test]
+    fn virtual_rename_avoids_incoming_non_conflicted_names() {
+        // 既存 "x.txt" と衝突する "x.txt" のリネームが、同時に持ち込む
+        // "x (2).txt" (非衝突) を踏まないこと
+        let dest = PathBuf::from("C:\\dest");
+        let existing = taken(&["x.txt"]);
+        let plan = plan_virtual_paste(
+            vec![ventry(0, "x.txt", false), ventry(1, "x (2).txt", false)],
+            &dest,
+            &existing,
+        );
+        let resolved = resolve_virtual_conflicts(&plan, ConflictChoice::RenameBoth, &existing);
+        assert_eq!(resolved[0].rel_path, "x (3).txt");
+        assert_eq!(resolved[1].rel_path, "x (2).txt");
+    }
+
+    #[test]
+    fn virtual_overwrite_and_cancel() {
+        let dest = PathBuf::from("C:\\dest");
+        let existing = taken(&["a.txt"]);
+        let plan = plan_virtual_paste(vec![ventry(0, "a.txt", false)], &dest, &existing);
+        let ow = resolve_virtual_conflicts(&plan, ConflictChoice::Overwrite, &existing);
+        assert_eq!(ow, plan.entries);
+        assert!(resolve_virtual_conflicts(&plan, ConflictChoice::Cancel, &existing).is_empty());
     }
 
     #[test]

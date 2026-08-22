@@ -4,7 +4,7 @@
 //!  - `error` / `events`: 共通エラー型と event sink 抽象
 //!  - `fs` / `file_ops` / `file_jobs` / `watcher`: ファイルシステム操作
 //!  - `search` / `everything`: 検索 (内蔵 + Everything HTTP)
-//!  - `shell` / `shell_assoc` / `win_clipboard` / `icons`: Windows シェル統合
+//!  - `shell` / `shell_assoc` / `win_clipboard` / `virtual_files` / `icons`: Windows シェル統合
 //!  - `templates` / `user_commands`: 新規ファイルテンプレートとユーザーコマンド
 //!  - `undo`: in-memory Undo スタック (ADR 0006/0008)
 //!  - `ascii_tree`: 選択フォルダの構造を ASCII (ボックス罫線) 文字列化
@@ -32,6 +32,7 @@ pub mod shell_assoc;
 pub mod templates;
 pub mod undo;
 pub mod user_commands;
+pub mod virtual_files;
 pub mod watcher;
 pub mod win_clipboard;
 #[cfg(windows)]
