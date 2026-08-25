@@ -957,3 +957,15 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - **「OpenClipboard → f → CloseClipboard」定型を with_clipboard に集約**:
   win_clipboard 3 箇所 + virtual_files の記述子読取の計 4 箇所が共用。
   クリップボード e2e (virtual_paste) で回帰なしを確認。
+
+### 2026-08-26 — F7 の多階層フォルダ作成 (実機要望)
+- `aaa\iii\uuu` 形式の 1 行で階層をまとめて作成できるように。区切りは \ と /
+  の両方 (\ に正規化)、末尾区切りは無視。作成側は元々 create_dir_all (冪等)
+  だったため、変更は検証 (parse) のみ — check_folder_line を新設し、成分ごとに
+  「空成分 (絶対パス/連続区切り) / "." ".." (脱出) / : * ? " < > | と制御文字 /
+  末尾 . ・空白 (OS が静かに削る)」を事前拒否。F2/F8 の単一名検証 (check_name —
+  区切り拒否) はそのまま。
+- 重複畳みは正規化後の相対パスで大小・区切り違いも同一視。カーソルは先頭行の
+  トップレベル名へ (一覧に現れるのは先頭成分のみ)。ヒント文言と USAGE §2 更新。
+- テスト: 階層/正規化/畳み/不正 10 パターン (core) + create_dirs_outcome の
+  階層・冪等 (iced tempdir)。core 109 / iced 22 本 green。
