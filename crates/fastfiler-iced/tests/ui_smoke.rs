@@ -644,12 +644,13 @@ fn new_folder_modal_is_multiline_editor() {
     assert!(click_and_apply(&mut app, "OK") > 0, "OK が押せない");
     assert!(!modal_open(&app), "複数行の確定でモーダルが閉じない");
 
-    // 不正な行 (区切り文字) が混じると OK でも閉じない (core の検証が効く)
+    // 不正な行 (":" — ドライブ相対/ADS) が混じると OK でも閉じない
+    // (core の検証が効く。"/" は階層区切りとして有効になった)
     open(&mut app);
     let _ = app::update(
         &mut app,
         Msg::ModalEditor(Action::Edit(Edit::Paste(std::sync::Arc::new(
-            "ok\nng/name".into(),
+            "ok\nng:name".into(),
         )))),
     );
     click_and_apply(&mut app, "OK");

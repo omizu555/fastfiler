@@ -766,6 +766,15 @@ mod tests {
                 message: None
             }
         ));
+        // 階層 (aaa\iii\uuu) は create_dir_all で一括作成される。
+        // 既存の中間フォルダ (aaa) があっても冪等
+        let outcome = create_dirs_outcome(&[
+            base.join("aaa").join("iii").join("uuu"),
+            base.join("aaa").join("second"),
+        ]);
+        assert!(matches!(outcome, OpOutcome::Done { .. }));
+        assert!(base.join("aaa").join("iii").join("uuu").is_dir());
+        assert!(base.join("aaa").join("second").is_dir());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

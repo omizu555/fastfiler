@@ -502,21 +502,26 @@ fn update_overlay(
             // 検証 NG はモーダルを開いたまま。作成/リネーム後は watcher reload で
             // その名前へカーソルが乗るよう pending_cursor_name を仕込む
             PaneMsg::ModalCommit => match kind {
-                // F7 (is_multiline): 1 行 1 フォルダの一括作成。既存名との衝突は
-                // create_dir_all が冪等に吸収するため検査しない
+                // F7 (is_multiline): 1 行 1 フォルダの一括作成 (`aaa\iii\uuu` の
+                // 階層可)。既存名との衝突は create_dir_all が冪等に吸収する
+                // ため検査しない
                 ModalKind::NewFolder => match parse_folder_names(value) {
                     Err(bad) => {
                         // 不正な行は理由を通知してモーダルを開いたまま
                         // (無反応だとどの行が悪いか分からない)
-                        p.status_msg = Some(invalid_name_message(&bad));
+                        p.status_msg = Some(invalid_folder_message(&bad));
                         Some(vec![])
                     }
                     // 有効な行なし (実質未入力) はモーダルを開いたまま
                     Ok(names) if names.is_empty() => Some(vec![]),
                     Ok(names) => {
                         p.overlay = None;
-                        // カーソルは reload で先頭の名前へ
-                        p.pending_cursor_name = names.first().cloned();
+                        // カーソルは reload で先頭行のトップレベル名へ
+                        // (一覧に現れるのは階層の先頭成分だけ)
+                        p.pending_cursor_name = names
+                            .first()
+                            .and_then(|n| n.split('\\').next())
+                            .map(str::to_string);
                         Some(vec![Effect::CreateDirs {
                             paths: names.iter().map(|name| p.cur_path.join(name)).collect(),
                         }])
@@ -743,23 +748,68 @@ fn check_name(value: &str) -> NameCheck {
     }
 }
 
-/// 使えない文字を含む名前の通知文言 (F2/F7/F8 共通)。
+/// 使えない文字を含む名前の通知文言 (F2/F8 の単一名)。
 fn invalid_name_message(name: &str) -> String {
     format!("「{name}」は名前に使えません (\\ / : * ? \" < > | と制御文字は不可)")
 }
 
-/// F7 の複数行入力を行ごとのフォルダ名に分解する (1 行 1 フォルダ)。
-/// 前後空白は除去・空行は無視・重複行は先勝ちで 1 つに畳む (NTFS は大文字
-/// 小文字を区別しないため、大小違いだけの行も同一視 — 2 行受理して 1 つしか
-/// できない「黙った半分成功」を防ぐ)。
+/// F7 で使えない行の通知文言 (階層区切り \ / は許した上での違反)。
+fn invalid_folder_message(line: &str) -> String {
+    format!(
+        "「{line}」は作成できません (: * ? \" < > | と制御文字、\".\" \"..\"・空の階層・末尾が . か空白の名前は不可)"
+    )
+}
+
+/// F7 の 1 行を階層フォルダの相対パスとして検証する (`aaa\iii\uuu` — 実機要望
+/// 2026-08-25)。区切りは \ と / の両方を許して \ に正規化、末尾の区切りは
+/// 無視する。成分ごとに検証し、次を拒否する:
+/// - 空成分 (先頭区切り = 絶対パス/UNC、`\\` の連続)
+/// - "." / ".." (cur_path の外へ出る join を許さない —
+///   domain virtual_files::sanitize_rel_path と同じ発想)
+/// - `: * ? " < > |` と制御文字 (`: ` はドライブ相対 "D:notes" と ADS も防ぐ)
+/// - 末尾が . か空白の成分 (CreateDirectory が静かに削って別名になり、
+///   「表示と作成結果の食い違い」になるため事前拒否 — LESSONS の知見)
+fn check_folder_line(value: &str) -> NameCheck {
+    // 成分検証で \ / は区切りとして消費済み — 残る不可文字はこの 7 種
+    const COMPONENT_INVALID: [char; 7] = [':', '*', '?', '"', '<', '>', '|'];
+    let line = value.trim();
+    if line.is_empty() {
+        return NameCheck::Empty;
+    }
+    let stripped = line.trim_end_matches(['\\', '/']);
+    if stripped.is_empty() {
+        return NameCheck::Invalid(line.to_string()); // 区切りのみの行
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for comp in stripped.split(['\\', '/']) {
+        if comp.is_empty()
+            || comp == "."
+            || comp == ".."
+            || comp.contains(COMPONENT_INVALID)
+            || comp.chars().any(char::is_control)
+            || comp.ends_with('.')
+            || comp.ends_with(' ')
+        {
+            return NameCheck::Invalid(line.to_string());
+        }
+        parts.push(comp);
+    }
+    NameCheck::Ok(parts.join("\\"))
+}
+
+/// F7 の複数行入力を行ごとのフォルダ相対パスに分解する (1 行 1 フォルダ、
+/// `aaa\iii\uuu` の階層可)。前後空白は除去・空行は無視・重複行は先勝ちで
+/// 1 つに畳む (NTFS は大文字小文字を区別しないため、大小違いだけの行も同一視 —
+/// 2 行受理して 1 つしかできない「黙った半分成功」を防ぐ。`/` と `\` の
+/// 区切り違いも正規化後に同一視)。
 /// エディタ (cosmic-text) は孤立 \r も改行として表示するため、分割は
 /// \n / \r の両方で行う (str::lines は孤立 \r を割らず、表示と作成結果が
-/// 食い違う)。使えない文字を含む行は Err(その行) — 呼び出し側で通知する。
+/// 食い違う)。使えない行は Err(その行) — 呼び出し側で通知する。
 fn parse_folder_names(value: &str) -> Result<Vec<String>, String> {
     let mut seen = std::collections::HashSet::new();
     let mut names: Vec<String> = Vec::new();
     for line in value.split(['\n', '\r']) {
-        match check_name(line) {
+        match check_folder_line(line) {
             NameCheck::Empty => continue,
             NameCheck::Invalid(bad) => return Err(bad),
             NameCheck::Ok(name) => {
@@ -1974,8 +2024,10 @@ mod tests {
         );
         assert_eq!(p.pending_cursor_name.as_deref(), Some("new.txt"));
         assert!(p.overlay.is_none());
-        // 不正な名前 (区切り文字) は確定されずモーダルが残る
-        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        // 区切り文字は F2 (単一名) では引き続き不正 — 確定されずモーダルが残る
+        // (F7 は階層作成として有効 — new_folder_creates_nested_hierarchy)
+        p.status_msg = None;
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenRename);
         update_pane(
             &mut p,
             PaneId::default(),
@@ -1984,6 +2036,7 @@ mod tests {
         );
         assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
         assert!(p.overlay.is_some());
+        assert!(p.status_msg.is_some(), "F2 の区切り文字が通知されない");
         update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCancel);
 
         // F2/F8 も F7 と同じ名前規則 — 使えない文字は拒否 + 理由通知
@@ -2065,8 +2118,21 @@ mod tests {
         assert!(update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit).is_empty());
         assert!(p.overlay.is_some());
 
-        // 使えない文字を含む行が 1 つでもあれば全体を確定させず理由を通知
-        for bad in ["ok\nng/name", "a:b", "a*b\nok", "tab\tname"] {
+        // 使えない行が 1 つでもあれば全体を確定させず理由を通知
+        // (階層対応後も: ドライブ/ADS の ":"・ワイルドカード・制御文字・
+        //  ".." 等の脱出・絶対パス・空の階層・末尾 . / 空白は拒否)
+        for bad in [
+            "a:b",
+            "a*b\nok",
+            "tab\tname",
+            "ok\n..\\up",
+            "aaa\\.\\iii",
+            "\\abs",
+            "aaa\\\\iii",
+            "dir\\name.",
+            "dir\\name \\x",
+            "\\",
+        ] {
             p.status_msg = None;
             update_pane(
                 &mut p,
@@ -2097,6 +2163,50 @@ mod tests {
                     PathBuf::from("C:\\root\\cr1"),
                     PathBuf::from("C:\\root\\cr2"),
                 ],
+            }]
+        );
+    }
+
+    #[test]
+    fn new_folder_creates_nested_hierarchy() {
+        // `aaa\iii\uuu` 形式の階層作成 (実機要望 2026-08-25)。/ 区切りと
+        // 末尾区切りも受け、\ に正規化される
+        let mut p = pane_with(&[]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("aaa\\iii\\uuu\nbbb/ccc/\nsingle".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![
+                    PathBuf::from("C:\\root\\aaa\\iii\\uuu"),
+                    PathBuf::from("C:\\root\\bbb\\ccc"),
+                    PathBuf::from("C:\\root\\single"),
+                ],
+            }]
+        );
+        // カーソルは先頭行のトップレベル名へ (一覧に現れるのは aaa)
+        assert_eq!(p.pending_cursor_name.as_deref(), Some("aaa"));
+        assert!(p.overlay.is_none());
+
+        // 区切り違い (/ と \)・大小違いの同一階層は先勝ちで 1 つに畳む
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("x\\y\nX/Y\nx\\y\\".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                paths: vec![PathBuf::from("C:\\root\\x\\y")],
             }]
         );
     }

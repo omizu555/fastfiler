@@ -31,7 +31,7 @@ use crate::widgets::tree_list::{TreeEvent, TreeList};
 /// 複数行モーダル (F7) のヒント文言。ui_smoke がテキスト検索で
 /// 「モーダルが開いているか」の判定に使うため公開 const で共有する。
 pub const MULTILINE_HINT: &str =
-    "1 行につき 1 フォルダを作成します (空行は無視 / Ctrl+Enter で作成)";
+    "1 行につき 1 フォルダを作成します (aaa\\iii\\uuu で階層作成 / 空行は無視 / Ctrl+Enter で作成)";
 
 /// モーダル入力欄のウィジェット Id (開いたときのフォーカス/選択操作の宛先)。
 fn modal_input_id() -> iced::advanced::widget::Id {
