@@ -523,7 +523,8 @@ fn update_overlay(
                             .and_then(|n| n.split('\\').next())
                             .map(str::to_string);
                         Some(vec![Effect::CreateDirs {
-                            paths: names.iter().map(|name| p.cur_path.join(name)).collect(),
+                            dir: p.cur_path.clone(),
+                            names,
                         }])
                     }
                 },
@@ -734,6 +735,24 @@ enum NameCheck {
     Ok(String),
 }
 
+/// Windows の予約デバイス名 (CON / PRN / AUX / NUL / COM1-9 / LPT1-9) か。
+/// 拡張子付き ("NUL.txt") も予約扱い (MS の命名規則 — 最初の . より前で判定)。
+/// OS 任せだと古い API がデバイスに解決したり分かりにくいエラーになるため、
+/// F2/F7/F8 とも事前拒否 + 理由通知にする。
+fn is_reserved_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    let up = stem.to_ascii_uppercase();
+    match up.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        _ => {
+            up.len() == 4
+                && (up.starts_with("COM") || up.starts_with("LPT"))
+                && up.as_bytes()[3].is_ascii_digit()
+                && up.as_bytes()[3] != b'0' // COM0/LPT0 は予約外
+        }
+    }
+}
+
 /// trim + Windows の名前規則で 1 件検証する。区切り文字を許すと
 /// 「D:notes」のようなドライブ相対名が cur_path.join で別ドライブへ
 /// すり替わる (F7 レビューの知見 — F2/F8 では ADS 誤作成も防ぐ)。
@@ -741,7 +760,10 @@ fn check_name(value: &str) -> NameCheck {
     let name = value.trim();
     if name.is_empty() {
         NameCheck::Empty
-    } else if name.contains(INVALID_NAME_CHARS) || name.chars().any(char::is_control) {
+    } else if name.contains(INVALID_NAME_CHARS)
+        || name.chars().any(char::is_control)
+        || is_reserved_device_name(name)
+    {
         NameCheck::Invalid(name.to_string())
     } else {
         NameCheck::Ok(name.to_string())
@@ -750,13 +772,15 @@ fn check_name(value: &str) -> NameCheck {
 
 /// 使えない文字を含む名前の通知文言 (F2/F8 の単一名)。
 fn invalid_name_message(name: &str) -> String {
-    format!("「{name}」は名前に使えません (\\ / : * ? \" < > | と制御文字は不可)")
+    format!(
+        "「{name}」は名前に使えません (\\ / : * ? \" < > | と制御文字、CON・NUL 等のデバイス名は不可)"
+    )
 }
 
 /// F7 で使えない行の通知文言 (階層区切り \ / は許した上での違反)。
 fn invalid_folder_message(line: &str) -> String {
     format!(
-        "「{line}」は作成できません (: * ? \" < > | と制御文字、\".\" \"..\"・空の階層・末尾が . か空白の名前は不可)"
+        "「{line}」は作成できません (: * ? \" < > | と制御文字、\".\" \"..\"・空の階層・末尾が . か空白の名前・CON・NUL 等のデバイス名は不可)"
     )
 }
 
@@ -764,11 +788,14 @@ fn invalid_folder_message(line: &str) -> String {
 /// 2026-08-25)。区切りは \ と / の両方を許して \ に正規化、末尾の区切りは
 /// 無視する。成分ごとに検証し、次を拒否する:
 /// - 空成分 (先頭区切り = 絶対パス/UNC、`\\` の連続)
-/// - "." / ".." (cur_path の外へ出る join を許さない —
-///   domain virtual_files::sanitize_rel_path と同じ発想)
+/// - "." / ".." (cur_path の外へ出る join を許さない)
 /// - `: * ? " < > |` と制御文字 (`: ` はドライブ相対 "D:notes" と ADS も防ぐ)
 /// - 末尾が . か空白の成分 (CreateDirectory が静かに削って別名になり、
 ///   「表示と作成結果の食い違い」になるため事前拒否 — LESSONS の知見)
+/// - 予約デバイス名 (CON / NUL 等 — is_reserved_device_name)
+///
+/// ⚠ domain `virtual_files::sanitize_rel_path` と規則の双子 (core は domain
+/// 非依存のため別実装)。規則を変えるときは両方揃えること。
 fn check_folder_line(value: &str) -> NameCheck {
     // 成分検証で \ / は区切りとして消費済み — 残る不可文字はこの 7 種
     const COMPONENT_INVALID: [char; 7] = [':', '*', '?', '"', '<', '>', '|'];
@@ -789,6 +816,7 @@ fn check_folder_line(value: &str) -> NameCheck {
             || comp.chars().any(char::is_control)
             || comp.ends_with('.')
             || comp.ends_with(' ')
+            || is_reserved_device_name(comp)
         {
             return NameCheck::Invalid(line.to_string());
         }
@@ -2081,10 +2109,8 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![
-                    PathBuf::from("C:\\root\\alpha"),
-                    PathBuf::from("C:\\root\\beta"),
-                ],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["alpha".into(), "beta".into()],
             }]
         );
         // カーソルは先頭の名前へ
@@ -2103,7 +2129,8 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![PathBuf::from("C:\\root\\solo")],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["solo".into()],
             }]
         );
 
@@ -2120,7 +2147,8 @@ mod tests {
 
         // 使えない行が 1 つでもあれば全体を確定させず理由を通知
         // (階層対応後も: ドライブ/ADS の ":"・ワイルドカード・制御文字・
-        //  ".." 等の脱出・絶対パス・空の階層・末尾 . / 空白は拒否)
+        //  ".." 等の脱出・絶対パス・空の階層・末尾 . / 空白・
+        //  予約デバイス名は拒否)
         for bad in [
             "a:b",
             "a*b\nok",
@@ -2132,6 +2160,9 @@ mod tests {
             "dir\\name.",
             "dir\\name \\x",
             "\\",
+            "con",
+            "NUL.txt",
+            "aaa\\com1\\x",
         ] {
             p.status_msg = None;
             update_pane(
@@ -2159,10 +2190,8 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![
-                    PathBuf::from("C:\\root\\cr1"),
-                    PathBuf::from("C:\\root\\cr2"),
-                ],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["cr1".into(), "cr2".into()],
             }]
         );
     }
@@ -2183,11 +2212,8 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![
-                    PathBuf::from("C:\\root\\aaa\\iii\\uuu"),
-                    PathBuf::from("C:\\root\\bbb\\ccc"),
-                    PathBuf::from("C:\\root\\single"),
-                ],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["aaa\\iii\\uuu".into(), "bbb\\ccc".into(), "single".into(),],
             }]
         );
         // カーソルは先頭行のトップレベル名へ (一覧に現れるのは aaa)
@@ -2206,7 +2232,26 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![PathBuf::from("C:\\root\\x\\y")],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["x\\y".into()],
+            }]
+        );
+
+        // 予約デバイス名に「似ているだけ」の名前は通す
+        // (control = 4 文字超 / com10 = 2 桁 / com0 = 予約外)
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenNewFolder);
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::ModalInput("control\\com10\ncom0".into()),
+        );
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::ModalCommit);
+        assert_eq!(
+            fx,
+            vec![Effect::CreateDirs {
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["control\\com10".into(), "com0".into()],
             }]
         );
     }
@@ -2227,10 +2272,8 @@ mod tests {
         assert_eq!(
             fx,
             vec![Effect::CreateDirs {
-                paths: vec![
-                    PathBuf::from("C:\\root\\Docs"),
-                    PathBuf::from("C:\\root\\other"),
-                ],
+                dir: PathBuf::from("C:\\root"),
+                names: vec!["Docs".into(), "other".into()],
             }]
         );
     }

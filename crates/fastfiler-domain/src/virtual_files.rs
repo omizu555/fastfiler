@@ -60,7 +60,10 @@ pub fn clipboard_read_virtual_entries() -> AppResult<Option<Vec<VirtualFileEntry
 /// 区切りは `\` と `/` の両方を許し `\` に正規化。次を拒否して None:
 /// 絶対パス (先頭区切り・UNC)・ドライブや ADS の `:`・`.`/`..` 成分・
 /// Windows 不正文字/制御文字・末尾が `.` か空白の成分 (CreateFile が
-/// 静かに削って別名になるため)。
+/// 静かに削って別名になるため)・予約デバイス名 (CON / NUL 等)。
+///
+/// ⚠ core `update.rs::check_folder_line` (F7 の階層フォルダ検証) と規則の双子
+/// (core は domain 非依存のため別実装)。規則を変えるときは両方揃えること。
 pub fn sanitize_rel_path(raw: &str) -> Option<String> {
     if raw.is_empty() {
         return None;
@@ -77,9 +80,29 @@ pub fn sanitize_rel_path(raw: &str) -> Option<String> {
         if comp.ends_with('.') || comp.ends_with(' ') {
             return None;
         }
+        if is_reserved_device_name(comp) {
+            return None;
+        }
         parts.push(comp);
     }
     Some(parts.join("\\"))
+}
+
+/// Windows の予約デバイス名 (CON / PRN / AUX / NUL / COM1-9 / LPT1-9) か。
+/// 拡張子付き ("NUL.txt") も予約扱い (最初の . より前で判定)。書き込むと
+/// 古い API がデバイスへ解決し得るため受信を拒否する。
+fn is_reserved_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    let up = stem.to_ascii_uppercase();
+    match up.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        _ => {
+            up.len() == 4
+                && (up.starts_with("COM") || up.starts_with("LPT"))
+                && up.as_bytes()[3].is_ascii_digit()
+                && up.as_bytes()[3] != b'0' // COM0/LPT0 は予約外
+        }
+    }
 }
 
 // ================================================================
@@ -318,5 +341,13 @@ mod tests {
         assert_eq!(sanitize_rel_path("name "), None);
         assert_eq!(sanitize_rel_path(""), None);
         assert_eq!(sanitize_rel_path("dir\\"), None); // 空成分
+                                                      // 予約デバイス名 (拡張子付き含む) は成分単位で拒否
+        assert_eq!(sanitize_rel_path("con"), None);
+        assert_eq!(sanitize_rel_path("NUL.txt"), None);
+        assert_eq!(sanitize_rel_path("dir\\com1\\x"), None);
+        // 似ているだけの名前は通す
+        assert_eq!(sanitize_rel_path("control"), Some("control".into()));
+        assert_eq!(sanitize_rel_path("com10"), Some("com10".into()));
+        assert_eq!(sanitize_rel_path("com0"), Some("com0".into()));
     }
 }

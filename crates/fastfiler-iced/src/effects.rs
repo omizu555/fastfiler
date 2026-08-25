@@ -333,7 +333,9 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
                 message: None,
             })
         }),
-        Effect::CreateDirs { paths } => blocking_op(move || Ok(create_dirs_outcome(&paths))),
+        Effect::CreateDirs { dir, names } => {
+            blocking_op(move || Ok(create_dirs_outcome(&dir, &names)))
+        }
         Effect::CreateFromTemplate { dir, template } => blocking_op(move || {
             templates::create_file_from_template(
                 template,
@@ -412,17 +414,14 @@ pub fn run(effect: Effect, jobs: &Jobs) -> Task<Msg> {
 /// 部分失敗の集計を単体テスト可能にする。失敗した (名前, エラー) を集め、
 /// 成功分はそのまま活かす。モーダルは確定時点で閉じていて再入力できないため、
 /// 失敗名は列挙して 1 通で知らせる (エラー本文は最後の 1 件を代表にする)。
-fn create_dirs_outcome(paths: &[std::path::PathBuf]) -> OpOutcome {
-    let failed: Vec<(String, fastfiler_domain::error::AppError)> = paths
+/// names は dir 相対 — 失敗通知には入力行の表記 (`aaa\iii\uuu`) のまま出す。
+fn create_dirs_outcome(dir: &std::path::Path, names: &[String]) -> OpOutcome {
+    let failed: Vec<(&String, fastfiler_domain::error::AppError)> = names
         .iter()
-        .filter_map(|path| {
-            file_ops::create_dir(path).err().map(|e| {
-                let name = path
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.display().to_string());
-                (name, e)
-            })
+        .filter_map(|name| {
+            file_ops::create_dir(&dir.join(name))
+                .err()
+                .map(|e| (name, e))
         })
         .collect();
     match failed.last() {
@@ -738,12 +737,12 @@ mod tests {
 
     #[test]
     fn create_dirs_outcome_collects_partial_failures() {
+        let names = |v: &[&str]| -> Vec<String> { v.iter().map(|s| s.to_string()).collect() };
         let base = std::env::temp_dir().join(format!("ff_cdirs_{}", std::process::id()));
         std::fs::create_dir_all(&base).unwrap();
         // 同名ファイルを置いて 1 件だけ失敗させる
         std::fs::write(base.join("block"), b"x").unwrap();
-        let outcome =
-            create_dirs_outcome(&[base.join("block"), base.join("ok1"), base.join("ok2")]);
+        let outcome = create_dirs_outcome(&base, &names(&["block", "ok1", "ok2"]));
         match &outcome {
             OpOutcome::PartialFailure { message } => {
                 assert!(message.contains("「block」"), "失敗名が入らない: {message}");
@@ -758,7 +757,7 @@ mod tests {
         assert!(base.join("ok1").is_dir());
         assert!(base.join("ok2").is_dir());
         // 全成功なら Done (message なし)
-        let outcome = create_dirs_outcome(&[base.join("ok3")]);
+        let outcome = create_dirs_outcome(&base, &names(&["ok3"]));
         assert!(matches!(
             outcome,
             OpOutcome::Done {
@@ -768,13 +767,21 @@ mod tests {
         ));
         // 階層 (aaa\iii\uuu) は create_dir_all で一括作成される。
         // 既存の中間フォルダ (aaa) があっても冪等
-        let outcome = create_dirs_outcome(&[
-            base.join("aaa").join("iii").join("uuu"),
-            base.join("aaa").join("second"),
-        ]);
+        let outcome = create_dirs_outcome(&base, &names(&["aaa\\iii\\uuu", "aaa\\second"]));
         assert!(matches!(outcome, OpOutcome::Done { .. }));
         assert!(base.join("aaa").join("iii").join("uuu").is_dir());
         assert!(base.join("aaa").join("second").is_dir());
+        // 階層行の失敗は入力行の表記のまま通知される (葉の名前だけにしない)
+        let outcome = create_dirs_outcome(&base, &names(&["block\\child"]));
+        match &outcome {
+            OpOutcome::PartialFailure { message } => {
+                assert!(
+                    message.contains("「block\\child」"),
+                    "階層の失敗行が相対パスで出ない: {message}"
+                );
+            }
+            other => panic!("PartialFailure にならない: {other:?}"),
+        }
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -56,10 +56,13 @@ pub enum Effect {
         from: PathBuf,
         to: PathBuf,
     },
-    /// フォルダの一括作成 (F7 複数行 = 1 行 1 フォルダ)。1 Effect にまとめて
-    /// 完了通知 → 明示 reload を 1 回に抑える (N 行で N 回 reload しない)。
+    /// フォルダの一括作成 (F7 複数行 = 1 行 1 フォルダ、`aaa\iii\uuu` の階層可)。
+    /// 1 Effect にまとめて完了通知 → 明示 reload を 1 回に抑える (N 行で N 回
+    /// reload しない)。names は dir 相対 — 失敗通知に入力行の表記のまま出す
+    /// (絶対パスに畳むと階層行の失敗が葉の名前しか出せない)。
     CreateDirs {
-        paths: Vec<PathBuf>,
+        dir: PathBuf,
+        names: Vec<String>,
     },
     /// 空ファイル作成 (同名があれば domain 側が連番を振る)。
     CreateFile {
