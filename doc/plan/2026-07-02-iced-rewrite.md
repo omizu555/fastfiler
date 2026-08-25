@@ -969,3 +969,15 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   トップレベル名へ (一覧に現れるのは先頭成分のみ)。ヒント文言と USAGE §2 更新。
 - テスト: 階層/正規化/畳み/不正 10 パターン (core) + create_dirs_outcome の
   階層・冪等 (iced tempdir)。core 109 / iced 22 本 green。
+
+### 2026-08-26 — セルフレビュー提案の回収 (F7 関連 3 件)
+- **Effect::CreateDirs を { dir, names } (相対) に変更**: 部分失敗の通知が
+  葉の名前だけ (「uuu」) でなく入力行の表記 (「aaa\iii\uuu」) で出るように。
+- **予約デバイス名 (CON/PRN/AUX/NUL/COM1-9/LPT1-9、拡張子付き含む) を事前拒否**:
+  F2/F7/F8 の名前検証と virtual_files::sanitize_rel_path の両方 (OS 任せだと
+  分かりにくいエラーや古い API のデバイス解決になる)。COM0/LPT0・com10・
+  control 等の「似ているだけ」は通す (テストで固定)。
+- **規則の双子に相互参照コメント**: core check_folder_line と domain
+  sanitize_rel_path は core の domain 非依存により別実装 — 「規則を変えるとき
+  は両方揃える」旨を両側に明記。
+- core 154 / domain 45(+sanitize 追試) / iced 22 本 green。
