@@ -981,3 +981,21 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
   sanitize_rel_path は core の domain 非依存により別実装 — 「規則を変えるとき
   は両方揃える」旨を両側に明記。
 - core 154 / domain 45(+sanitize 追試) / iced 22 本 green。
+
+### 2026-09-02 — 実機報告 2 件の修正 (検索直後の Ctrl+V / 分割ボタンの対象ペイン)
+- **Ctrl を押したまま Ctrl+F → Ctrl+V が貼り付からない**: iced 0.14 の
+  text_input は ModifiersChanged を自前追跡して貼り付け判定するため、開いた
+  直後 (生成後にまだ ModifiersChanged を受けていない) の検索欄は Ctrl 押下を
+  知らず 'v' を取りこぼす。keyboard::listen は widget が capture しなかった
+  イベントだけを届ける性質を利用し、検索バー (入力フェーズ) 表示中の Ctrl+V を
+  アプリ層で Msg::SearchPaste (クリップボードのテキストをクエリ末尾へ追記 +
+  フォーカス/カーソル復元) に変換 — widget が正常に貼れたときは届かないので
+  二重貼り付けにならない。
+- **非アクティブペインの分割ボタンでアクティブ側が分裂**: ↔ ↕ が
+  TabMsg::SplitFocused (フォーカス側を分割) だった。TabMsg::SplitPane(id, dir)
+  を新設し「押されたボタンのペインを分割」に (フォーカスは新ペインへ)。
+  フォーカス移動元の入力オーバーレイ破棄もペインクリックの作法に合わせた。
+  古い ID (閉じた直後) は無視。
+- テスト: SplitPane の対象/leaves 順/overlay 破棄/stale ID (core) +
+  SearchPaste の追記・制御文字除去・閉鎖後無視 (ui_smoke)。
+  core 110 / iced 23 本 green。
