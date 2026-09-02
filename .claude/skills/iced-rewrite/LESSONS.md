@@ -9,6 +9,21 @@ SKILL.md の規約へ昇格させたら、その行末に「→ SKILL 反映済�
 
 ---
 
+## 2026-09-02 iced text_input の修飾キーは「生成後に受けた ModifiersChanged」が全て
+
+- **修飾キーを押したままショートカットで text_input を生成すると、直後の
+  Ctrl+V/C/X/A を取りこぼす** — text_input は state.keyboard_modifiers を
+  ModifiersChanged イベントで自前追跡しており (KeyPressed に乗っている
+  modifiers は見ない)、生成前に押された修飾キーを知らない。修飾キーを
+  離すと直る (=「ワンテンポ置くと動く」実機報告の正体)。
+- 救済は **keyboard::listen が「widget が capture しなかったイベントのみ」を
+  届ける性質**を使う: 取りこぼされたときだけアプリ層に Ctrl+V が届くので、
+  そこでモデル駆動の貼り付け (controlled input の値を書き換え + focus +
+  move_cursor_to_end) に変換すれば widget 正常時と二重にならない。
+  text_editor (F7) にも同種の危険があるが未対応 (要望があれば同じ手)。
+- **AppMsg::Tab は常に ScheduleSessionSave が付く** — 「no-op なら Effect 空」の
+  テストは fx.is_empty() でなく LoadDir 等の有無で判定する。
+
 ## 2026-08-22 RDP クリップボード (仮想ファイル) 対応の知見
 
 - **RDP / Outlook のファイルコピーは CF_HDROP を載せない** — 実パスが越境
