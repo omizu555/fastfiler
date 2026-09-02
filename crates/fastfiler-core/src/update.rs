@@ -1025,9 +1025,13 @@ fn update_domain_event(p: &mut PaneState, id: PaneId, ev: DomainEvent) -> Vec<Ef
 fn update_search(p: &mut PaneState, id: PaneId, msg: PaneMsg) -> Vec<Effect> {
     match msg {
         PaneMsg::OpenSearch => {
-            if p.search.is_none() {
-                p.search = Some(SearchUi::default());
+            // 2 回目の Ctrl+F はバーを閉じる (トグル — 実機要望 2026-09-02:
+            // 開く → 貼り付け → もう一度 Ctrl+F で消えてほしい)。
+            // 結果リスト表示中・実行中検索も SearchClose と同じ経路で畳む
+            if p.search.is_some() {
+                return update_search(p, id, PaneMsg::SearchClose);
             }
+            p.search = Some(SearchUi::default());
             vec![]
         }
         PaneMsg::SearchInput(v) => {
@@ -2420,6 +2424,25 @@ mod tests {
                 path: PathBuf::from("C:\\root"),
             }]
         );
+    }
+
+    #[test]
+    fn open_search_toggles_close_on_second_press() {
+        // Ctrl+F トグル (実機要望 2026-09-02): 開く → もう一度で閉じる
+        let mut p = pane_with(&[("a.txt", false)]);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        assert!(p.search.is_some());
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        assert!(p.search.is_none(), "2 回目の Ctrl+F で閉じない");
+        assert!(fx.is_empty());
+        // 実行中の検索はバーと一緒に止まる (SearchClose と同じ経路)
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchInput("q".into()));
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchCommit);
+        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchStarted(7));
+        let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
+        assert!(p.search.is_none());
+        assert_eq!(fx, vec![Effect::CancelSearch { job_id: 7 }]);
     }
 
     #[test]

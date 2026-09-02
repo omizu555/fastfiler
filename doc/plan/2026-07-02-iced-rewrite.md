@@ -999,3 +999,8 @@ iced 製ファイラの実運用規模感 / GPUI との定量比較。
 - テスト: SplitPane の対象/leaves 順/overlay 破棄/stale ID (core) +
   SearchPaste の追記・制御文字除去・閉鎖後無視 (ui_smoke)。
   core 110 / iced 23 本 green。
+
+### 2026-09-02 — Ctrl+F のトグル化 (実機要望)
+- 検索バー表示中にもう一度 Ctrl+F で閉じる (開く → 貼り付け → Ctrl+F で消す
+  操作連鎖)。SearchClose と同じ経路 (実行中検索の停止・スクロール復元込み)。
+  core テスト +1。
