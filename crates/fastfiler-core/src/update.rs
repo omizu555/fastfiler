@@ -2437,7 +2437,12 @@ mod tests {
         assert!(fx.is_empty());
         // 実行中の検索はバーと一緒に止まる (SearchClose と同じ経路)
         update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
-        update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchInput("q".into()));
+        update_pane(
+            &mut p,
+            PaneId::default(),
+            false,
+            PaneMsg::SearchInput("q".into()),
+        );
         update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchCommit);
         update_pane(&mut p, PaneId::default(), false, PaneMsg::SearchStarted(7));
         let fx = update_pane(&mut p, PaneId::default(), false, PaneMsg::OpenSearch);
