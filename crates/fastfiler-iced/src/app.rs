@@ -170,6 +170,9 @@ pub enum Msg {
     GotScale(f32),
     /// マウスボタン解放のグローバル監視 (FileList 外リリースでの drag 残置防止)。
     GlobalMouseUp,
+    /// 検索欄への貼り付け (クリップボード読取の返し — KeyPressed の
+    /// Ctrl+V 取りこぼし救済経路。詳細は KeyPressed ハンドラのコメント)。
+    SearchPaste(Option<String>),
     Frame(Instant),
     /// 省メモリの残像対策: 入力イベントで theme 再評価を駆動するだけの no-op。
     RedrawPing,
@@ -508,12 +511,52 @@ pub fn update(app: &mut App, msg: Msg) -> Task<Msg> {
                 }
                 return Task::none();
             }
+            // 検索バー (入力フェーズ) 表示中の Ctrl+V は検索欄へのテキスト
+            // 貼り付けにする。Ctrl を押したまま Ctrl+F → Ctrl+V と続けると、
+            // 開いた直後の text_input は ModifiersChanged を受けておらず内部の
+            // 修飾キー状態が空のため 'v' を貼り付けと認識できない (iced 0.14
+            // text_input は自前追跡の modifiers で判定する — 実機報告)。
+            // keyboard::listen は widget が capture しなかったイベントしか
+            // 届けないので、widget が正常に貼り付けたときと二重にはならない
+            let search_typing = app
+                .model
+                .panes
+                .get(app.model.focused_pane())
+                .and_then(|p| p.search.as_ref())
+                .is_some_and(|s| !s.showing);
+            if search_typing
+                && modifiers.command()
+                && matches!(key.as_ref(), Key::Character(v) if v.eq_ignore_ascii_case("v"))
+            {
+                return iced::clipboard::read().map(Msg::SearchPaste);
+            }
             match key_to_msg(&key, modifiers) {
                 Some(m) => update(app, m),
                 None => Task::none(),
             }
         }
         Msg::Key(_) => Task::none(),
+        Msg::SearchPaste(text) => {
+            // text_input の貼り付けと同じ整形 (制御文字を除く)
+            let text: String = text
+                .unwrap_or_default()
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect();
+            let id = app.model.focused_pane();
+            let query = match app.model.panes.get(id).and_then(|p| p.search.as_ref()) {
+                Some(sui) if !text.is_empty() => format!("{}{}", sui.query, text),
+                _ => return Task::none(), // 検索バーが閉じた後の遅延到着は無視
+            };
+            let t = app.apply(AppMsg::Pane(id, PaneMsg::SearchInput(query)));
+            // 続けて打てるようフォーカスとカーソル位置 (末尾) を揃える
+            use iced::widget::operation;
+            Task::batch([
+                t,
+                operation::focus(search_input_id()),
+                operation::move_cursor_to_end(search_input_id()),
+            ])
+        }
         Msg::Window(ev) => {
             match ev {
                 // フォーカス喪失中に修飾キーを離すと ModifiersChanged が届かず
@@ -1534,6 +1577,15 @@ pub fn drag_paths_for_test(app: &App) -> Option<usize> {
     app.model.drag.as_ref().map(|d| d.paths.len())
 }
 
+/// 統合テスト用: フォーカスペインの検索クエリ (None = 検索バーなし)。
+pub fn search_query_for_test(app: &App) -> Option<String> {
+    app.model
+        .panes
+        .get(app.model.focused_pane())
+        .and_then(|p| p.search.as_ref())
+        .map(|s| s.query.clone())
+}
+
 /// 統合テスト用: OLE ヒットテスト表 (物理px) を物理座標で引いた解決ペイン。
 pub fn ole_hit_for_test(app: &App, x: f32, y: f32) -> Option<PaneId> {
     app.refresh_ole_snapshot();
@@ -2049,13 +2101,14 @@ fn pane_view(app: &App, id: PaneId, multi: bool) -> Element<'_, Msg> {
     let header = row![
         hbtn("↑", Msg::Core(AppMsg::Pane(id, PaneMsg::GoParent))),
         path_bar,
+        // 押されたボタンのペインを分割する (フォーカス側ではない — 実機要望)
         hbtn(
             "↔",
-            Msg::Core(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)))
+            Msg::Core(AppMsg::Tab(TabMsg::SplitPane(id, SplitDir::Row)))
         ),
         hbtn(
             "↕",
-            Msg::Core(AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Column)))
+            Msg::Core(AppMsg::Tab(TabMsg::SplitPane(id, SplitDir::Column)))
         ),
         hbtn("×", Msg::Core(AppMsg::Tab(TabMsg::ClosePane(id)))),
     ]

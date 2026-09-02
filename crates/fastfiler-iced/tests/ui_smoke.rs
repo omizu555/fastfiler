@@ -685,6 +685,33 @@ fn new_folder_modal_is_multiline_editor() {
     assert!(!modal_open(&app), "Esc でモーダルが閉じない");
 }
 
+/// 検索バー表示中の Ctrl+V 取りこぼし救済 (Msg::SearchPaste)。
+/// Ctrl を押したまま Ctrl+F → Ctrl+V と続けると、開いた直後の text_input は
+/// ModifiersChanged 未受信で貼り付けを取りこぼす (実機報告 2026-09-02) —
+/// クリップボード読取後の適用経路 (追記・制御文字除去・閉鎖後の無視) を固定する。
+/// KeyPressed → clipboard::read の配線は実クリップボードが要るため対象外。
+#[test]
+fn search_paste_appends_text_to_query() {
+    use fastfiler_core::PaneMsg;
+    let mut app = boot_app();
+    let _ = app::update(&mut app, Msg::Core(AppMsg::Focused(PaneMsg::OpenSearch)));
+    let _ = app::update(
+        &mut app,
+        Msg::Core(AppMsg::Focused(PaneMsg::SearchInput("abc".into()))),
+    );
+    // 制御文字は text_input の貼り付けと同様に除去される
+    let _ = app::update(&mut app, Msg::SearchPaste(Some("XY\u{7}Z".into())));
+    assert_eq!(
+        app::search_query_for_test(&app).as_deref(),
+        Some("abcXYZ"),
+        "クリップボードのテキストがクエリ末尾へ追記されない"
+    );
+    // 検索バーを閉じた後の遅延到着は無視される
+    let _ = app::update(&mut app, Msg::Core(AppMsg::Focused(PaneMsg::SearchClose)));
+    let _ = app::update(&mut app, Msg::SearchPaste(Some("zzz".into())));
+    assert_eq!(app::search_query_for_test(&app), None);
+}
+
 /// タブ切替のように「モーダルを破棄せずフォーカスだけ動かす」経路では、
 /// エディタの入力は破棄前に core へ書き戻され (sync_modal_editor のフラッシュ)、
 /// 戻ってきたときに復元される — 編集中は毎キー同期しない設計の安全網。

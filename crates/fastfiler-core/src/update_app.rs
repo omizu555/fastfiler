@@ -76,8 +76,11 @@ pub enum TabMsg {
         from: usize,
         to: usize,
     },
-    /// ペイン右上 ↔ ↕ (F-201)。
+    /// ホットキー等の「フォーカスペインを分割」(F-201)。
     SplitFocused(SplitDir),
+    /// ペイン右上 ↔ ↕ — 押されたボタンのペインを分割する
+    /// (フォーカス側とは限らない — 実機要望 2026-09-02)。
+    SplitPane(PaneId, SplitDir),
     /// ペイン右上 × (F-202)。
     ClosePane(PaneId),
     /// F6 (F-204)。
@@ -413,11 +416,10 @@ fn update_tab(m: &mut AppModel, msg: TabMsg) -> Vec<Effect> {
             vec![]
         }
         TabMsg::SplitFocused(dir) => {
-            let new = m.split_focused(dir);
-            let path = m.panes[new].cur_path.clone();
-            // 新ペインは同じフォルダを読み込む (ロックはタブ単位なので自動継承)
-            navigate(&mut m.panes[new], new, path)
+            let target = m.focused_pane();
+            split_pane_effects(m, target, dir)
         }
+        TabMsg::SplitPane(pane, dir) => split_pane_effects(m, pane, dir),
         TabMsg::ClosePane(id) => match m.close_pane(id) {
             Some(closed) => vec![Effect::PaneClosed(closed)],
             None => vec![],
@@ -443,6 +445,32 @@ fn update_tab(m: &mut AppModel, msg: TabMsg) -> Vec<Effect> {
         }
         TabMsg::OpenFor(path) => open_new_tab(m, path),
     }
+}
+
+/// ペイン分割の実体 (SplitFocused / SplitPane 共通)。新ペインは同じフォルダを
+/// 読み込み (ロックはタブ単位なので自動継承)、フォーカスは新ペインへ移る。
+/// target が現在タブに無い古い ID なら何もしない。
+fn split_pane_effects(m: &mut AppModel, target: PaneId, dir: SplitDir) -> Vec<Effect> {
+    let prev = m.focused_pane();
+    let Some(new) = m.split_pane(target, dir) else {
+        return vec![];
+    };
+    // フォーカスが移るので、移動元の入力オーバーレイは破棄する
+    // (ペインメッセージ経由のフォーカス移動 (上の 131 行) と同じ作法 —
+    // 残すと不可視のまま持ち越される)
+    if prev != new {
+        if let Some(pp) = m.panes.get_mut(prev) {
+            if matches!(
+                pp.overlay,
+                Some(crate::model::Overlay::PathEdit { .. })
+                    | Some(crate::model::Overlay::Modal { .. })
+            ) {
+                pp.overlay = None;
+            }
+        }
+    }
+    let path = m.panes[new].cur_path.clone();
+    navigate(&mut m.panes[new], new, path)
 }
 
 /// update_pane が返した Effect の後処理展開 (1 パス):
@@ -492,6 +520,48 @@ mod tests {
             false,
         )];
         m
+    }
+
+    #[test]
+    fn split_pane_splits_clicked_pane_not_focused_one() {
+        // 分割ボタンは押されたペインを分割する (フォーカス側ではない —
+        // 実機報告 2026-09-02: 非アクティブ側のボタンでアクティブ側が分裂した)
+        let mut m = model();
+        let first = m.focused_pane();
+        update_app(&mut m, AppMsg::Tab(TabMsg::SplitFocused(SplitDir::Row)));
+        let second = m.focused_pane();
+        assert_ne!(first, second);
+        // フォーカスは second のまま、first (非フォーカス側) のボタンを押す
+        let fx = update_app(
+            &mut m,
+            AppMsg::Tab(TabMsg::SplitPane(first, SplitDir::Column)),
+        );
+        let third = m.focused_pane();
+        assert!(third != first && third != second, "フォーカスは新ペインへ");
+        assert!(fx.iter().any(|e| matches!(e, Effect::LoadDir { .. })));
+        // 表示順: first が分割されたので [first, third, second]
+        // (second が割れていれば [first, second, third] になる)
+        assert_eq!(m.tabs[0].root.leaves(), vec![first, third, second]);
+
+        // フォーカス移動に伴い、移動元 (second) の入力オーバーレイは破棄される
+        update_app(&mut m, AppMsg::Pane(second, PaneMsg::OpenPathEdit));
+        assert_eq!(m.focused_pane(), second);
+        assert!(m.panes[second].overlay.is_some());
+        update_app(
+            &mut m,
+            AppMsg::Tab(TabMsg::SplitPane(first, SplitDir::Column)),
+        );
+        assert!(m.panes[second].overlay.is_none());
+
+        // 現在タブに無い古い ID は無視 (閉じた直後のボタン連打等)。
+        // Tab メッセージには常に ScheduleSessionSave が付くので LoadDir の
+        // 有無 (= 分割が走ったか) で判定する
+        let stale = m.focused_pane();
+        update_app(&mut m, AppMsg::Tab(TabMsg::ClosePane(stale)));
+        let n_before = m.tabs[0].root.leaves().len();
+        let fx = update_app(&mut m, AppMsg::Tab(TabMsg::SplitPane(stale, SplitDir::Row)));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::LoadDir { .. })));
+        assert_eq!(m.tabs[0].root.leaves().len(), n_before);
     }
 
     #[test]

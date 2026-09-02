@@ -146,6 +146,18 @@ impl AppModel {
     /// (タブ単位ロックなので自動)。戻り値: 新ペイン。
     pub fn split_focused(&mut self, dir: SplitDir) -> PaneId {
         let target = self.focused_pane();
+        self.split_pane(target, dir)
+            .expect("focused pane は必ず現在タブに含まれる")
+    }
+
+    /// 指定ペインを分割する (押されたボタンのペインが分裂する — 実機要望
+    /// 2026-09-02。フォーカス側とは限らない)。新ペインは同フォルダで、
+    /// フォーカスは新ペインへ移る (split_focused と同じ)。
+    /// target が現在タブに無い (閉じた直後の古い ID 等) 場合は None。
+    pub fn split_pane(&mut self, target: PaneId, dir: SplitDir) -> Option<PaneId> {
+        if !self.tabs[self.active].root.contains(target) {
+            return None;
+        }
         let path = self.panes[target].cur_path.clone();
         let new = self.new_pane(path);
         let mut next = self.next_split_id;
@@ -153,7 +165,7 @@ impl AppModel {
         tab.root.split(target, dir, new, &mut next);
         self.next_split_id = next;
         self.tabs[self.active].focused = new;
-        new
+        Some(new)
     }
 
     /// ペインを閉じる (タブ内最後の 1 枚は残す — F-202)。
